@@ -1,39 +1,71 @@
-YuKKi OS 4 Release: Changes Since 3.2
+# YuKKi OS 6.0.0-beta (Hyper-Fluid Edition)
 
-YuKKi OS 4 marks a major shift from the 3.x series, focusing on enhanced developer experience and deeper integration for distributed collaboration. While the core security model (mTLS, Dual-Channel Architecture) remains the backbone of the platform, this version introduces significant upgrades to the user interface and the JobbySlotty build system.
-Key Changes and New Features in YuKKi OS 4
-1. Enhanced Distributed Build System ("JobbySlotty")
+YuKKi OS is a Linux-based peer-to-peer application framework with dependency-aware remote build execution concepts for Internet 3. This repository tracks the evolution of the platform from the shell-based YuKKi OS 4 series to the new Rust/C-based hyper-fluid mesh of v6.
 
-The most critical functional update is the introduction of a formal mechanism to share complex project structures, making collaborative compilation much easier.
+## Repository Layout
 
-    NEW: Dependency Manifest Exchange
+| File | Description |
+|---|---|
+| `LICENSE` | GNU General Public License v3.0 (GPL-3). |
+| `README.md` | This file. |
+| `YuKKi OS 4.sh` | The YuKKi OS 4 shell-based environment. |
+| `YuKKi OS 6 Open Source Installer.txt` | Open-source genesis installer for YuKKi OS 6.0.0-beta. |
 
-        We have formalized the process of sharing project build definitions. Peers can now exchange complete, structured dependency manifests.
+## What's New in YuKKi OS 6
 
-        New Commands:
+YuKKi OS 6 refits the project around a zero-drag, 6D spatiotemporal Lorenz-weave mesh:
 
-            manifest submit <uuid>: Pushes your project's build tree structure to a specified peer.
+1. **Hyper-Aligned 6D Tensor Packets**
+   - 88-byte `SpatiotemporalFrame` aligned to 8-byte boundaries.
+   - Combines spatial coordinates (`x`, `y`, `z`) with temporal drift (`u`, `v`, `w`) plus fluidity/drag telemetry.
 
-            manifest get <uuid>: Requests a manifest from a peer, queuing their complex build steps on your system.
+2. **Lorenz Attractor Chaos Engine (C Core)**
+   - Real-time chaotic manifold stepping through a C library (`chaos_weave.c`).
+   - Numeric guard rails prevent floating-point explosion.
 
-        ADI Protocol Update: The custom ADI (Advanced Data Interchange) Protocol now includes a dedicated packet type (P2P_DEP_MANIFEST) for efficient, low-overhead transmission of these manifest files.
+3. **Rust System Engine with FFI Bridge**
+   - `main.rs` wraps the chaos engine, exposes a WebSocket bootstrap/fleet coordinator, and drives framed TCP P2P channels.
+   - Length-prefixed TCP framing keeps the byte stream unambiguous.
 
-2. Configurable Visual Prompt (UI/UX Overhaul)
+4. **P2P Mesh Commands**
+   - `fleet` / `peers` — display current registry topology.
+   - `msg <UUID> <text>` — send plain messages to a fleet node.
+   - `weave <UUID>` — stream 6D weave frames to a selected peer.
+   - `exit` / `quit` — shut down the node CLI.
 
-We've brought the user-facing experience up to modern standards by replacing the classic, simple prompt with a fully configurable visual display that is deeply integrated with the linenoise terminal.
+5. **Open Source Genesis Installer**
+   - `YuKKi OS 6 Open Source Installer.txt` is a self-contained bash generator.
+   - It emits the full Cargo workspace, C sources, build script, and GPL-3 license notice, then compiles the release binary.
 
-    NEW: Zsh-Style Visual Prompt:
+## Quick Start
 
-        The prompt is now highly informative, displaying the current time, your user profile, and a status indicator (e.g., ✔).
+1. Run the installer:
+   ```bash
+   bash "YuKKi OS 6 Open Source Installer.txt"
+   ```
+   This creates the `yukkios_6_fluid/` project and builds `./yukkios_6_fluid/target/release/yukkios_6_sovereign`.
 
-        Example Prompt: [HH:MM:SS] [profile_name] ✔ >
+2. Launch the bootstrap server:
+   ```bash
+   ./yukkios_6_fluid/target/release/yukkios_6_sovereign bootstrap 127.0.0.1:8080
+   ```
 
-        Configurable: The yukki_configurator.sh script now offers a clear opt-in option to enable this "enhanced visual prompt."
+3. Start two nodes:
+   ```bash
+   ./yukkios_6_fluid/target/release/yukkios_6_sovereign node 127.0.0.1:8080 9110
+   ./yukkios_6_fluid/target/release/yukkios_6_sovereign node 127.0.0.1:8080 9120
+   ```
 
-    Zero Loss of Functionality: This visual upgrade is handled entirely by the robust linenoise library, ensuring you retain full command history and context-aware tab-completion.
+4. In a node CLI, run `fleet` to list peers and then:
+   ```
+   weave <TARGET_PEER_UUID>
+   ```
 
-3. General Platform and Documentation Updates
+## Version History
 
-    Version Bump: The major version number reflects the fundamental commitment to these new capabilities and the move away from the 3.x framework.
+- **YuKKi OS 4** — Distributed build manifest exchange (`manifest submit` / `manifest get`), configurable linenoise visual prompt, CRTC/PIPEDA compliance logging.
+- **YuKKi OS 6.0.0-beta** — Re-foundation around a Rust/C FFI chaos mesh, 6D spatiotemporal frame streaming, and framed P2P networking.
 
-    Compliance Framework: Minor refinements were made to the CRTC and PIPEDA compliance logging procedures to better track user consent specific to the new manifest exchange feature.
+## License
+
+This project is licensed under the GNU General Public License v3.0. See `LICENSE` for the full text.
