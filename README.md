@@ -9,7 +9,7 @@ YuKKi OS is a Linux-based peer-to-peer application framework with dependency-awa
 | `LICENSE` | GNU General Public License v3.0 (GPL-3). |
 | `README.md` | This file. |
 | `YuKKi OS 4.sh` | The YuKKi OS 4 shell-based environment. |
-| `YuKKi OS 6 Open Source Installer.txt` | Open-source genesis installer for YuKKi OS 6.0.0-beta. |
+| `YuKKi OS 6 Open Source Installer.sh` | Open-source genesis installer for YuKKi OS 6.0.0-beta. |
 
 ## What's New in YuKKi OS 6
 
@@ -34,14 +34,14 @@ YuKKi OS 6 refits the project around a zero-drag, 6D spatiotemporal Lorenz-weave
    - `exit` / `quit` — shut down the node CLI.
 
 5. **Open Source Genesis Installer**
-   - `YuKKi OS 6 Open Source Installer.txt` is a self-contained bash generator.
+   - `YuKKi OS 6 Open Source Installer.sh` is a self-contained bash generator.
    - It emits the full Cargo workspace, C sources, build script, and GPL-3 license notice, then compiles the release binary.
 
 ## Quick Start
 
 1. Run the installer:
    ```bash
-   bash "YuKKi OS 6 Open Source Installer.txt"
+   bash "YuKKi OS 6 Open Source Installer.sh"
    ```
    This creates the `yukkios_6_fluid/` project and builds `./yukkios_6_fluid/target/release/yukkios_6_sovereign`.
 
