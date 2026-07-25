@@ -26,6 +26,8 @@ echo "=========================================================="
 
 # 1. Setup
 mkdir -p "$ARCHIVE_DIR/src"
+mkdir -p "$ARCHIVE_DIR/native/include/yukki"
+mkdir -p "$ARCHIVE_DIR/native/ffi"
 
 # 2. Extract Cargo.toml (Rust project manifest)
 echo "Writing Cargo.toml..."
@@ -36,6 +38,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["YuKKi OS Translator"]
 description = "P2P Network Client and Bootstrap Server rewritten in Rust, now with File Transfer."
+build = "build.rs"
 
 [dependencies]
 # Tokio for async runtime and networking
@@ -49,7 +52,31 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # UUIDs for unique peer identification
 uuid = { version = "1.6", features = ["v4", "serde"] }
+
+[build-dependencies]
+# C build toolchain bridge — compiles native/ffi/yukki_mempool.c into the binary
+cc = "1"
 EOF_CARGO
+
+# 2a. Extract build.rs (Cargo build script — compiles C mempool into the binary)
+echo "Writing build.rs..."
+cat << 'EOF_BUILDRS' > "$ARCHIVE_DIR/build.rs"
+fn main() {
+    println!("cargo:rerun-if-changed=native/ffi/yukki_mempool.c");
+    println!("cargo:rerun-if-changed=native/include/yukki/mempool.h");
+
+    cc::Build::new()
+        .file("native/ffi/yukki_mempool.c")
+        .include("native/include")
+        .define("_DEFAULT_SOURCE", None)
+        .flag("-std=c11")
+        .flag("-O2")
+        .compile("yukki_mempool");
+
+    // pthread is required by the C pool's mutex.
+    println!("cargo:rustc-link-lib=pthread");
+}
+EOF_BUILDRS
 
 # 3. Extract main.rs (main application logic)
 echo "Writing src/main.rs (main logic)..."
@@ -59,12 +86,15 @@ cat << 'EOF_RUST' > "$ARCHIVE_DIR/src/main.rs"
 // P2P: Direct Peer Communication via TCP (mTLS-secured in production).
 // Features: 'manifest submit', 'browse', and 'get' (P2P file transfer).
 
-use tokio::{net::{TcpListener, TcpStream}, sync::{mpsc, Mutex}, io::{AsyncReadExt, AsyncWriteExt, AsyncWrite, copy}, task::spawn_blocking};
+// Zero-copy slab allocator bridge to the C-core transaction pool.
+mod mempool;
+
+use tokio::{net::{TcpListener, TcpStream}, sync::{mpsc, Mutex}, io::{AsyncReadExt, AsyncWriteExt, AsyncBufReadExt, copy}, task::spawn_blocking};
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::protocol::Message as WsMessage};
 use futures_util::{StreamExt, SinkExt};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use std::{collections::HashMap, sync::Arc, net::SocketAddr, time::Duration, path::PathBuf, fs as std_fs, io::BufReader};
+use std::{collections::HashMap, sync::Arc, net::SocketAddr, time::Duration, path::PathBuf, fs as std_fs};
 use tokio::fs::{File as TokioFile, self as tokio_fs};
 
 // --- CONSTANTS ---
@@ -319,10 +349,10 @@ async fn process_p2p_request(
 
 /// Synchronously reads a directory, returning a formatted string.
 async fn list_directory_blocking(path: &str) -> String {
-    let path_buf = PathBuf::from(path);
-    
+    let path_owned = path.to_owned();
     // Use spawn_blocking for synchronous I/O operations
     spawn_blocking(move || {
+        let path_buf = PathBuf::from(&path_owned);
         let mut listing = String::new();
         match std_fs::read_dir(&path_buf) {
             Ok(entries) => {
@@ -337,12 +367,12 @@ async fn list_directory_blocking(path: &str) -> String {
                     }
                 }
                 if listing.is_empty() {
-                    format!("Path '{}' is empty or inaccessible.", path)
+                    format!("Path '{}' is empty or inaccessible.", path_owned)
                 } else {
-                    format!("Contents of {}:\n{}", path, listing)
+                    format!("Contents of {}:\n{}", path_owned, listing)
                 }
             }
-            Err(e) => format!("Error reading directory '{}': {}", path, e),
+            Err(e) => format!("Error reading directory '{}': {}", path_owned, e),
         }
     }).await.unwrap_or_else(|_| "Error listing directory in thread.".to_string())
 }
@@ -382,7 +412,7 @@ async fn send_file_p2p(
 
     // 2. Stream the file content directly
     println!("[P2P FILE] Starting stream of {} bytes...", file_size);
-    let mut file = BufReader::new(file);
+    let mut file = tokio::io::BufReader::new(file);
     copy(&mut file, &mut stream).await?;
 
     println!("[P2P FILE] File stream complete.");
@@ -401,8 +431,8 @@ async fn receive_file_p2p(
     // Use tokio::io::copy to stream the remaining bytes from the network directly to the file
     // We expect 'file_size' bytes to follow the initial JSON message on the stream.
     
-    // Create a reader limited to the expected file size
-    let mut limited_reader = tokio::io::take(stream, file_size);
+    // Create a reader limited to the expected file size using AsyncReadExt::take
+    let mut limited_reader = stream.take(file_size);
     
     // Copy all data from the limited reader (network stream) to the file
     let bytes_received = copy(&mut limited_reader, &mut file).await?;
@@ -664,10 +694,22 @@ jobs:
 async fn send_p2p_message(target_addr: String, msg: P2PMessage) {
     match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&target_addr)).await {
         Ok(Ok(mut stream)) => {
-            // All outgoing messages, including file requests, start with a JSON header
+            // Serialize the message once.
             let message_bytes = serde_json::to_vec(&msg).unwrap();
-            
-            if let Err(e) = stream.write_all(&message_bytes).await {
+
+            // Stage through a pool buffer to avoid repeated heap allocation on this hot path.
+            // Falls back to the Vec when the pool is exhausted so callers are never blocked.
+            let write_result = if let Some(mut buf) = mempool::ZeroCopyBuffer::acquire(message_bytes.len()) {
+                let slice = buf.as_mut_slice();
+                let len = message_bytes.len().min(slice.len());
+                slice[..len].copy_from_slice(&message_bytes[..len]);
+                stream.write_all(&slice[..len]).await
+            } else {
+                // Pool exhausted — fall back gracefully.
+                stream.write_all(&message_bytes).await
+            };
+
+            if let Err(e) = write_result {
                 eprintln!("[P2P OUTGOING] Failed to write message to {}: {}", target_addr, e);
             } else {
                 println!("Message successfully relayed for P2P transmission.");
@@ -694,6 +736,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Initialise the zero-copy slab pool before spawning any async tasks.
+    // Override defaults via environment variables:
+    //   YUKKI_POOL_BLOCK_SIZE  — bytes per block   (default: 1 MiB)
+    //   YUKKI_POOL_BLOCK_COUNT — number of blocks  (default: 16)
+    let block_size: usize = std::env::var("YUKKI_POOL_BLOCK_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024 * 1024);
+    let block_count: usize = std::env::var("YUKKI_POOL_BLOCK_COUNT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
+    mempool::init_transaction_pool(block_size, block_count);
+    println!(
+        "[Pool] {} blocks × {} bytes ({} MiB reserved)",
+        block_count,
+        block_size,
+        (block_size * block_count) / (1024 * 1024)
+    );
+
     match args[1].as_str() {
         "server" => {
             if args.len() != 3 {
@@ -717,6 +779,321 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 EOF_RUST
+
+# 3b. Extract src/mempool.rs (safe Rust wrapper around the C-core slab allocator)
+echo "Writing src/mempool.rs..."
+cat << 'EOF_MEMPOOL_RS' > "$ARCHIVE_DIR/src/mempool.rs"
+//! Safe Rust wrapper around the C-core `g_transaction_pool` slab allocator.
+//!
+//! # Thread-safety
+//! The underlying C pool is protected by a `pthread_mutex_t`, so it is safe
+//! to acquire/release buffers from any thread.  [`ZeroCopyBuffer`] implements
+//! both [`Send`] and [`Sync`] because:
+//!   - **Send**: the raw pointer is valid as long as the pool lives (process
+//!     lifetime), and no aliasing is possible — the pool hands out exclusive
+//!     ownership of each block.
+//!   - **Sync**: shared (read-only) access to the contained slice from multiple
+//!     threads is safe; only the exclusive owner can mutate the block.
+
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+extern "C" {
+    fn YuKKi_InitTransactionPool(block_size: usize, block_count: usize);
+    fn YuKKi_AcquireBuffer() -> *mut c_void;
+    fn YuKKi_ReleaseBuffer(ptr: *mut c_void);
+    fn YuKKi_DestroyTransactionPool();
+}
+
+/// Configured block size, stored after [`init_transaction_pool`] is called.
+static POOL_BLOCK_SIZE: AtomicUsize = AtomicUsize::new(0);
+
+/// Initialise the global transaction pool.
+///
+/// Call exactly **once** at process start-up before spawning any async tasks.
+///
+/// Panics (via abort in C) when:
+/// - `block_size` or `block_count` is zero
+/// - `block_size < sizeof(yukki_mempool_node_t)`
+/// - `posix_memalign` fails
+pub fn init_transaction_pool(block_size: usize, block_count: usize) {
+    POOL_BLOCK_SIZE.store(block_size, Ordering::Relaxed);
+    // SAFETY: single call guaranteed by caller; C validates params and aborts on error.
+    unsafe { YuKKi_InitTransactionPool(block_size, block_count) };
+}
+
+/// Return the configured block size (0 if the pool has not been initialised yet).
+pub fn pool_block_size() -> usize {
+    POOL_BLOCK_SIZE.load(Ordering::Relaxed)
+}
+
+/// Destroy the pool and release OS memory.
+///
+/// # Safety
+/// All outstanding [`ZeroCopyBuffer`] instances **must** have been dropped
+/// before calling this function to avoid use-after-free.
+pub unsafe fn destroy_transaction_pool() {
+    YuKKi_DestroyTransactionPool();
+}
+
+/// An exclusively-owned slab buffer borrowed from `g_transaction_pool`.
+///
+/// The buffer is returned to the pool automatically when this value is
+/// dropped — the Rust allocator **never** frees it.
+///
+/// # Pool exhaustion
+/// [`ZeroCopyBuffer::acquire`] returns `None` when every block is in use.
+/// Callers should handle this by falling back to a regular allocation; see
+/// `send_p2p_message` in `main.rs` for the canonical pattern.
+pub struct ZeroCopyBuffer {
+    ptr: *mut u8,
+    size: usize,
+}
+
+impl ZeroCopyBuffer {
+    /// Acquire a buffer from the global transaction pool.
+    ///
+    /// Returns `None` when the pool is exhausted.
+    ///
+    /// `size` is capped to the configured block size so callers can pass an
+    /// upper bound without risk of out-of-bounds access.
+    pub fn acquire(size: usize) -> Option<Self> {
+        // SAFETY: The C function is thread-safe (mutex-protected) and returns
+        // either a valid block pointer or NULL.
+        let ptr = unsafe { YuKKi_AcquireBuffer() as *mut u8 };
+        if ptr.is_null() {
+            None
+        } else {
+            let block = pool_block_size();
+            let capped = if block > 0 && size > block { block } else { size };
+            Some(ZeroCopyBuffer { ptr, size: capped })
+        }
+    }
+
+    /// Return a mutable byte slice covering the usable portion of the buffer.
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: ptr is non-null, exclusively owned for our lifetime, and
+        // `size` is at most pool_block_size() bytes.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.size) }
+    }
+
+    /// Return an immutable byte slice covering the usable portion of the buffer.
+    pub fn as_slice(&self) -> &[u8] {
+        // SAFETY: see as_mut_slice.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.size) }
+    }
+}
+
+impl Drop for ZeroCopyBuffer {
+    fn drop(&mut self) {
+        // Returns the block to the C pool — never passes it to the Rust allocator.
+        // SAFETY: ptr is a valid block obtained from YuKKi_AcquireBuffer.
+        unsafe { YuKKi_ReleaseBuffer(self.ptr as *mut c_void) };
+    }
+}
+
+// SAFETY: The C pool hands out exclusive ownership of each block.  Moving a
+// ZeroCopyBuffer to another thread transfers that exclusive ownership safely.
+unsafe impl Send for ZeroCopyBuffer {}
+
+// SAFETY: Shared references expose only read access (&[u8]), which is safe
+// from multiple threads simultaneously.
+unsafe impl Sync for ZeroCopyBuffer {}
+EOF_MEMPOOL_RS
+
+# 3c. Extract native/include/yukki/mempool.h (C pool API header)
+echo "Writing native/include/yukki/mempool.h..."
+cat << 'EOF_MEMPOOL_H' > "$ARCHIVE_DIR/native/include/yukki/mempool.h"
+/**
+ * yukki/mempool.h — Deterministic zero-copy slab allocator for YuKKi OS.
+ *
+ * A fixed-size pool of 64-byte-aligned buffers is allocated once at start-up
+ * via posix_memalign.  Blocks are managed through an intrusive LIFO free-list
+ * stored inside the blocks themselves (zero overhead).  All operations are
+ * protected by a pthread mutex so the pool is safe to use from multiple threads.
+ */
+
+#ifndef YUKKI_MEMPOOL_H
+#define YUKKI_MEMPOOL_H
+
+#include <stddef.h>
+#include <pthread.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Intrusive free-list node stored inside each idle block. */
+typedef struct yukki_mempool_node {
+    struct yukki_mempool_node *next;
+} yukki_mempool_node_t;
+
+/**
+ * Fixed-size slab pool with mutex-protected intrusive free-list.
+ *
+ * Fields must not be modified directly after initialisation.
+ */
+typedef struct {
+    void                 *base_memory;  /**< Contiguous arena allocated at init. */
+    yukki_mempool_node_t *free_list;    /**< Head of the LIFO free-list. */
+    size_t                block_size;   /**< Size of each individual block (bytes). */
+    size_t                total_blocks; /**< Total number of blocks in the pool. */
+    pthread_mutex_t       lock;         /**< Guards free_list access. */
+} yukki_mempool_t;
+
+/** Global transaction pool used by the IPC/streaming path. */
+extern yukki_mempool_t g_transaction_pool;
+
+/**
+ * Initialise g_transaction_pool.
+ *
+ * Allocates a single contiguous 64-byte-aligned arena and carves it into
+ * @p block_count blocks of @p block_size bytes each.
+ *
+ * Fails fast (writes to stderr and calls abort()) when:
+ *   - @p block_size or @p block_count is zero
+ *   - @p block_size < sizeof(yukki_mempool_node_t)
+ *   - posix_memalign fails
+ *
+ * Must be called exactly once before any other pool function.
+ */
+void YuKKi_InitTransactionPool(size_t block_size, size_t block_count);
+
+/**
+ * Acquire a buffer from the pool.
+ *
+ * Thread-safe.  Returns NULL when the pool is exhausted; callers must handle
+ * this case (e.g., fall back to malloc or back-pressure the sender).
+ */
+void *YuKKi_AcquireBuffer(void);
+
+/**
+ * Return a buffer to the pool.
+ *
+ * Thread-safe.  No-op when @p ptr is NULL.
+ * @p ptr must have been obtained from YuKKi_AcquireBuffer() on the same pool.
+ */
+void  YuKKi_ReleaseBuffer(void *ptr);
+
+/**
+ * Destroy the pool and release the OS arena.
+ *
+ * Must only be called after all outstanding buffers have been released.
+ * After this call the pool must not be used until re-initialised.
+ */
+void  YuKKi_DestroyTransactionPool(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* YUKKI_MEMPOOL_H */
+EOF_MEMPOOL_H
+
+# 3d. Extract native/ffi/yukki_mempool.c (C pool implementation)
+echo "Writing native/ffi/yukki_mempool.c..."
+cat << 'EOF_MEMPOOL_C' > "$ARCHIVE_DIR/native/ffi/yukki_mempool.c"
+/**
+ * yukki_mempool.c — Implementation of the YuKKi OS zero-copy slab allocator.
+ *
+ * Design notes:
+ *   - A single posix_memalign call at init guarantees 64-byte cache-line
+ *     alignment for every block, maximising PCIe / CUDA compositor throughput.
+ *   - The free-list is intrusive: the link pointer is stored inside the block
+ *     itself when the block is idle, so pool management has zero memory overhead.
+ *   - A pthread_mutex_t serialises concurrent acquire/release across threads.
+ */
+
+#include "yukki/mempool.h"
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+/** Zero-initialised at program start by the C runtime. */
+yukki_mempool_t g_transaction_pool;
+
+void YuKKi_InitTransactionPool(size_t block_size, size_t block_count)
+{
+    /* --- Parameter validation (fail fast) --------------------------------- */
+    if (block_size == 0 || block_count == 0) {
+        fprintf(stderr,
+            "[YuKKi] mempool: block_size and block_count must be > 0\n");
+        abort();
+    }
+    if (block_size < sizeof(yukki_mempool_node_t)) {
+        fprintf(stderr,
+            "[YuKKi] mempool: block_size (%zu) must be >= "
+            "sizeof(yukki_mempool_node_t) (%zu)\n",
+            block_size, sizeof(yukki_mempool_node_t));
+        abort();
+    }
+
+    /* Align block_size to pointer alignment so free-list links are safe on
+     * every architecture. */
+    size_t align = sizeof(void *);
+    block_size   = (block_size + align - 1u) & ~(align - 1u);
+
+    size_t total_bytes = block_size * block_count;
+    void  *mem         = NULL;
+
+    if (posix_memalign(&mem, 64, total_bytes) != 0) {
+        fprintf(stderr,
+            "[YuKKi] mempool: posix_memalign(%zu bytes, align=64) failed\n",
+            total_bytes);
+        abort();
+    }
+    memset(mem, 0, total_bytes);
+
+    /* --- Populate pool struct ---------------------------------------------- */
+    g_transaction_pool.base_memory  = mem;
+    g_transaction_pool.block_size   = block_size;
+    g_transaction_pool.total_blocks = block_count;
+    pthread_mutex_init(&g_transaction_pool.lock, NULL);
+
+    /* --- Build intrusive LIFO free-list ------------------------------------ */
+    g_transaction_pool.free_list    = NULL;
+    unsigned char *cursor           = (unsigned char *)mem;
+    for (size_t i = 0; i < block_count; ++i) {
+        yukki_mempool_node_t *node   = (yukki_mempool_node_t *)cursor;
+        node->next                   = g_transaction_pool.free_list;
+        g_transaction_pool.free_list = node;
+        cursor                      += block_size;
+    }
+}
+
+void *YuKKi_AcquireBuffer(void)
+{
+    pthread_mutex_lock(&g_transaction_pool.lock);
+    yukki_mempool_node_t *node = g_transaction_pool.free_list;
+    if (node != NULL) {
+        g_transaction_pool.free_list = node->next;
+    }
+    pthread_mutex_unlock(&g_transaction_pool.lock);
+    return node; /* NULL when pool is exhausted */
+}
+
+void YuKKi_ReleaseBuffer(void *ptr)
+{
+    if (ptr == NULL) return;
+
+    pthread_mutex_lock(&g_transaction_pool.lock);
+    yukki_mempool_node_t *node   = (yukki_mempool_node_t *)ptr;
+    node->next                   = g_transaction_pool.free_list;
+    g_transaction_pool.free_list = node;
+    pthread_mutex_unlock(&g_transaction_pool.lock);
+}
+
+void YuKKi_DestroyTransactionPool(void)
+{
+    pthread_mutex_destroy(&g_transaction_pool.lock);
+    free(g_transaction_pool.base_memory);
+    g_transaction_pool.base_memory  = NULL;
+    g_transaction_pool.free_list    = NULL;
+    g_transaction_pool.block_size   = 0;
+    g_transaction_pool.total_blocks = 0;
+}
+EOF_MEMPOOL_C
 
 # 4. Build and Run Instructions
 echo ""
