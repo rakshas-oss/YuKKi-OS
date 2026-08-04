@@ -1,39 +1,105 @@
-YuKKi OS 4 Release: Changes Since 3.2
+# YuKKi OS v6.3.0 — Convergence Edition
 
-YuKKi OS 4 marks a major shift from the 3.x series, focusing on enhanced developer experience and deeper integration for distributed collaboration. While the core security model (mTLS, Dual-Channel Architecture) remains the backbone of the platform, this version introduces significant upgrades to the user interface and the JobbySlotty build system.
-Key Changes and New Features in YuKKi OS 4
-1. Enhanced Distributed Build System ("JobbySlotty")
+**Release Date:** August 4, 2026  
+**Repository:** `rakshas-oss/YuKKi-OS`  
+**Tag:** `v6.3.0`
 
-The most critical functional update is the introduction of a formal mechanism to share complex project structures, making collaborative compilation much easier.
+YuKKi OS v6.3.0 introduces the latest convergence architecture, unifying C-based Lorenz dynamics with Rust async networking, P2P operations, and binary frame streaming.
 
-    NEW: Dependency Manifest Exchange
+---
 
-        We have formalized the process of sharing project build definitions. Peers can now exchange complete, structured dependency manifests.
+## ✨ Highlights
 
-        New Commands:
+- Added the latest **v6.3.0 Convergence build script** (`YuKKi OS 6.3.sh`)
+- Integrated **GPL-3 licensing package generation**
+- Added **FFI protocol definitions** for aligned spatiotemporal tensor frames
+- Added **Lorenz chaos engine core (C)** with numerical safety fallback logic
+- Added **Rust convergence runtime** for:
+  - WebSocket bootstrap/C2 registration
+  - peer fleet synchronization
+  - framed JSON messaging
+  - directory browsing and file transfer
+  - binary weave stream processing
+- Added `build.rs` native build bridge using `cc`
+- Build pipeline now produces optimized binary via `cargo build --release`
 
-            manifest submit <uuid>: Pushes your project's build tree structure to a specified peer.
+---
 
-            manifest get <uuid>: Requests a manifest from a peer, queuing their complex build steps on your system.
+## 🧠 Core Architecture (v6.3)
 
-        ADI Protocol Update: The custom ADI (Advanced Data Interchange) Protocol now includes a dedicated packet type (P2P_DEP_MANIFEST) for efficient, low-overhead transmission of these manifest files.
+### 1) Laminar FFI Layer
+- `src/ffi/laminar_api.h`
+- Defines packed/aligned `SpatiotemporalFrame` for C ↔ Rust binary compatibility
 
-2. Configurable Visual Prompt (UI/UX Overhaul)
+### 2) Lorenz Weave Engine (C)
+- `src/ffi/chaos_weave.c`
+- Implements stepwise Lorenz attractor generation and frame weaving
+- Includes `isnan`/`isinf` safety resets to preserve runtime continuity
 
-We've brought the user-facing experience up to modern standards by replacing the classic, simple prompt with a fully configurable visual display that is deeply integrated with the linenoise terminal.
+### 3) Rust Convergence Runtime
+- `src/main.rs`
+- Async networking with Tokio + WebSocket control
+- P2P command plane + binary channel for tensor-stream exchange
+- Node shell commands for fleet control, messaging, browsing, file retrieval, and weave streaming
 
-    NEW: Zsh-Style Visual Prompt:
+### 4) Native Build Integration
+- `build.rs`
+- Compiles and links C core into Rust executable automatically
 
-        The prompt is now highly informative, displaying the current time, your user profile, and a status indicator (e.g., ✔).
+---
 
-        Example Prompt: [HH:MM:SS] [profile_name] ✔ >
+## 📦 Included Capabilities
 
-        Configurable: The yukki_configurator.sh script now offers a clear opt-in option to enable this "enhanced visual prompt."
+- Real-time Lorenz-driven spatiotemporal frame generation
+- 88-byte aligned tensor/binary transport model
+- JSON-framed P2P control protocol (`msg`, `manifest`, `browse/ls`, `get`)
+- Async file transfer and directory listing utilities
+- Dual-port node networking model:
+  - JSON control channel (P2P operations)
+  - binary tensor channel (weave stream)
 
-    Zero Loss of Functionality: This visual upgrade is handled entirely by the robust linenoise library, ensuring you retain full command history and context-aware tab-completion.
+---
 
-3. General Platform and Documentation Updates
+## 🛠 Build & Output
 
-    Version Bump: The major version number reflects the fundamental commitment to these new capabilities and the move away from the 3.x framework.
+Run the release script:
 
-    Compliance Framework: Minor refinements were made to the CRTC and PIPEDA compliance logging procedures to better track user consent specific to the new manifest exchange feature.
+```bash
+bash "YuKKi OS 6.3.sh"
+```
+
+On successful compilation, the binary is generated at:
+
+```bash
+./yukkios_6_3_convergence/target/release/yukki_core_node
+```
+
+---
+
+## ▶️ Runtime Quick Start
+
+### Start bootstrap node
+```bash
+./yukki_core_node bootstrap 127.0.0.1:7000
+```
+
+### Start client node
+```bash
+./yukki_core_node node 127.0.0.1:7000 8001
+```
+
+(Launch additional nodes with different P2P ports.)
+
+---
+
+## ⚠️ Notes
+
+- This release is shell-driven and generates the project workspace dynamically.
+- Rust source references `stdin.read_line(...)`; ensure Tokio AsyncBufReadExt support is available in your environment.
+- Binary frame parsing uses packed struct reads; validate architecture/ABI assumptions in heterogeneous deployments.
+
+---
+
+## 📜 License
+
+Distributed under **GNU General Public License v3.0 (GPL-3.0)**.
