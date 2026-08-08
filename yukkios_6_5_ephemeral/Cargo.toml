@@ -1,0 +1,20 @@
+[package]
+name = "yukkios_6_5_ephemeral"
+version = "6.5.0"
+edition = "2021"
+authors = ["Aditya Muralidhar <Rakshas International Unlimited>"]
+description = "YuKKi OS 6.5.0 Ephemeral Mesh — X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security, Lorenz tensor data plane"
+
+[dependencies]
+tokio            = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.20"
+futures-util     = "0.3"
+serde            = { version = "1.0", features = ["derive"] }
+serde_json       = "1.0"
+uuid             = { version = "1.6", features = ["v4", "serde"] }
+x25519-dalek     = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+rand_core        = { version = "0.6", features = ["getrandom"] }
+
+[build-dependencies]
+cc = "1.0"
