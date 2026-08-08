@@ -1,4 +1,4 @@
-// YuKKi OS v6.4.1 — Interim-Crypt Edition
+// YuKKi OS v6.4.2 — Interim-Crypt Edition
 // Architect: Aditya Muralidhar (Rakshas International Unlimited)
 // License: GPL-3.0
 
@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
-const VERSION: &str = "v6.4.1";
+const VERSION: &str = "v6.4.2";
 const FRAME_SIZE: usize = 88;
 
 // ---------------------------------------------------------------------------

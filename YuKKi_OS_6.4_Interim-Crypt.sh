@@ -1,9 +1,9 @@
 #!/usr/bin/env zsh
 # ==============================================================================
-# OPEN-SOURCE GENESIS: YUKKI OS V6.4.1 (INTERIM-CRYPT EDITION)
+# OPEN-SOURCE GENESIS: YUKKI OS V6.4.2 (INTERIM-CRYPT EDITION)
 # ARCHITECT: Aditya Muralidhar (Rakshas International Unlimited)
 # LICENSE: GNU General Public License Version 3 (GPL-3)
-# PARADIGM: 6D Lorenz-Weave + P2P File Ops + Uncloneable Encryption
+# PARADIGM: 6D Lorenz-Weave + P2P File Ops + ChaCha20 Payload Binding
 # ==============================================================================
 
 # Zsh strict error handling
@@ -156,12 +156,12 @@ else
 fi
 
 print -P "${GOLD}======================================================================${RESET}"
-print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.4.1 Interim-Crypt compilation successful.${RESET}"
+print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.4.2 Interim-Crypt compilation successful.${RESET}"
 print -P "${TEAL}[+] Target Binary Location: $BUILD_PATH${RESET}"
 print -P "${GOLD}======================================================================${RESET}"
 print -P "${TEAL}  BUILD CONTENTS (GPL-3 - INTERIM-CRYPT):${RESET}"
 print -P "  - Integrated real-time Lorenz Chaos attractor mathematical manifolds."
-print -P "  - Uncloneable Pauli/Clifford encryption bindings at the bit level."
+print -P "  - ChaCha20 keystream payload binding with sequence-derived nonce semantics."
 print -P "  - Zero-latency memory bypass aligned explicitly to 88-byte bounds."
 print -P "  - P2P distributed networking with dual-port architecture (JSON + Binary)."
 print -P "  - Restored v4 Filesystem Utilities (Browse, Asynchronous Transfer)."

@@ -1,4 +1,4 @@
-# YuKKi OS v6.4.1 — Interim-Crypt Edition
+# YuKKi OS v6.4.2 — Interim-Crypt Edition
 
 **Release Date:** August 8, 2026  
 **Repository:** `rakshas-oss/YuKKi-OS`  
@@ -6,16 +6,17 @@
 **License:** GNU General Public License v3.0 (GPL-3.0)  
 **Architect:** Aditya Muralidhar (Rakshas International Unlimited)
 
-YuKKi OS v6.4.1 **Interim-Crypt Edition** represents the next evolutionary step in spatiotemporal weaving architecture. This release introduces **uncloneable encryption bindings**, refined Lorenz attr[...]
+YuKKi OS v6.4.2 **Interim-Crypt Edition** advances the spatiotemporal weaving architecture with a hardened payload-binding path powered by **ChaCha20-derived keystream encryption**, while preserving the existing Lorenz-driven tensor model and distributed runtime behavior.
 
 ---
 
 ## ✨ Key Features
 
-### 🔐 Uncloneable Encryption (NEW)
-- **Clifford/Pauli Binding Simulation** - Information-theoretic quantum-inspired encryption at the bit level
-- **X-Z Anti-commuting Cross-Check** - Ensures uncloneable payload properties through Pauli basis manipulation
-- **Secure Slab Descriptor** - Quantum-safe payload wrapping with active basis tracking
+### 🔐 ChaCha20 Payload Binding (NEW in v6.4.2)
+- **ChaCha20 ARX Core** - 20-round keystream block generation using quarter-round operations
+- **Sequence-Bound Nonce Derivation** - Packet `seq_id` maps into nonce words for deterministic per-sequence payload transformation
+- **Secure Slab Descriptor** - `SecureQuantumSlab` stores encrypted signature and active basis metadata
+- **16-Byte Signature Encryption** - First keystream segment binds payload bytes into frame payload space
 
 ### 🌀 6D Lorenz-Weave Engine
 - **Spatiotemporal Frame Generation** - Real-time chaos-driven tensor packet generation
@@ -46,13 +47,14 @@ YuKKi OS v6.4.1 **Interim-Crypt Edition** represents the next evolutionary step 
 ```
 src/ffi/
 ├── laminar_api.h        ← Binary tensor packet definitions
-└── chaos_weave.c        ← Lorenz engine + Pauli binding core
+└── chaos_weave.c        ← Lorenz engine + ChaCha20 payload binding core
 ```
 
 **Key Components:**
 - **SpatiotemporalFrame** - 88-byte packed struct (seq_id, spatial/velocity coords, fluidity, drag, payload)
-- **UncloneableQuantumSlab** - Quantum descriptor with Pauli signature
-- **unclonable_clifford_bind()** - XOR-based Pauli binding with 0xA5 seed
+- **SecureQuantumSlab** - Descriptor with encrypted signature and active basis flag
+- **chacha20_block()** - Keystream generator using constant-time ARX quarter-round composition
+- **secure_chacha20_bind()** - 16-byte payload binding via XOR against generated keystream bytes
 - **generate_lorenz_step()** - Differential equation solver with numerical stability safeguards
 
 ### Layer 2: Rust Async Runtime
@@ -81,7 +83,7 @@ Cargo.toml                  ← Rust dependency manifest
 | **Sequence Counter** | 64-bit unsigned (u64) |
 | **Spatial Dimensions** | 3D (x, y, z as f64) |
 | **Velocity Dimensions** | 3D (u, v, w as f64) |
-| **Encrypted Payload** | 16 bytes (Pauli-bound) |
+| **Encrypted Payload** | 16 bytes (ChaCha20 keystream-bound) |
 | **Fluidity Metric** | 32-bit float (sigmoid normalized) |
 | **Default Lorenz Params** | σ=10.0, ρ=28.0, β≈8.333 |
 | **Time Step (dt)** | 0.005 seconds |
@@ -112,8 +114,6 @@ Binary output:
 zsh ./YuKKi_OS_6.4_Interim-Crypt.sh
 ```
 
-The genesis/build script still scaffolds the same Rust+C FFI project contents and runs the same release build flow, but now refreshes the generated `./yukkios_6_4_interim` directory safely, validates required tools up front, and reports the resolved binary path reliably.
-
 ### Build (Legacy Static - MUSL)
 ```bash
 export LEGACY_MODE=1
@@ -134,11 +134,6 @@ Binary output:
 ./yukkios_6_4_interim bootstrap 127.0.0.1:7000
 ```
 
-**Expected Output:**
-```
-[NETWORK] Bootstrap Server active at: ws://127.0.0.1:7000
-```
-
 ### 2. Start Client Nodes (in separate terminals)
 ```bash
 # Node 1
@@ -151,162 +146,28 @@ Binary output:
 ./yukkios_6_4_interim node 127.0.0.1:7000 8003
 ```
 
-**Expected Output:**
-```
-[CORE] Open-Source Host Activated | UUID: <unique-id>
-[CORE] JSON Control Channel: 127.0.0.1:8001
-[CORE] Binary Tensor Channel: 127.0.0.1:9001
-[C2] Fleet registry synchronized. 3 nodes online.
-```
-
 ### 3. Interactive Commands
-
-#### View Fleet
-```bash
-YuKKiOS_6.4 > fleet
---- Current Active Fleet Topology ---
-  Node: <uuid-1> | P2P: 8001 | BINARY: 9001 (Self Node)
-  Node: <uuid-2> | P2P: 8002 | BINARY: 9002
-  Node: <uuid-3> | P2P: 8003 | BINARY: 9003
-```
-
-#### Send Message to Peer
-```bash
-YuKKiOS_6.4 > msg <uuid-2> Hello from Node 1!
-[P2P INBOUND] (From <uuid-1>): Hello from Node 1!
-```
-
-#### List Remote Directory
-```bash
-YuKKiOS_6.4 > ls <uuid-2> /tmp
-[P2P BROWSE] Directory listing from <uuid-2>:
-[FILE] example.txt (512 bytes)
-[DIR] subdirectory
-```
-
-#### Pull File from Peer
-```bash
-YuKKiOS_6.4 > get <uuid-2> /tmp/example.txt ./local_copy.txt
-[P2P FILE] Streaming 512 bytes...
-[P2P FILE] Transfer complete.
-```
-
-#### Establish Binary Weave Stream
-```bash
-YuKKiOS_6.4 > weave <uuid-3>
-[STREAM] Launching 6D Weave session (Binary Mode)...
-[WEAVE BINARY] Frame #0 | Spatial: [0.10, 0.00, 0.00] Drift: [0.01, 0.00, 0.00] Fluidity: 0.5000
-[WEAVE BINARY] Frame #1 | Spatial: [0.25, 0.15, -0.05] Drift: [0.03, 0.04, -0.01] Fluidity: 0.5120
-...
-[STREAM] Toroidal weave sequence closed smoothly.
-```
-
----
-
-## 📁 Project Structure
-
-```
-main/
-├── Cargo.toml                   # Project manifest & dependencies
-├── Cargo.lock                   # Locked dependency versions
-├── build.rs                     # C compiler integration (cc crate)
-├── vault_license.txt            # GPL-3 license text
-├── README.md                    # This file
-│
-├── src/
-│   ├── main.rs                  # Rust async runtime & CLI shell
-│   └── ffi/
-│       ├── laminar_api.h        # C header for tensor packets
-│       └── chaos_weave.c        # Lorenz engine + encryption
-│
-└── target/
-    ├── debug/                   # Debug builds
-    └── release/
-        └── yukkios_6_4_interim  # Final optimized binary
-```
-
----
-
-## 🔧 Dependencies
-
-### Rust Crates (Cargo.toml)
-- **tokio** (1.x) - Async runtime with full feature set
-- **tokio-tungstenite** (0.20) - WebSocket protocol implementation
-- **futures-util** (0.3) - Future combinators (StreamExt, SinkExt)
-- **serde** (1.0) - Serialization framework with derive macros
-- **serde_json** (1.0) - JSON encoder/decoder
-- **uuid** (1.6) - UUID v4 generation with serde support
-
-### Build Dependencies
-- **cc** (1.0) - C compiler invocation wrapper for build.rs
-
-### System Dependencies
-- **C99 compiler** (gcc/clang/LLVM)
-- **libc** (standard C library)
-
----
-
-## ⚙️ Configuration & Environment
-
-### Legacy Mode Static Build
-```bash
-export LEGACY_MODE=1
-cargo build --release --target=x86_64-unknown-linux-musl
-```
-
-When `LEGACY_MODE=1`, the build script automatically cross-compiles with MUSL libc for maximum portability.
-
-### Local Transfer Directory
-Files pulled via `get` command are stored in:
-```
-./yukkios_transfers/
-```
-
-This directory is auto-created on first P2P listener startup.
+- `fleet` / `peers`
+- `msg <uuid> <text>`
+- `manifest <uuid>`
+- `browse|ls <uuid> [path]`
+- `get <uuid> <remote_path> <local_path>`
+- `weave <uuid>`
+- `exit` / `quit`
 
 ---
 
 ## 🔐 Security & Cryptography Notes
 
-### Uncloneable Encryption Model
-The Pauli binding system in `chaos_weave.c` implements **information-theoretic uncloneable payload encoding**:
+### ChaCha20 Binding Model (v6.4.2)
+The payload binding path in `src/ffi/chaos_weave.c` now uses a ChaCha20-style keystream workflow:
 
-1. **Message XOR** - Raw bytes XOR'd with 0xA5 seed
-2. **Pauli Signature** - 16-byte payload transformed into Pauli basis signature
-3. **Active Basis Tracking** - 0x3 (X-Z) ensures anti-commuting properties
-4. **Handle Identifier** - Quantum slab handle (0xAE509001) marks encryption state
+1. **State Setup** - Sigma constants + 256-bit mesh key + sequence-derived nonce
+2. **20-Round Mixing** - Column and diagonal quarter-round cycles
+3. **Keystream Finalization** - Working state folded back into initial state
+4. **Payload Binding** - First 16 keystream bytes XOR against payload
 
-This is **not cryptographically certified** but demonstrates information-theoretic principles for distributed computing contexts.
-
-### Binary Frame Integrity
-- All tensor frames use strict alignment (8-byte boundaries)
-- Sequence counters prevent replay attacks
-- Fluidity metric acts as temporal coherence validator
-
----
-
-## ⚠️ Known Limitations & Considerations
-
-1. **Single-Machine Only** - Current implementation binds to localhost (127.0.0.1). For distributed deployment, modify `run_p2p_listener()` and `run_binary_listener()` to bind on external interfaces.
-
-2. **No Persistent Storage** - Fleet registry is in-memory only. Nodes must re-register on bootstrap server restart.
-
-3. **No TLS/Authentication** - WebSocket and P2P channels are unencrypted. For production, wrap with TLS/mTLS.
-
-4. **Blocking I/O in Shell** - Interactive shell uses blocking `read_line()`. High-frequency commands may experience latency.
-
-5. **NaN/Inf Fallback** - Lorenz engine resets state on numerical overflow. Mathematical stability guaranteed but trajectory continuity may be disrupted.
-
-6. **Linux/Unix Only** - Zsh script and build pipeline target POSIX systems. Windows support requires WSL2 or native Rust port.
-
----
-
-## 📚 References & Related Work
-
-- **Lorenz System** - Deterministic chaos generator (https://en.wikipedia.org/wiki/Lorenz_system)
-- **Pauli Matrices** - Quantum gate algebra (https://en.wikipedia.org/wiki/Pauli_matrices)
-- **Tokio Async Runtime** - https://tokio.rs/
-- **WebSocket Protocol (RFC 6455)** - https://tools.ietf.org/html/rfc6455
+This upgrade replaces the prior fixed XOR signature approach with a per-sequence transformed signature model and improves variability of payload protection across frame sequences.
 
 ---
 
@@ -314,17 +175,7 @@ This is **not cryptographically certified** but demonstrates information-theoret
 
 **GNU General Public License v3.0 (GPL-3.0)**
 
-This operating system suite is distributed under the GPL-3.0 license. You are free to:
-- **Use** the software for any purpose
-- **Modify** the source code
-- **Distribute** copies and modifications
-
-Under the condition that:
-- All derivative works remain under GPL-3.0
-- Original copyright and license notices are preserved
-- Source code modifications are documented
-
-See `vault_license.txt` for the complete GPL-3.0 legal text.
+See `vault_license.txt` for complete licensing text.
 
 ---
 
