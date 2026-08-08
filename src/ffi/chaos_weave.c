@@ -23,6 +23,12 @@ void chaos_engine_init(double sigma, double rho, double beta) {
     x_state = 0.1; y_state = 0.0; z_state = 0.0;
 }
 
+void chaos_engine_reseed(double sigma, double rho, double beta,
+                         double x0, double y0, double z0) {
+    sigma_param = sigma; rho_param = rho; beta_param = beta;
+    x_state = x0; y_state = y0; z_state = z0;
+}
+
 /* Information-Theoretic Clifford/Pauli Binding Simulation (C99 Compatible) */
 int unclonable_clifford_bind(const uint8_t *raw_msg, size_t len, UncloneableQuantumSlab *out_slab) {
     if (!raw_msg || !out_slab) return -1;
@@ -49,6 +55,11 @@ void generate_lorenz_step(double dt) {
 }
 
 void weave_spatiotemporal_frame(uint64_t seq, const uint8_t* payload_src, SpatiotemporalFrame* out_frame) {
+    if (payload_src) {
+        sigma_param = 10.0 + (payload_src[0] / 255.0);
+        rho_param   = 28.0 + (payload_src[1] / 255.0);
+        beta_param  =  8.0 + (payload_src[2] / 255.0);
+    }
     generate_lorenz_step(0.005);
     out_frame->seq_id = seq;
     out_frame->x = x_state;

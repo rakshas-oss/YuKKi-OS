@@ -1,4 +1,4 @@
-# YuKKi OS v6.4.0 — Interim-Crypt Edition
+# YuKKi OS v6.4.1 — Interim-Crypt Edition
 
 **Release Date:** August 8, 2026  
 **Repository:** `rakshas-oss/YuKKi-OS`  
@@ -6,7 +6,7 @@
 **License:** GNU General Public License v3.0 (GPL-3.0)  
 **Architect:** Aditya Muralidhar (Rakshas International Unlimited)
 
-YuKKi OS v6.4.0 **Interim-Crypt Edition** represents the next evolutionary step in spatiotemporal weaving architecture. This release introduces **uncloneable encryption bindings**, refined Lorenz attr[...]
+YuKKi OS v6.4.1 **Interim-Crypt Edition** represents the next evolutionary step in spatiotemporal weaving architecture. This release introduces **uncloneable encryption bindings**, refined Lorenz attr[...]
 
 ---
 
