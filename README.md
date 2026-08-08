@@ -8,11 +8,13 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 ## Versions
 
-| Version | Directory | Highlights |
-|---------|-----------|------------|
-| **6.6.0 Sentinel Mesh** | `yukkios_6_6_sentinel/` | X25519 ECDH + AEAD TCP + ChaCha20 polymorphic weave + dual-layer sentinel quarantine |
-| 6.5.0 Ephemeral Mesh | `yukkios_6_5_ephemeral/` | X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security |
-| 6.4.3 OOB Integrity | (root `src/`) | FNV-1a rolling hash, 60-frame OOB sync, node quarantine |
+| Version | Directory | Status | Highlights |
+|---------|-----------|--------|------------|
+| **6.6.0 Sentinel Mesh** | `yukkios_6_6_sentinel/` | **Canonical (active)** | X25519 ECDH + AEAD TCP + ChaCha20 polymorphic weave + dual-layer sentinel quarantine |
+| 6.5.0 Ephemeral Mesh | `yukkios_6_5_ephemeral/` | Archived (legacy) | X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security |
+| 6.4.3 OOB Integrity | (root `src/`) | Archived (legacy) | FNV-1a rolling hash, 60-frame OOB sync, node quarantine |
+
+> **Note:** Only `yukkios_6_6_sentinel/` is actively maintained. The older version trees are preserved for historical reference only and are not supported build targets.
 
 ---
 
@@ -50,7 +52,7 @@ Rust code calls `sentinel_quarantine_node` / `sentinel_release_node` via FFI.
 ## Repository Structure
 
 ```text
-yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
+yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (canonical, active)
 ├── Cargo.toml               ← package: yukkios_6_6_sentinel, bin: yukki_sentinel
 ├── build.rs                 ← cc crate compiles chaos_weave.c
 ├── vault_license.txt        ← GPL-3.0 + research disclaimer
@@ -60,8 +62,8 @@ yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
         ├── laminar_api.h    ← ABI header (SpatiotemporalFrame + v6.6 API)
         └── chaos_weave.c    ← C99: Lorenz core, ChaCha20 weave, sentinel quarantine
 
-yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh
-src/                         ← v6.4.3 OOB Integrity Edition (root package)
+yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh (archived, legacy — not a supported build target)
+src/                         ← v6.4.3 OOB Integrity Edition (archived, legacy — not a supported build target)
 ```
 
 ---
