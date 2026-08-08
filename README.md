@@ -1,91 +1,104 @@
-# YuKKi OS 6.4.4 — Polymorphic & Self-Healing Mesh
+# YuKKi OS — Ephemeral Mesh & Spatiotemporal Weave
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
 
-## Overview
+---
 
-YuKKi OS 6.4.4 is a dual-plane peer-to-peer system:
+## Versions
 
-- **Control Plane (JSON over TCP/WebSocket)** for peer registry, signaling, and out-of-band integrity sync.
-- **Data Plane (Binary Tensor Stream)** for high-frequency `SpatiotemporalFrame` transport.
-- **C FFI Core** for Lorenz-state evolution, polymorphic ChaCha20-style payload binding, and batch integrity signaling.
-- **Rust Node Runtime** for networking, orchestration, and node lifecycle.
+| Version | Directory | Highlights |
+|---------|-----------|------------|
+| 6.5.0 Ephemeral Mesh | `yukkios_6_5_ephemeral/` | X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security |
+| 6.4.3 OOB Integrity | (root `src/`) | FNV-1a rolling hash, 60-frame OOB sync, node quarantine |
 
-> Repository language composition: Rust, C, and Shell.
+---
+
+## Overview — v6.5.0 Ephemeral Mesh
+
+YuKKi OS 6.5.0 is a dual-plane peer-to-peer system with ephemeral session security:
+
+- **Control Plane** — JSON over TCP/WebSocket, secured with X25519 ECDH key exchange and ChaCha20-Poly1305 AEAD encryption.
+- **Data Plane** — Binary `SpatiotemporalFrame` tensor stream driven by a Lorenz attractor.
+- **C FFI Core** — Lorenz-state evolution, Pauli binding shim, FNV-1a OOB integrity, ephemeral KDF mixing Lorenz state with X25519 shared secret.
+- **Rust Node Runtime** — async Tokio networking, WebSocket bootstrap sync, interactive shell.
+
+> Ephemeral keys are never persisted to disk; each session derives a fresh key.
 
 ---
 
 ## Repository Structure
 
 ```text
-yukkios_6_4_4_polymorphic/
+yukkios_6_5_ephemeral/        ← v6.5.0 Ephemeral Mesh
 ├── Cargo.toml
 ├── build.rs
 ├── vault_license.txt
 └── src/
     ├── main.rs
     └── ffi/
-        ├── laminar_api.h
-        └── chaos_weave.c
+        ├── laminar_api.h     ← ABI header (SpatiotemporalFrame + v6.5 API)
+        └── chaos_weave.c     ← C99 Lorenz core + ephemeral KDF
+
+src/                          ← v6.4.3 OOB Integrity Edition (root package)
+    main.rs
+    ffi/
+        laminar_api.h
+        chaos_weave.c
 ```
 
 ---
 
 ## Core Concepts
 
-### 1) Spatiotemporal Frame
+### 1) Spatiotemporal Frame (ABI-stable, 88 bytes)
 
-A packed frame exchanged over the data plane:
+```
+seq_id (u64) | x y z (f64×3) | u v w (f64×3) | fluidity (f32) | drag (f32) | divergence (f64) | payload (u8×16)
+```
 
-- Sequence ID
-- Spatial coordinates (`x, y, z`)
-- Drift vector (`u, v, w`)
-- Fluidity/drag scalars
-- Divergence
-- 16-byte payload segment
+### 2) Lorenz Attractor Core
 
-### 2) Chaotic State Evolution
+The C core advances Lorenz state per frame (σ=10, ρ=28, β=8.333) and uses it to mutate payload signatures and derive ephemeral session keys.
 
-The C core maintains Lorenz attractor state and advances per frame.  
-That state is used to mutate keystream input and produce polymorphic payload signatures.
+### 3) v6.5.0 — Ephemeral Key Exchange
 
-### 3) Out-of-Band Integrity Sync
+On node startup:
+1. Generate X25519 ephemeral key pair.
+2. DH with peer public key → 32-byte shared secret.
+3. Mix shared secret with current Lorenz state via FNV-1a KDF → 32-byte session key.
+4. Encrypt all control-plane messages with ChaCha20-Poly1305 using the session key.
 
-Every 60 frames, a rolling integrity digest is generated and shipped over the control plane with anchor coordinates (`x, y, z`) + sequence pointer for resync behavior.
+### 4) OOB Integrity Sync
+
+Every 60 frames, a rolling FNV-1a digest is snapshotted and logged; nodes crossing the boundary may be quarantined if integrity diverges.
 
 ---
 
 ## Build Prerequisites
 
-- Linux/macOS shell
 - Rust toolchain (stable)
-- C compiler (gcc/clang) compatible with C99
+- C compiler (gcc/clang), C99 compatible
 - `cargo`
-
-For static legacy target:
-- `x86_64-unknown-linux-musl` toolchain target installed
 
 ---
 
-## Build
-
-From repo root (where `yukkios_6_4_4_polymorphic/` exists):
+## Build — v6.5.0
 
 ```bash
-cd yukkios_6_4_4_polymorphic
+cd yukkios_6_5_ephemeral
 cargo build --release
 ```
 
 Binary output:
 
 ```text
-target/release/yukkios_6_4_4_polymorphic
+yukkios_6_5_ephemeral/target/release/yukkios_6_5_ephemeral
 ```
 
-### LEGACY_MODE / MUSL static build
+### MUSL static build
 
 ```bash
-cd yukkios_6_4_4_polymorphic
+cd yukkios_6_5_ephemeral
 rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl
 ```
@@ -93,57 +106,66 @@ cargo build --release --target x86_64-unknown-linux-musl
 Binary output:
 
 ```text
-target/x86_64-unknown-linux-musl/release/yukkios_6_4_4_polymorphic
+yukkios_6_5_ephemeral/target/x86_64-unknown-linux-musl/release/yukkios_6_5_ephemeral
 ```
 
 ---
 
 ## Run
 
-## 1) Start bootstrap server
+### 1) Start bootstrap server
 
 ```bash
-./target/release/yukkios_6_4_4_polymorphic bootstrap 127.0.0.1:9000
+cd yukkios_6_5_ephemeral
+./target/release/yukkios_6_5_ephemeral bootstrap 127.0.0.1:9000
 ```
 
-## 2) Start nodes (separate terminals)
+### 2) Start nodes (separate terminals)
 
 ```bash
-./target/release/yukkios_6_4_4_polymorphic node 127.0.0.1:9000 7001
-./target/release/yukkios_6_4_4_polymorphic node 127.0.0.1:9000 7002
+cd yukkios_6_5_ephemeral
+./target/release/yukkios_6_5_ephemeral node 127.0.0.1:9000 7001
+./target/release/yukkios_6_5_ephemeral node 127.0.0.1:9000 7002
 ```
 
 Each node uses:
 
 - JSON control listener on `<p2p_port>`
-- Binary listener on `<p2p_port + 1000>`
+- Binary tensor listener on `<p2p_port + 1000>`
 
 ---
 
 ## Interactive Node Commands
 
-From node prompt:
+From node prompt (`YuKKiOS_6.5 >`):
 
-- `fleet` / `peers` — list known active nodes
-- `weave <uuid>` — start binary laminar stream to target node
-- `exit` / `quit` — terminate node process
+| Command | Description |
+|---------|-------------|
+| `fleet` / `peers` | List known active nodes |
+| `weave <uuid>` | Start binary laminar stream to target node |
+| `msg <uuid> <text>` | Send JSON control message |
+| `manifest <uuid>` | Request peer manifest |
+| `browse <uuid> [path]` | List remote directory |
+| `quarantine <uuid>` | Blacklist a node |
+| `quarantine_check <uuid>` | Check quarantine status |
+| `exit` / `quit` | Terminate node |
 
 ---
 
-## Security & Integrity Notes
+## Security Notes
 
-- Quarantine behavior is demonstrated through special control-plane markers.
-- Resync path uses anchor coordinates to realign Lorenz state via FFI.
-- The included hash routine in the C file is a lightweight shim for batch signaling, not a full cryptographic BLAKE3 implementation.
-- Review and harden all cryptographic and networking logic before production use.
+- X25519 + ChaCha20-Poly1305 are used for control-plane session confidentiality in v6.5.0.
+- The `ephemeral_derive_session_key` C function is a lightweight FNV-1a KDF shim; replace with HKDF-SHA256 for production use.
+- The OOB hash is FNV-1a based, not a full cryptographic MAC; do not rely on it for tamper detection in adversarial settings.
+- Review and harden all networking logic before production deployment.
 
 ---
 
 ## Development Notes
 
-- `build.rs` compiles `src/ffi/chaos_weave.c` and links it into the Rust binary.
-- `main.rs` uses async Tokio runtime, WebSocket bootstrap sync, framed TCP messaging, and FFI calls into the C engine.
-- FFI packet layout must remain ABI-compatible between Rust and C definitions.
+- `build.rs` compiles `src/ffi/chaos_weave.c` and links it (plus libm) into the Rust binary.
+- `main.rs` uses async Tokio, safe argument handling (no panics on missing args), and unaligned-safe field reads for packed structs.
+- `SpatiotemporalFrame` layout is identical in C (`laminar_api.h`) and Rust (`#[repr(C, packed)]`) — keep them in sync.
 
 ---
 
