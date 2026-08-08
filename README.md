@@ -107,6 +107,13 @@ Binary output:
 ./target/release/yukkios_6_4_interim
 ```
 
+### Genesis Script (Hardened, Same Features)
+```bash
+zsh ./YuKKi_OS_6.4_Interim-Crypt.sh
+```
+
+The genesis/build script still scaffolds the same Rust+C FFI project contents and runs the same release build flow, but now refreshes the generated `./yukkios_6_4_interim` directory safely, validates required tools up front, and reports the resolved binary path reliably.
+
 ### Build (Legacy Static - MUSL)
 ```bash
 export LEGACY_MODE=1

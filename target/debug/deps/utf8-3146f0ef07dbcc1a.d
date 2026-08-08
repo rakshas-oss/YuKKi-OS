@@ -1,9 +1,0 @@
-/home/runner/work/YuKKi-OS/YuKKi-OS/target/debug/deps/utf8-3146f0ef07dbcc1a.d: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lossy.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/read.rs
-
-/home/runner/work/YuKKi-OS/YuKKi-OS/target/debug/deps/libutf8-3146f0ef07dbcc1a.rlib: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lossy.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/read.rs
-
-/home/runner/work/YuKKi-OS/YuKKi-OS/target/debug/deps/libutf8-3146f0ef07dbcc1a.rmeta: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lossy.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/read.rs
-
-/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lib.rs:
-/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/lossy.rs:
-/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf-8-0.7.6/src/read.rs:
