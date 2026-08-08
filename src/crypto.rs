@@ -104,10 +104,16 @@ fn crypt(encrypt: bool, nonce: u64, payload: &[u8]) -> Result<Vec<u8>, CryptoErr
 mod tests {
     use super::{decrypt_payload, encrypt_payload_with_nonce};
 
+    fn fixture_nonce(payload: &[u8]) -> u64 {
+        payload.iter().fold(0u64, |accumulator, byte| {
+            accumulator.rotate_left(5) ^ u64::from(*byte)
+        })
+    }
+
     #[test]
     fn encrypted_payload_round_trips() {
         let payload = br#"{"msg":"interim-crypt"}"#;
-        let encrypted = encrypt_payload_with_nonce(payload, 0xACED_BAAD_F00D_1234).unwrap();
+        let encrypted = encrypt_payload_with_nonce(payload, fixture_nonce(payload)).unwrap();
         let decrypted = decrypt_payload(&encrypted).unwrap();
         assert_eq!(decrypted, payload);
     }
