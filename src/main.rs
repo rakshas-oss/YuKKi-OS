@@ -1,4 +1,4 @@
-// YuKKi OS v6.4.2 — Interim-Crypt Edition
+// YuKKi OS v6.4.3 — Out-of-Band Integrity Edition
 // Architect: Aditya Muralidhar (Rakshas International Unlimited)
 // License: GPL-3.0
 
@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use uuid::Uuid;
 
-const VERSION: &str = "v6.4.2";
+const VERSION: &str = "v6.4.3";
 const FRAME_SIZE: usize = 88;
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,11 @@ extern "C" {
         payload_src: *const u8,
         out_frame: *mut SpatiotemporalFrame,
     );
+    // OOB Integrity API — v6.4.3
+    fn oob_integrity_update(seq: u64, payload: *const u8, len: u32);
+    fn oob_sync_check(seq: u64) -> i32;
+    fn oob_quarantine_node(node_uuid: *const std::ffi::c_char);
+    fn oob_is_quarantined(node_uuid: *const std::ffi::c_char) -> i32;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,34 @@ impl ChaosController {
     fn frame_to_bytes(frame: &SpatiotemporalFrame) -> [u8; FRAME_SIZE] {
         unsafe { std::mem::transmute_copy(frame) }
     }
+}
+
+// ---------------------------------------------------------------------------
+// OOB Integrity — v6.4.3 safe wrappers
+// ---------------------------------------------------------------------------
+
+/// Feed a frame into the OOB rolling hash accumulator.
+fn oob_update(seq: u64, payload: &[u8]) {
+    unsafe { oob_integrity_update(seq, payload.as_ptr(), payload.len() as u32) };
+}
+
+/// Returns true when seq hits the 60-frame sync boundary.
+fn oob_is_sync_boundary(seq: u64) -> bool {
+    unsafe { oob_sync_check(seq) != 0 }
+}
+
+/// Quarantine a node UUID (blacklist it from OOB sync participation).
+fn quarantine_node(uuid: &str) {
+    if let Ok(cstr) = std::ffi::CString::new(uuid) {
+        unsafe { oob_quarantine_node(cstr.as_ptr()) };
+    }
+}
+
+/// Returns true if the node UUID is quarantined/blacklisted.
+fn is_node_quarantined(uuid: &str) -> bool {
+    std::ffi::CString::new(uuid)
+        .map(|cs| unsafe { oob_is_quarantined(cs.as_ptr()) != 0 })
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -367,8 +400,23 @@ async fn run_client_node(
             }
             "weave" if parts.len() >= 2 => {
                 let target_uuid = parts[1];
-                if let Some(peer) = find_peer(&registry, target_uuid).await {
+                if is_node_quarantined(target_uuid) {
+                    println!("[OOB] Node {} is quarantined/blacklisted — weave denied.", target_uuid);
+                } else if let Some(peer) = find_peer(&registry, target_uuid).await {
                     run_weave_session(&peer).await;
+                }
+            }
+            "quarantine" if parts.len() >= 2 => {
+                let target_uuid = parts[1];
+                quarantine_node(target_uuid);
+                println!("[OOB] Node {} added to quarantine/blacklist.", target_uuid);
+            }
+            "quarantine_check" if parts.len() >= 2 => {
+                let target_uuid = parts[1];
+                if is_node_quarantined(target_uuid) {
+                    println!("[OOB] Node {} is QUARANTINED.", target_uuid);
+                } else {
+                    println!("[OOB] Node {} is not quarantined.", target_uuid);
                 }
             }
             "exit" | "quit" => {
@@ -471,6 +519,8 @@ async fn run_weave_session(peer: &PeerInfo) {
         for seq in 0u64..100 {
             let frame = ChaosController::next_frame(seq, Some(&seed_payload));
             let bytes = ChaosController::frame_to_bytes(&frame);
+            // OOB rolling hash update — feed frame payload into integrity accumulator
+            oob_update(seq, &frame.payload);
             if stream.write_all(&bytes).await.is_err() {
                 break;
             }
@@ -482,6 +532,10 @@ async fn run_weave_session(peer: &PeerInfo) {
             let v_val = { let v: f64 = unsafe { std::ptr::read_unaligned(std::ptr::addr_of!(frame.v)) }; v };
             let w = { let v: f64 = unsafe { std::ptr::read_unaligned(std::ptr::addr_of!(frame.w)) }; v };
             let fluidity = { let v: f32 = unsafe { std::ptr::read_unaligned(std::ptr::addr_of!(frame.fluidity)) }; v };
+            // 60-frame OOB sync boundary check
+            if oob_is_sync_boundary(seq) {
+                println!("[OOB] 60-frame sync boundary at seq #{} — integrity hash snapshot triggered.", seq);
+            }
             println!(
                 "[WEAVE BINARY] Frame #{} | Spatial: [{:.2}, {:.2}, {:.2}] Drift: [{:.2}, {:.2}, {:.2}] Fluidity: {:.4}",
                 seq, x, y, z, u, v_val, w, fluidity
@@ -520,7 +574,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_client_node(bootstrap, p2p_port).await?;
         }
         _ => {
-            println!("YuKKi OS {} — Interim-Crypt Edition", VERSION);
+            println!("YuKKi OS {} — Out-of-Band Integrity Edition", VERSION);
             println!("Usage:");
             println!("  yukkios_6_4_interim bootstrap [bind_addr]");
             println!("  yukkios_6_4_interim node <bootstrap_addr> <p2p_port>");

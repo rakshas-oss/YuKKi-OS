@@ -1,4 +1,4 @@
-PROJECT: YuKKi OS 6.4.2 / THE SPATIOTEMPORAL WEAVE (INTERIM-CRYPT)
+PROJECT: YuKKi OS 6.4.3 / THE SPATIOTEMPORAL WEAVE (OUT-OF-BAND INTEGRITY EDITION)
 AUTHOR: Aditya Muralidhar / Rakshas International Unlimited
 
 This operating system suite is distributed under the GNU General Public License
