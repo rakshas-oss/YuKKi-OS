@@ -1,0 +1,17 @@
+[package]
+name = "yukkios_6_4_interim"
+version = "6.4.0"
+edition = "2021"
+authors = ["Aditya Muralidhar <Rakshas International Unlimited>"]
+description = "YuKKi OS 6.4 Interim ADI Mesh w/ Uncloneable Encryption"
+
+[dependencies]
+tokio = { version = "1", features = ["full", "process"] }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+[build-dependencies]
+cc = "1.0"
