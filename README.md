@@ -257,6 +257,18 @@ Files pulled via `get` command are stored in:
 
 This directory is auto-created on first P2P listener startup.
 
+### Runtime Lorenz Configuration
+The Lorenz engine keeps evolving state on every frame and now accepts runtime configuration through environment variables:
+
+- `YUKKI_LORENZ_SIGMA`
+- `YUKKI_LORENZ_RHO`
+- `YUKKI_LORENZ_BETA`
+- `YUKKI_LORENZ_X0`
+- `YUKKI_LORENZ_Y0`
+- `YUKKI_LORENZ_Z0`
+
+If unset (or invalid), the engine preserves legacy defaults (`σ=10.0`, `ρ=28.0`, `β≈8.33333333333`, `x0=0.1`, `y0=0.0`, `z0=0.0`).
+
 ---
 
 ## 🔐 Security & Cryptography Notes

@@ -21,6 +21,8 @@ typedef struct __attribute__((packed, aligned(8))) {
 #pragma pack(pop)
 
 void chaos_engine_init(double sigma, double rho, double beta);
+void chaos_engine_init_with_state(double sigma, double rho, double beta, double x0, double y0, double z0);
+void chaos_engine_reseed(double x0, double y0, double z0);
 void generate_lorenz_step(double dt);
 void weave_spatiotemporal_frame(uint64_t seq, const uint8_t* payload_src, SpatiotemporalFrame* out_frame);
 
