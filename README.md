@@ -1,12 +1,12 @@
-# YuKKi OS v6.4.0 — Interim-Crypt Edition
+# YuKKi OS v6.4.1 — Interim-Crypt Edition
 
 **Release Date:** August 8, 2026  
 **Repository:** `rakshas-oss/YuKKi-OS`  
-**Branch:** `yukki-v6.4-interim-crypt`  
+**Branch:** `yukki-v6.4.1-interim-crypt`  
 **License:** GNU General Public License v3.0 (GPL-3.0)  
 **Architect:** Aditya Muralidhar (Rakshas International Unlimited)
 
-YuKKi OS v6.4.0 **Interim-Crypt Edition** represents the next evolutionary step in spatiotemporal weaving architecture. This release introduces **uncloneable encryption bindings**, refined Lorenz attr[...]
+YuKKi OS v6.4.1 **Interim-Crypt Edition** represents the next evolutionary step in spatiotemporal weaving architecture. This release introduces **uncloneable encryption bindings**, refined Lorenz attr[...]
 
 ---
 
@@ -22,6 +22,7 @@ YuKKi OS v6.4.0 **Interim-Crypt Edition** represents the next evolutionary step 
 - **88-Byte Hyper-Aligned Packets** - Binary-compatible tensor frames with strict memory alignment
 - **6D Velocity Drift** - Coupled spatial coordinates (x,y,z) with velocity vectors (u,v,w)
 - **Fluidity Metric** - Sigmoid-normalized flow coherence calculation
+- **Runtime Lorenz Configurability (v6.4.1)** - Parameters and initial state can be configured dynamically at startup
 
 ### 🌐 P2P Distributed Architecture
 - **Bootstrap Server** - WebSocket-based C2 node registry with fleet synchronization
@@ -199,7 +200,7 @@ YuKKiOS_6.4 > weave <uuid-3>
 ## 📁 Project Structure
 
 ```
-yukki-v6.4-interim-crypt/
+yukki-v6.4.1-interim-crypt/
 ├── Cargo.toml                   # Project manifest & dependencies
 ├── Cargo.lock                   # Locked dependency versions
 ├── build.rs                     # C compiler integration (cc crate)
@@ -343,7 +344,7 @@ See `vault_license.txt` for the complete GPL-3.0 legal text.
 
 ## 🔗 Quick Links
 
-- **Latest Release:** https://github.com/rakshas-oss/YuKKi-OS/tree/yukki-v6.4-interim-crypt
+- **Latest Release:** https://github.com/rakshas-oss/YuKKi-OS/tree/yukki-v6.4.1-interim-crypt
 - **Issue Tracker:** https://github.com/rakshas-oss/YuKKi-OS/issues
 - **Discussions:** https://github.com/rakshas-oss/YuKKi-OS/discussions
 
