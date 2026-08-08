@@ -1,6 +1,8 @@
-# YuKKi OS — Ephemeral Mesh & Spatiotemporal Weave
+# YuKKi OS 6.6.0 Sentinel Mesh Edition
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
+
+> **Research & Demo Software** — Not for production use. See [Security Notes](#security-notes) and `yukkios_6_6_sentinel/vault_license.txt`.
 
 ---
 
@@ -8,168 +10,169 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 | Version | Directory | Highlights |
 |---------|-----------|------------|
+| **6.6.0 Sentinel Mesh** | `yukkios_6_6_sentinel/` | X25519 ECDH + AEAD TCP + ChaCha20 polymorphic weave + dual-layer sentinel quarantine |
 | 6.5.0 Ephemeral Mesh | `yukkios_6_5_ephemeral/` | X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security |
 | 6.4.3 OOB Integrity | (root `src/`) | FNV-1a rolling hash, 60-frame OOB sync, node quarantine |
 
 ---
 
-## Overview — v6.5.0 Ephemeral Mesh
+## Architecture Overview — v6.6.0 Sentinel Mesh
 
-YuKKi OS 6.5.0 is a dual-plane peer-to-peer system with ephemeral session security:
+YuKKi OS 6.6.0 is a dual-plane peer-to-peer system with ephemeral session security and sentinel quarantine.
 
-- **Control Plane** — JSON over TCP/WebSocket, secured with X25519 ECDH key exchange and ChaCha20-Poly1305 AEAD encryption.
-- **Data Plane** — Binary `SpatiotemporalFrame` tensor stream driven by a Lorenz attractor.
-- **C FFI Core** — Lorenz-state evolution, Pauli binding shim, FNV-1a OOB integrity, ephemeral KDF mixing Lorenz state with X25519 shared secret.
-- **Rust Node Runtime** — async Tokio networking, WebSocket bootstrap sync, interactive shell.
+### Control Plane
 
-> Ephemeral keys are never persisted to disk; each session derives a fresh key.
+JSON messages over raw TCP, framed with a 4-byte big-endian length prefix.  
+Every message is encrypted with **ChaCha20-Poly1305 AEAD** using a session key derived from an **X25519 Diffie-Hellman** exchange (one ephemeral key-pair per session, never persisted).
+
+### Data Plane
+
+Binary `SpatiotemporalFrame` (88 bytes) stream produced by the **Lorenz attractor** C core (`chaos_weave.c`).  
+Frames carry a 16-byte payload slot, a fluidity/drag coefficient pair, and a divergence scalar derived from Lorenz state.
+
+### Integrity Sync — Sentinel Quarantine
+
+The C layer maintains a dual-layer quarantine registry (up to 256 entries):
+
+| Level | Name | Trigger | Effect |
+|-------|------|---------|--------|
+| 1 | Soft quarantine | Frame-hash mismatch detected | Messages from node are logged and dropped |
+| 2 | Hard quarantine | Escalation (re-quarantine of level-1 node) | Connection rejected at handshake |
+
+Rust code calls `sentinel_quarantine_node` / `sentinel_release_node` via FFI.
+
+### Polymorphic Payload Weave
+
+`chacha_weave_payload` (C99) XORs arbitrary plaintext against a ChaCha20 keystream whose key is mixed with the current Lorenz attractor state, producing a **session-unique, attractor-bound cipher stream**.
 
 ---
 
 ## Repository Structure
 
 ```text
-yukkios_6_5_ephemeral/        ← v6.5.0 Ephemeral Mesh
-├── Cargo.toml
-├── build.rs
-├── vault_license.txt
+yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
+├── Cargo.toml               ← package: yukkios_6_6_sentinel, bin: yukki_sentinel
+├── build.rs                 ← cc crate compiles chaos_weave.c
+├── vault_license.txt        ← GPL-3.0 + research disclaimer
 └── src/
-    ├── main.rs
+    ├── main.rs              ← Rust async runtime (Tokio)
     └── ffi/
-        ├── laminar_api.h     ← ABI header (SpatiotemporalFrame + v6.5 API)
-        └── chaos_weave.c     ← C99 Lorenz core + ephemeral KDF
+        ├── laminar_api.h    ← ABI header (SpatiotemporalFrame + v6.6 API)
+        └── chaos_weave.c    ← C99: Lorenz core, ChaCha20 weave, sentinel quarantine
 
-src/                          ← v6.4.3 OOB Integrity Edition (root package)
-    main.rs
-    ffi/
-        laminar_api.h
-        chaos_weave.c
+yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh
+src/                         ← v6.4.3 OOB Integrity Edition (root package)
+```
+
+---
+
+## Build Prerequisites
+
+- Rust stable toolchain (`rustup toolchain install stable`)
+- C99 compiler: `gcc` or `clang`
+- `cargo` (included with rustup)
+
+---
+
+## Quickstart
+
+### Build
+
+```bash
+cd yukkios_6_6_sentinel
+cargo build --release
+```
+
+Binary output: `yukkios_6_6_sentinel/target/release/yukki_sentinel`
+
+#### MUSL static build (optional)
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
+```
+
+### Run — Bootstrap node
+
+Start the bootstrap server (listens for inbound node connections):
+
+```bash
+cd yukkios_6_6_sentinel
+./target/release/yukki_sentinel bootstrap 0.0.0.0:7660
+```
+
+### Run — Peer node
+
+Connect a peer node to the bootstrap:
+
+```bash
+cd yukkios_6_6_sentinel
+./target/release/yukki_sentinel node 127.0.0.1:7660
+```
+
+---
+
+## Command Reference
+
+From the interactive prompt (`>`):
+
+| Command | Description |
+|---------|-------------|
+| `fleet peers` | List all currently connected peer nodes |
+| `msg <to> <text>` | Send an AEAD-encrypted `FluidMessage` to a peer (by node-id or `all`) |
+| `weave <data>` | Announce a polymorphic-woven payload (`WeaveAnnounce`) |
+| `exit` / `quit` | Shut down the node |
+
+### Examples
+
+```
+> fleet peers
+  node-3f7a2... @ 127.0.0.1:49821 [q=0]
+
+> msg node-3f7a2 hello sentinel mesh
+[node-…] msg from node-3f7a2 [seq=1]: hello sentinel mesh
+
+> weave deadbeef
+[node-…] weave from … [seq=2]: <hex>
+
+> exit
+Exiting...
 ```
 
 ---
 
 ## Core Concepts
 
-### 1) Spatiotemporal Frame (ABI-stable, 88 bytes)
+### Spatiotemporal Frame (ABI-stable, 88 bytes)
 
 ```
 seq_id (u64) | x y z (f64×3) | u v w (f64×3) | fluidity (f32) | drag (f32) | divergence (f64) | payload (u8×16)
 ```
 
-### 2) Lorenz Attractor Core
+The `#[repr(C, packed)]` Rust struct and the `#pragma pack(push,1)` C struct are kept byte-identical.
 
-The C core advances Lorenz state per frame (σ=10, ρ=28, β=8.333) and uses it to mutate payload signatures and derive ephemeral session keys.
+### X25519 Handshake Protocol
 
-### 3) v6.5.0 — Ephemeral Key Exchange
-
-On node startup:
-1. Generate X25519 ephemeral key pair.
-2. DH with peer public key → 32-byte shared secret.
-3. Mix shared secret with current Lorenz state via FNV-1a KDF → 32-byte session key.
-4. Encrypt all control-plane messages with ChaCha20-Poly1305 using the session key.
-
-### 4) OOB Integrity Sync
-
-Every 60 frames, a rolling FNV-1a digest is snapshotted and logged; nodes crossing the boundary may be quarantined if integrity diverges.
-
----
-
-## Build Prerequisites
-
-- Rust toolchain (stable)
-- C compiler (gcc/clang), C99 compatible
-- `cargo`
-
----
-
-## Build — v6.5.0
-
-```bash
-cd yukkios_6_5_ephemeral
-cargo build --release
-```
-
-Binary output:
-
-```text
-yukkios_6_5_ephemeral/target/release/yukkios_6_5_ephemeral
-```
-
-### MUSL static build
-
-```bash
-cd yukkios_6_5_ephemeral
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --target x86_64-unknown-linux-musl
-```
-
-Binary output:
-
-```text
-yukkios_6_5_ephemeral/target/x86_64-unknown-linux-musl/release/yukkios_6_5_ephemeral
-```
-
----
-
-## Run
-
-### 1) Start bootstrap server
-
-```bash
-cd yukkios_6_5_ephemeral
-./target/release/yukkios_6_5_ephemeral bootstrap 127.0.0.1:9000
-```
-
-### 2) Start nodes (separate terminals)
-
-```bash
-cd yukkios_6_5_ephemeral
-./target/release/yukkios_6_5_ephemeral node 127.0.0.1:9000 7001
-./target/release/yukkios_6_5_ephemeral node 127.0.0.1:9000 7002
-```
-
-Each node uses:
-
-- JSON control listener on `<p2p_port>`
-- Binary tensor listener on `<p2p_port + 1000>`
-
----
-
-## Interactive Node Commands
-
-From node prompt (`YuKKiOS_6.5 >`):
-
-| Command | Description |
-|---------|-------------|
-| `fleet` / `peers` | List known active nodes |
-| `weave <uuid>` | Start binary laminar stream to target node |
-| `msg <uuid> <text>` | Send JSON control message |
-| `manifest <uuid>` | Request peer manifest |
-| `browse <uuid> [path]` | List remote directory |
-| `quarantine <uuid>` | Blacklist a node |
-| `quarantine_check <uuid>` | Check quarantine status |
-| `exit` / `quit` | Terminate node |
+1. Node A sends its X25519 ephemeral public key (32 bytes raw) over TCP.
+2. Node B responds with its own public key.
+3. Both sides compute `shared = ECDH(my_secret, peer_pub)`.
+4. A lightweight KDF (XOR + rotate with a domain separator) produces the 32-byte session key.
+5. All subsequent frames are AEAD-framed: `[u32 len BE][12-byte nonce][ciphertext+16-byte tag]`.
 
 ---
 
 ## Security Notes
 
-- X25519 + ChaCha20-Poly1305 are used for control-plane session confidentiality in v6.5.0.
-- The `ephemeral_derive_session_key` C function is a lightweight FNV-1a KDF shim; replace with HKDF-SHA256 for production use.
-- The OOB hash is FNV-1a based, not a full cryptographic MAC; do not rely on it for tamper detection in adversarial settings.
-- Review and harden all networking logic before production deployment.
-
----
-
-## Development Notes
-
-- `build.rs` compiles `src/ffi/chaos_weave.c` and links it (plus libm) into the Rust binary.
-- `main.rs` uses async Tokio, safe argument handling (no panics on missing args), and unaligned-safe field reads for packed structs.
-- `SpatiotemporalFrame` layout is identical in C (`laminar_api.h`) and Rust (`#[repr(C, packed)]`) — keep them in sync.
+- **Research/demo software**: the sentinel quarantine and cryptographic mechanisms are proofs-of-concept and have **not** undergone formal security audit.
+- The KDF used (`shared_secret XOR domain_separator + rotate`) is intentionally minimal; replace with **HKDF-SHA256** before any production use.
+- The polymorphic weave (`chacha_weave_payload`) is illustrative; it is **not** an authenticated cipher — replay and mutation attacks are possible.
+- Unsafe FFI calls are minimized to explicit `unsafe` blocks with documented invariants (null pointer guards in C, `CString` bounds checks in Rust).
+- Do not deploy on untrusted networks without hardening the framing protocol and adding mutual authentication.
 
 ---
 
 ## License
 
 This project is distributed under **GNU General Public License v3.0 (GPL-3.0)**.  
-See `vault_license.txt` and repository licensing metadata for details.
+See `yukkios_6_6_sentinel/vault_license.txt` and repository licensing metadata for details.
+

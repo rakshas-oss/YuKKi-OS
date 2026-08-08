@@ -1,2 +1,4 @@
 /target/
+yukkios_6_6_sentinel/target/
+yukkios_6_5_ephemeral/target/
 Cargo.lock
