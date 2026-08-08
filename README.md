@@ -1,4 +1,4 @@
-# YuKKi OS v6.4.2 — Interim-Crypt Edition
+# YuKKi OS v6.4.3 — Out-of-Band Integrity Edition
 
 **Release Date:** August 8, 2026  
 **Repository:** `rakshas-oss/YuKKi-OS`  
@@ -6,13 +6,19 @@
 **License:** GNU General Public License v3.0 (GPL-3.0)  
 **Architect:** Aditya Muralidhar (Rakshas International Unlimited)
 
-YuKKi OS v6.4.2 **Interim-Crypt Edition** advances the spatiotemporal weaving architecture with a hardened payload-binding path powered by **ChaCha20-derived keystream encryption**, while preserving the existing Lorenz-driven tensor model and distributed runtime behavior.
+YuKKi OS v6.4.3 **Out-of-Band Integrity Edition** extends the spatiotemporal weaving architecture with an **out-of-band rolling hash integrity workflow**, **60-frame sync trigger**, and **node quarantine/blacklist** enforcement — while preserving the ChaCha20 payload binding path, Lorenz-driven tensor model, and distributed P2P runtime behavior introduced in v6.4.2.
 
 ---
 
 ## ✨ Key Features
 
-### 🔐 ChaCha20 Payload Binding (NEW in v6.4.2)
+### 🛡️ OOB Rolling Hash Integrity (NEW in v6.4.3)
+- **FNV-1a Rolling Hash Accumulator** — `oob_fnv1a_rolling_hash()` maintains a per-stream integrity fingerprint across all frames. Implemented as an FNV-1a 64-bit derivative; see security notes below.
+- **60-Frame Sync Trigger** — `oob_sync_check(seq)` fires at every 60-frame boundary (`seq % 60 == 0`), signalling the runtime to broadcast the current rolling hash to peers for cross-node integrity comparison.
+- **Node Quarantine / Blacklist** — `oob_quarantine_node(uuid)` registers a peer UUID as quarantined. Quarantined nodes are denied `weave` sessions and excluded from OOB sync participation. Up to 64 nodes may be blacklisted simultaneously.
+- **Shell Commands** — `quarantine <uuid>` and `quarantine_check <uuid>` allow operators to manage the quarantine table interactively.
+
+### 🔐 ChaCha20 Payload Binding (from v6.4.2 — retained)
 - **ChaCha20 ARX Core** - 20-round keystream block generation using quarter-round operations
 - **Sequence-Bound Nonce Derivation** - Packet `seq_id` maps into nonce words for deterministic per-sequence payload transformation
 - **Secure Slab Descriptor** - `SecureQuantumSlab` stores encrypted signature and active basis metadata
@@ -36,7 +42,9 @@ YuKKi OS v6.4.2 **Interim-Crypt Edition** advances the spatiotemporal weaving ar
 - `manifest <uuid>` - Exchange project manifests between nodes
 - `browse/ls <uuid> [path]` - Remote directory listing
 - `get <uuid> <remote_path> <local_path>` - Pull files from peer nodes
-- `weave <uuid>` - Establish binary tensor stream with target node
+- `weave <uuid>` - Establish binary tensor stream with target node (blocked if node is quarantined)
+- `quarantine <uuid>` - Add node to OOB quarantine/blacklist
+- `quarantine_check <uuid>` - Check quarantine status of a node
 - `exit`/`quit` - Graceful shutdown
 
 ---
@@ -46,8 +54,8 @@ YuKKi OS v6.4.2 **Interim-Crypt Edition** advances the spatiotemporal weaving ar
 ### Layer 1: FFI Bridge (Legacy-Safe C99)
 ```
 src/ffi/
-├── laminar_api.h        ← Binary tensor packet definitions
-└── chaos_weave.c        ← Lorenz engine + ChaCha20 payload binding core
+├── laminar_api.h        ← Binary tensor packet definitions + OOB integrity API declarations
+└── chaos_weave.c        ← Lorenz engine + ChaCha20 payload binding + OOB integrity engine
 ```
 
 **Key Components:**
@@ -56,11 +64,19 @@ src/ffi/
 - **chacha20_block()** - Keystream generator using constant-time ARX quarter-round composition
 - **secure_chacha20_bind()** - 16-byte payload binding via XOR against generated keystream bytes
 - **generate_lorenz_step()** - Differential equation solver with numerical stability safeguards
+- **oob_fnv1a_rolling_hash()** - FNV-1a 64-bit rolling hash for stream integrity (non-cryptographic)
+- **oob_integrity_update()** - Per-frame rolling hash accumulation
+- **oob_sync_check()** - 60-frame OOB sync boundary detection
+- **oob_quarantine_node() / oob_is_quarantined()** - Node blacklist management
 
 ### Layer 2: Rust Async Runtime
 ```
 src/main.rs
 ├── ChaosController          ← FFI frame extraction wrapper
+├── oob_update()             ← OOB rolling hash feed per-frame
+├── oob_is_sync_boundary()   ← 60-frame sync trigger check
+├── quarantine_node()        ← Quarantine a peer node UUID
+├── is_node_quarantined()    ← Query quarantine status
 ├── run_c2_bootstrap()       ← WebSocket server for peer registration
 ├── run_p2p_listener()       ← JSON message protocol handler
 ├── run_binary_listener()    ← Binary tensor stream processor
@@ -88,6 +104,9 @@ Cargo.toml                  ← Rust dependency manifest
 | **Default Lorenz Params** | σ=10.0, ρ=28.0, β≈8.333 |
 | **Time Step (dt)** | 0.005 seconds |
 | **Weave Stream Rate** | 100 frames × 15ms intervals = ~1.5s session |
+| **OOB Sync Period** | Every 60 frames |
+| **Quarantine Table** | Up to 64 node UUIDs |
+| **OOB Hash Algorithm** | FNV-1a 64-bit derivative (non-cryptographic) |
 
 ---
 
@@ -109,9 +128,9 @@ Binary output:
 ./target/release/yukkios_6_4_interim
 ```
 
-### Genesis Script (Hardened, Same Features)
+### Genesis Script (v6.4.3 OOB-Integrity Edition)
 ```bash
-zsh ./YuKKi_OS_6.4_Interim-Crypt.sh
+zsh ./YuKKi_OS_6.4.3_OOB-Integrity.sh
 ```
 
 ### Build (Legacy Static - MUSL)
@@ -153,21 +172,40 @@ Binary output:
 - `browse|ls <uuid> [path]`
 - `get <uuid> <remote_path> <local_path>`
 - `weave <uuid>`
+- `quarantine <uuid>` — add node to blacklist
+- `quarantine_check <uuid>` — query quarantine status
 - `exit` / `quit`
 
 ---
 
 ## 🔐 Security & Cryptography Notes
 
-### ChaCha20 Binding Model (v6.4.2)
-The payload binding path in `src/ffi/chaos_weave.c` now uses a ChaCha20-style keystream workflow:
+### OOB Rolling Hash Integrity (v6.4.3)
+The `oob_fnv1a_rolling_hash()` function in `src/ffi/chaos_weave.c` is an FNV-1a 64-bit derivative used for lightweight, non-adversarial stream integrity verification:
+
+1. **FNV-1a Accumulation** — Each byte XORs with the hash state, then multiplies by the FNV-1a prime (1099511628211)
+2. **Sequence Ordering** — The 64-bit `seq_id` is mixed in first, making the hash order-sensitive
+3. **60-Frame Sync** — `oob_sync_check(seq)` returns `1` at every 60th frame; the runtime logs a snapshot trigger
+
+> ⚠️ **Security Disclaimer:** The OOB hash is an FNV-1a derivative and is **NOT** a BLAKE3 or cryptographic MAC. It provides no adversarial tamper-detection guarantee and should not be relied upon for security-critical integrity checks. Use a proper authenticated channel or HMAC for adversarial scenarios.
+
+### Node Quarantine / Blacklist
+Quarantined node UUIDs are stored in a static C-level table (`g_quarantine_table`). The table is in-process only; it does not persist across restarts. Maximum capacity is 64 entries.
+
+> ⚠️ **Limitation:** The quarantine table is process-local and is not broadcast to peers. Coordinated quarantine requires an out-of-band signalling mechanism.
+
+### ChaCha20 Binding Model (from v6.4.2 — retained)
+The payload binding path in `src/ffi/chaos_weave.c` uses a ChaCha20-style keystream workflow:
 
 1. **State Setup** - Sigma constants + 256-bit mesh key + sequence-derived nonce
 2. **20-Round Mixing** - Column and diagonal quarter-round cycles
 3. **Keystream Finalization** - Working state folded back into initial state
 4. **Payload Binding** - First 16 keystream bytes XOR against payload
 
-This upgrade replaces the prior fixed XOR signature approach with a per-sequence transformed signature model and improves variability of payload protection across frame sequences.
+> ⚠️ **Hardcoded Key Note:** The mesh key used in ChaCha20 binding is hardcoded for demonstration. Production deployments should inject keys via a secure provisioning path.
+
+### laminar_api.h Portability
+The packed struct `SpatiotemporalFrame` now uses a portability macro (`LAMINAR_PACKED_ALIGNED`) that resolves to `__attribute__((packed, aligned(8)))` on GCC/Clang and `__declspec(align(8))` on MSVC, with `#pragma pack(push, 1)` for cross-compiler field ordering.
 
 ---
 
@@ -196,5 +234,5 @@ See `vault_license.txt` for complete licensing text.
 ---
 
 **Last Updated:** August 8, 2026  
-**Status:** Stable Release  
+**Status:** Stable Release — v6.4.3 Out-of-Band Integrity Edition  
 **Maintenance:** Active

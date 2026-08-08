@@ -1,9 +1,9 @@
 [package]
 name = "yukkios_6_4_interim"
-version = "6.4.2"
+version = "6.4.3"
 edition = "2021"
 authors = ["Aditya Muralidhar <Rakshas International Unlimited>"]
-description = "YuKKi OS 6.4 Interim ADI Mesh w/ ChaCha20 Payload Binding"
+description = "YuKKi OS 6.4.3 Out-of-Band Integrity Edition — OOB Rolling Hash, 60-Frame Sync, Node Quarantine, ChaCha20 Payload Binding"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "process"] }
