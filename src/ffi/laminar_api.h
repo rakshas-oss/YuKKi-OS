@@ -2,6 +2,7 @@
 #ifndef LAMINAR_API_H
 #define LAMINAR_API_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* Pre-C99 / MSVC Fallback Alignment */
@@ -23,5 +24,9 @@ typedef struct __attribute__((packed, aligned(8))) {
 void chaos_engine_init(double sigma, double rho, double beta);
 void generate_lorenz_step(double dt);
 void weave_spatiotemporal_frame(uint64_t seq, const uint8_t* payload_src, SpatiotemporalFrame* out_frame);
+void crypt_layer_configure(double sigma, double rho, double beta);
+int crypt_layer_encrypt(const uint8_t* input, size_t len, uint64_t nonce, uint8_t* output);
+int crypt_layer_decrypt(const uint8_t* input, size_t len, uint64_t nonce, uint8_t* output);
+void crypt_layer_encrypt_block(const uint8_t* input, uint64_t nonce, uint8_t output[16]);
 
 #endif

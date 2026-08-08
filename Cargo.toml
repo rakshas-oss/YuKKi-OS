@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["Aditya Muralidhar <Rakshas International Unlimited>"]
 description = "YuKKi OS 6.4 Interim ADI Mesh w/ Uncloneable Encryption"
 
+[[bin]]
+name = "yukki_core_node"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full", "process"] }
 tokio-tungstenite = "0.20"

@@ -1,50 +1,46 @@
-# YuKKi OS v6.3.0 — Convergence Edition
+# YuKKi OS v6.4.0 — Interim-Crypt Edition
 
-**Release Date:** August 4, 2026  
+**Release Date:** August 8, 2026  
 **Repository:** `rakshas-oss/YuKKi-OS`  
-**Tag:** `v6.3.0`
+**Tag:** `v6.4.0`
 
-YuKKi OS v6.3.0 introduces the latest convergence architecture, unifying C-based Lorenz dynamics with Rust async networking, P2P operations, and binary frame streaming.
+YuKKi OS v6.4.0 promotes the generated v6.3 sources into a persistent Rust/C repository layout and adds an opt-in Interim-Crypt payload layer on top of the existing Lorenz-driven mesh runtime.
 
 ---
 
 ## ✨ Highlights
 
-- Added the latest **v6.3.0 Convergence build script** (`YuKKi OS 6.3.sh`)
-- Integrated **GPL-3 licensing package generation**
-- Added **FFI protocol definitions** for aligned spatiotemporal tensor frames
-- Added **Lorenz chaos engine core (C)** with numerical safety fallback logic
-- Added **Rust convergence runtime** for:
-  - WebSocket bootstrap/C2 registration
-  - peer fleet synchronization
-  - framed JSON messaging
-  - directory browsing and file transfer
-  - binary weave stream processing
-- Added `build.rs` native build bridge using `cc`
-- Build pipeline now produces optimized binary via `cargo build --release`
+- Persistent tracked source tree for Rust runtime and C FFI components
+- `src/crypto.rs` for Pauli/Clifford-inspired encryption bindings
+- `src/ffi/crypt_layer.c` for mutex-protected bit-level transforms
+- Existing P2P messaging, file transfer, browse, manifest, and weave streaming preserved
+- Backward-compatible framing: plaintext legacy payloads still decode when encryption is disabled
 
 ---
 
-## 🧠 Core Architecture (v6.3)
+## 🧠 Core Architecture (v6.4)
 
-### 1) Laminar FFI Layer
-- `src/ffi/laminar_api.h`
-- Defines packed/aligned `SpatiotemporalFrame` for C ↔ Rust binary compatibility
-
-### 2) Lorenz Weave Engine (C)
-- `src/ffi/chaos_weave.c`
-- Implements stepwise Lorenz attractor generation and frame weaving
-- Includes `isnan`/`isinf` safety resets to preserve runtime continuity
-
-### 3) Rust Convergence Runtime
+### 1) Rust Runtime
 - `src/main.rs`
-- Async networking with Tokio + WebSocket control
-- P2P command plane + binary channel for tensor-stream exchange
-- Node shell commands for fleet control, messaging, browsing, file retrieval, and weave streaming
+- Tokio async networking for bootstrap, P2P control, binary weave streaming, browse, and file transfer
+- Optional encrypted JSON payload transport via `send_p2p_message()` / `handle_p2p_connection()`
 
-### 4) Native Build Integration
+### 2) Crypto Layer
+- `src/crypto.rs`
+- Wraps encrypted payloads with a versioned header and per-message nonce
+- Uses the native crypt layer for reversible payload transforms
+- Enable with `YUKKI_ENABLE_ENCRYPTION=1`
+
+### 3) Native FFI
+- `src/ffi/laminar_api.h`
+- `src/ffi/chaos_weave.c`
+- `src/ffi/crypt_layer.c`
+- Lorenz frame generation remains intact, with encrypted frame payload blocks derived from the sequence number
+
+### 4) Build Integration
 - `build.rs`
-- Compiles and links C core into Rust executable automatically
+- Compiles both native C units and links `libm`/`pthread`
+- `YuKKi_OS_6.4_Interim-Crypt.sh` remains as the release-oriented build orchestrator
 
 ---
 
@@ -55,23 +51,30 @@ YuKKi OS v6.3.0 introduces the latest convergence architecture, unifying C-based
 - JSON-framed P2P control protocol (`msg`, `manifest`, `browse/ls`, `get`)
 - Async file transfer and directory listing utilities
 - Dual-port node networking model:
-  - JSON control channel (P2P operations)
-  - binary tensor channel (weave stream)
+  - JSON control channel
+  - binary tensor channel
+- Opt-in encrypted control-plane payloads with legacy coexistence
 
 ---
 
 ## 🛠 Build & Output
 
-Run the release script:
+Build directly from the repository root:
 
 ```bash
-bash "YuKKi OS 6.3.sh"
+cargo build --release
 ```
 
-On successful compilation, the binary is generated at:
+Or use the orchestrator:
 
 ```bash
-./yukkios_6_3_convergence/target/release/yukki_core_node
+./YuKKi_OS_6.4_Interim-Crypt.sh
+```
+
+Binary output:
+
+```bash
+./target/release/yukki_core_node
 ```
 
 ---
@@ -80,26 +83,29 @@ On successful compilation, the binary is generated at:
 
 ### Start bootstrap node
 ```bash
-./yukki_core_node bootstrap 127.0.0.1:7000
+./target/release/yukki_core_node bootstrap 127.0.0.1:7000
 ```
 
 ### Start client node
 ```bash
-./yukki_core_node node 127.0.0.1:7000 8001
+./target/release/yukki_core_node node 127.0.0.1:7000 8001
 ```
 
-(Launch additional nodes with different P2P ports.)
+### Enable Interim-Crypt payload protection
+```bash
+YUKKI_ENABLE_ENCRYPTION=1 ./target/release/yukki_core_node node 127.0.0.1:7000 8001
+```
 
 ---
 
-## ⚠️ Notes
+## 🔐 Security Model Notes
 
-- This release is shell-driven and generates the project workspace dynamically.
-- Rust source references `stdin.read_line(...)`; ensure Tokio AsyncBufReadExt support is available in your environment.
-- Binary frame parsing uses packed struct reads; validate architecture/ABI assumptions in heterogeneous deployments.
+- Encryption is opt-in so legacy nodes can continue exchanging plaintext framed JSON payloads.
+- Encrypted payloads are tagged with a one-time nonce and transformed through the native Clifford/Pauli-inspired layer configured from the Lorenz parameters.
+- Binary weave transport and file operations remain operational without changing the command set.
 
 ---
 
 ## 📜 License
 
-Distributed under **GNU General Public License v3.0 (GPL-3.0)**.
+Distributed under **GNU General Public License v3.0 (GPL-3.0)** for the v6.4 release.
