@@ -58,7 +58,7 @@ void weave_spatiotemporal_frame(uint64_t seq, const uint8_t* payload_src, Spatio
     if (payload_src) {
         sigma_param = 10.0 + (payload_src[0] / 255.0);
         rho_param   = 28.0 + (payload_src[1] / 255.0);
-        beta_param  = 8.0  + (payload_src[2] / 255.0);
+        beta_param  =  8.0 + (payload_src[2] / 255.0);
     }
     generate_lorenz_step(0.005);
     out_frame->seq_id = seq;
