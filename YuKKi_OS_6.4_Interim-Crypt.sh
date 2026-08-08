@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # ==============================================================================
-# OPEN-SOURCE GENESIS: YUKKI OS V6.4.0 (INTERIM-CRYPT EDITION)
+# OPEN-SOURCE GENESIS: YUKKI OS V6.4.1 (INTERIM-CRYPT EDITION)
 # ARCHITECT: Aditya Muralidhar (Rakshas International Unlimited)
 # LICENSE: GNU General Public License Version 3 (GPL-3)
 # PARADIGM: 6D Lorenz-Weave + P2P File Ops + Uncloneable Encryption
@@ -42,7 +42,7 @@ else
 fi
 
 print -P "${GOLD}======================================================================${RESET}"
-print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.4.0 Interim-Crypt compilation successful.${RESET}"
+print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.4.1 Interim-Crypt compilation successful.${RESET}"
 print -P "${TEAL}[+] Target Binary Location: $BUILD_PATH${RESET}"
 print -P "${GOLD}======================================================================${RESET}"
 print -P "${TEAL}  BUILD CONTENTS (GPL-3 - INTERIM-CRYPT):${RESET}"
