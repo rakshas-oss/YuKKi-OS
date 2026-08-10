@@ -1,0 +1,9 @@
+PROJECT: YuKKi OS 6.4.3 / THE SPATIOTEMPORAL WEAVE (OUT-OF-BAND INTEGRITY EDITION)
+AUTHOR: Aditya Muralidhar / Rakshas International Unlimited
+
+This operating system suite is distributed under the GNU General Public License
+Version 3 (GPL-3). 
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.

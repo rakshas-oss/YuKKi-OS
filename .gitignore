@@ -1,4 +1,31 @@
+# Build artifacts
 /target/
 yukkios_6_6_sentinel/target/
 yukkios_6_5_ephemeral/target/
+yukkios_6_6_4_apex/
+
+# Cargo lock (library crate) — pin if binary
 Cargo.lock
+
+# Editor & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Object files / binaries
+*.o
+*.a
+*.so
+*.dylib
+
+# Compiled output
+debug/
+dist/
+
+# Environment & secrets
+.env
+*.key
+*.pem
