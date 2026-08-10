@@ -1,0 +1,116 @@
+name: Coverage & Metrics
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 6 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-coverage-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Generate XML coverage report
+        run: cargo tarpaulin --out Xml --output-dir coverage/
+      - name: Generate HTML coverage report
+        run: cargo tarpaulin --out Html --output-dir coverage/
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/cobertura.xml
+          fail_ci_if_error: false
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run benchmarks
+        run: cargo bench --no-run
+      - name: Display benchmark binaries
+        run: find target/release/deps -maxdepth 1 -name "*.d" | head -10
+
+  metrics:
+    name: Code Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Count tests
+        run: |
+          echo "=== Test function count ==="
+          grep -r "#\[test\]" tests/ src/ --include="*.rs" | wc -l
+      - name: Count source lines
+        run: |
+          echo "=== Source lines of code ==="
+          find src/ -name "*.rs" | xargs wc -l | tail -1
+      - name: Count integration test lines
+        run: |
+          echo "=== Integration test lines ==="
+          find tests/ -name "*.rs" | xargs wc -l | tail -1
+      - name: List dependencies
+        run: |
+          echo "=== Direct dependencies ==="
+          grep -E "^[a-z]" Cargo.toml | grep "=" | wc -l
+
+  dependency-audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        run: cargo audit
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-license
+        run: cargo install cargo-license --locked
+      - name: List licenses
+        run: cargo license
+      - name: Check for disallowed licenses
+        run: |
+          DISALLOWED=$(cargo license --tsv | grep -iE "GPL-[23]|AGPL" || true)
+          if [ -n "$DISALLOWED" ]; then
+            echo "ERROR: Disallowed licenses found:"
+            echo "$DISALLOWED"
+            exit 1
+          fi
+          echo "All licenses are compliant."
