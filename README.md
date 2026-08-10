@@ -58,6 +58,121 @@ The `WasmSandbox` (`src/wasm_sandbox.rs`) wraps a Wasmtime engine to execute unt
 
 High-resolution timing measurements taken at boot provide a device-unique entropy contribution, seeding the random state with environmental jitter that is not predictable across hardware.
 
+Here is the architecture formatted specifically for a GitHub `README.md` file. The structure uses blockquotes for the marque/brand callouts, a raw code block to preserve the exact spacing of your ASCII schematic, and clean hierarchical headers for the security heuristics to ensure high scannability.
+
+---
+
+# YuKKi OS v6.6.4 [APEX SYNTHESIS]
+
+> **© 2076 RIU (Rakshas International Unlimited)**
+> **Marque : oldies | Brand : oldies**
+
+---
+
+## 🏛️ Architectural Schematic
+
+Below is the complete structural operation, memory flow, and active security heuristic map for the YuKKi OS v6.6.4 architecture.
+
+```text
+========================================================================================
+             YuKKi OS v6.6.4 [APEX SYNTHESIS] - ARCHITECTURAL SCHEMATIC
+                   (C) 2076 RIU | MARQUE : oldies | BRAND : oldies
+========================================================================================
+ 
+                            [ P2P MESH TOPOLOGY ]
+                                      |
+         .----------------------------+----------------------------.
+         |                                                         |
+ [ TCP CONTROL PLANE (Port X) ]                    [ UDP DATA PLANE (Port X+1000) ]
+         |                                                         |
++------------------------------+                  +------------------------------+
+| 1. DUAL-LAYER FIREWALL       |                  | 1. ADI AUTO-TUNING SUITE     |
+|    [!] Heuristic: Check IP   |                  |    [!] Heuristic: 64-bit     |
+|    blacklist PRE-handshake.  |                  |    Alignment & Batch Depth   |
+|    Drop socket instantly if  |                  |    (Short opcodes bypassed)  |
+|    quarantined.              |                  +------------------------------+
++------------------------------+                                   |
+         | (Clean IP)                                              v
+         v                                        +------------------------------+
++------------------------------+                  | 2. 88-BYTE FRAME ACQUISITION |
+| 2. X25519 ECDH HANDSHAKE     |                  |    - seq_id, x, y, z, u, v, w|
+|    - Ephemeral Key Exchange  |                  |    - fluidity, drag, div.    |
+|    - Derives Session Key     |                  |    - 16-byte Payload Chunk   |
++------------------------------+                  +------------------------------+
+         |                                                         |
+         v                                                         v
++------------------------------+                  +------------------------------+
+| 3. AEAD CHACHA20-POLY1305    |                  | 3. POLYMORPHIC CHACHA20 (C99)|
+|    - Decrypts JSON control   |                  |    - Lorenz 6D Attractor     |
+|    messages (OOB Sync)       |                  |    - Virtual PUF Micro-timing|
+|    [!] Heuristic: MAC fail   |                  |    [!] Heuristic: Epsilon    |
+|    triggers Auto-Quarantine. |                  |    Failsafe blocks zero-state|
++------------------------------+                  +------------------------------+
+         |                                                         |
+         | (BLAKE3 Hash / Anchors)                                 | (16B Decrypted Chunk)
+         '----------------------------.----------------------------'
+                                      |
+                                      v
+                       +------------------------------+
+                       | 4. OUT-OF-BAND VALIDATION    |
+                       |    - Accumulates 60 frames   |
+                       |    - Compares C99 payload    |
+                       |      hash against TCP hash.  |
+                       |    [!] Heuristic: Mismatch   |
+                       |    triggers Auto-Quarantine. |
+                       +------------------------------+
+                                      |
+                                      | (Verified Wasm Bytecode)
+                                      v
+                       +------------------------------+
+                       | 5. RUSTASM CIVILIAN SANDBOX  |
+                       |    - Wasmtime Execution      |
+                       |    - Max Stack: 512 KB       |
+                       |    [!] Heuristic: Epoch      |
+                       |    interruption traps loops  |
+                       |    and buffer overflows.     |
+                       +------------------------------+
+                                      |
+                                      v
+========================================================================================
+[!] TERMINAL HEURISTIC: EXPLICIT MEMORY TEARDOWN
+----------------------------------------------------------------------------------------
+ -> C99 `secure_wipe()`    :: Annihilates ChaCha20 matrices & Lorenz permutation states
+ -> Rust `buf.zeroize()`   :: Flushes execution buffer & drops X25519 ephemeral keys
+ -> GOAL                   :: Defeats /proc/kcore RAM scraping & cold-boot attacks
+========================================================================================
+
+```
+
+---
+
+## 🛡️ Active Security Heuristics Breakdown
+
+### 1. The 64-Bit ADI Hardware Clamp
+
+* **Trigger:** Network enqueue and serialization.
+* **Action:** Short opcodes are utterly bypassed. By clamping the `SpatiotemporalFrame` strictly to 88 bytes with zero padding using `#pragma pack(push, 1)`, the architecture prevents pipeline stalls and forces the classical OS to handle data in perfect 64-bit native word segments, mitigating memory fragmentation.
+
+### 2. The Epsilon-Threshold Failsafe
+
+* **Trigger:** Lorenz *x*, *y*, *z* coordinates falling below the `1e-9` threshold.
+* **Action:** If adversarial fuzzing forces the chaotic manifold toward a degenerate zero-state (which would stop the polymorphic keys from rotating), the `fabs()` heuristic violently injects baseline entropy (`0.1`) back into the *x*-axis, preserving forward secrecy.
+
+### 3. The Virtual PUF CPU-Jitter Anchor
+
+* **Trigger:** Node initialization.
+* **Action:** Binds the base ChaCha20 keystream to the microscopic contextual time-drifts (jitter) of the local host CPU (`clock_gettime(CLOCK_MONOTONIC)`). If the VM is cloned or memory is scraped to spoof the node, the micro-timing changes, the keystream breaks, and the network drops the imposter.
+
+### 4. The Sentinel Auto-Quarantine
+
+* **Trigger:** Poly1305 MAC failure (TCP bit-flipping) OR BLAKE3 OOB Hash Mismatch (UDP payload forgery).
+* **Action:** Instantly burns the peer's UUID from the active fleet registry and drops their IP address into the Layer-1 Pre-Handshake Firewall, terminating all future connections in microseconds before X25519 math can waste CPU cycles.
+
+### 5. The Rustasm Epoch Interruption
+
+* **Trigger:** Civilian execution layer logic.
+* **Action:** Validated payloads are run inside a rigid `wasmtime` sandbox with a 512KB limit. If a decrypted payload attempts to poison the host via an infinite loop or buffer overflow, the epoch interrupt instantly panics the Wasm instance, preserving the Linux kernel and the cryptographic core.
+
 ---
 
 ## Repository Structure
