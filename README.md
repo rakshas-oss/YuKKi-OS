@@ -2,7 +2,37 @@
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
 
-> **Research & Demo Software** — Not for production use. See [Security Notes](#security-notes) and `yukkios_6_6_sentinel/vault_license.txt`.
+> **Research & Demo Software** — Not for production use. See [Security Notes](#security-notes) and [`docs/licensing/vault_license.txt`](docs/licensing/vault_license.txt).
+
+---
+
+## Table of Contents
+
+- [Versions](#versions)
+- [Architecture Overview](#architecture-overview--v660-sentinel-mesh)
+- [Repository Structure](#repository-structure)
+- [Build Prerequisites](#build-prerequisites)
+- [Quickstart](#quickstart)
+- [Command Reference](#command-reference)
+- [Core Concepts](#core-concepts)
+- [Security Notes](#security-notes)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, dual-plane architecture, FFI boundary |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, known limitations, audit checklist |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | Version strategy, feature matrix, migration guide |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Build, bootstrap setup, node configuration, commands |
+| [docs/API.md](docs/API.md) | FFI reference, C headers, function signatures, usage examples |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common errors, debug logging, performance tuning |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Per-version feature summaries |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Code style, testing, PR process, security reporting |
 
 ---
 
@@ -50,18 +80,45 @@ Rust code calls `sentinel_quarantine_node` / `sentinel_release_node` via FFI.
 ## Repository Structure
 
 ```text
-yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
-├── Cargo.toml               ← package: yukkios_6_6_sentinel, bin: yukki_sentinel
-├── build.rs                 ← cc crate compiles chaos_weave.c
-├── vault_license.txt        ← GPL-3.0 + research disclaimer
-└── src/
-    ├── main.rs              ← Rust async runtime (Tokio)
-    └── ffi/
-        ├── laminar_api.h    ← ABI header (SpatiotemporalFrame + v6.6 API)
-        └── chaos_weave.c    ← C99: Lorenz core, ChaCha20 weave, sentinel quarantine
-
-yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh
-src/                         ← v6.4.3 OOB Integrity Edition (root package)
+YuKKi-OS/
+├── README.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── Cargo.toml                   ← root package (v6.4.3 OOB Integrity)
+├── build.rs
+├── src/                         ← v6.4.3 OOB Integrity Edition
+│   ├── main.rs
+│   └── ffi/
+│       ├── laminar_api.h
+│       └── chaos_weave.c
+├── yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh
+├── yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
+│   ├── Cargo.toml
+│   ├── build.rs
+│   └── src/
+│       ├── main.rs
+│       └── ffi/
+│           ├── laminar_api.h
+│           └── chaos_weave.c
+├── scripts/
+│   ├── deploy/
+│   │   └── deploy_yukki_6_6_4_apex.zsh   ← v6.6.4 Apex deployment script
+│   └── legacy/                            ← archived v6.4.x scripts (deprecated)
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── CHANGELOG.md
+│   ├── DEPLOYMENT.md
+│   ├── SECURITY.md
+│   ├── TROUBLESHOOTING.md
+│   ├── VERSIONING.md
+│   └── licensing/
+│       └── vault_license.txt
+└── .github/
+    ├── ISSUE_TEMPLATE/
+    │   ├── bug_report.md
+    │   └── feature_request.md
+    └── pull_request_template.md
 ```
 
 ---
