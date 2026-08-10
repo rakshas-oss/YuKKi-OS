@@ -1,4 +1,4 @@
-# YuKKi OS 6.6.0 Sentinel Mesh Edition
+# YuKKi OS v6.6.4 — Apex Synthesis Edition
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
 
@@ -8,9 +8,8 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 ## Table of Contents
 
-- [Versions](#versions)
-- [Architecture Overview](#architecture-overview--v660-sentinel-mesh)
-- [Repository Structure](#repository-structure)
+- [Features](#features)
+- [Architecture Overview](#architecture-overview)
 - [Build Prerequisites](#build-prerequisites)
 - [Quickstart](#quickstart)
 - [Command Reference](#command-reference)
@@ -21,59 +20,43 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 ---
 
-## Documentation
+## Features
 
-| Document | Description |
-|----------|-------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, dual-plane architecture, FFI boundary |
-| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, known limitations, audit checklist |
-| [docs/VERSIONING.md](docs/VERSIONING.md) | Version strategy, feature matrix, migration guide |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Build, bootstrap setup, node configuration, commands |
-| [docs/API.md](docs/API.md) | FFI reference, C headers, function signatures, usage examples |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common errors, debug logging, performance tuning |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Per-version feature summaries |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Code style, testing, PR process, security reporting |
+- ✅ **ADI Dynamic Integration** auto-tuning suite — runtime queue depth and hardware profile optimization
+- ✅ **Virtual PUF** micro-timing anchor for entropy seeding
+- ✅ **Rustasm WebAssembly Sandbox** (Wasmtime) — isolated execution environment
+- ✅ **Explicit volatile memory wiping** with `zeroize` crate
+- ✅ **Epsilon-Threshold Failsafe** for Lorenz attractor recovery
+- ✅ **X25519 ECDH** ephemeral key exchange + **ChaCha20-Poly1305 AEAD** control plane
+- ✅ **Polymorphic payload weave** — attractor-bound cipher stream
 
 ---
 
-## Versions
+## Architecture Overview
 
-| Version | Directory | Highlights |
-|---------|-----------|------------|
-| **6.6.0 Sentinel Mesh** | `yukkios_6_6_sentinel/` | X25519 ECDH + AEAD TCP + ChaCha20 polymorphic weave + dual-layer sentinel quarantine |
-| 6.5.0 Ephemeral Mesh | `yukkios_6_5_ephemeral/` | X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security |
-| 6.4.3 OOB Integrity | (root `src/`) | FNV-1a rolling hash, 60-frame OOB sync, node quarantine |
-
----
-
-## Architecture Overview — v6.6.0 Sentinel Mesh
-
-YuKKi OS 6.6.0 is a dual-plane peer-to-peer system with ephemeral session security and sentinel quarantine.
+YuKKi OS v6.6.4 is a dual-plane peer-to-peer system with ephemeral session security, ADI auto-tuning, and a Rustasm WebAssembly sandbox.
 
 ### Control Plane
 
-JSON messages over raw TCP, framed with a 4-byte big-endian length prefix.  
+JSON messages over raw TCP, framed with a 4-byte big-endian length prefix.
 Every message is encrypted with **ChaCha20-Poly1305 AEAD** using a session key derived from an **X25519 Diffie-Hellman** exchange (one ephemeral key-pair per session, never persisted).
 
 ### Data Plane
 
-Binary `SpatiotemporalFrame` (88 bytes) stream produced by the **Lorenz attractor** C core (`chaos_weave.c`).  
-Frames carry a 16-byte payload slot, a fluidity/drag coefficient pair, and a divergence scalar derived from Lorenz state.
+Binary `SpatiotemporalFrame` (88 bytes) stream produced by the **Lorenz attractor** C core (`src/ffi/chaos_weave.c`).
+Frames carry a 16-byte payload slot, a fluidity/drag coefficient pair, and a divergence scalar.
 
-### Integrity Sync — Sentinel Quarantine
+### ADI Auto-Tuning Suite
 
-The C layer maintains a dual-layer quarantine registry (up to 256 entries):
+The `ADIAutoTuner` (`src/adi_auto_tune.rs`) benchmarks encoding throughput and queuing efficiency at startup to select the optimal queue depth and hardware profile for the current environment.
 
-| Level | Name | Trigger | Effect |
-|-------|------|---------|--------|
-| 1 | Soft quarantine | Frame-hash mismatch detected | Messages from node are logged and dropped |
-| 2 | Hard quarantine | Escalation (re-quarantine of level-1 node) | Connection rejected at handshake |
+### Rustasm WebAssembly Sandbox
 
-Rust code calls `sentinel_quarantine_node` / `sentinel_release_node` via FFI.
+The `WasmSandbox` (`src/wasm_sandbox.rs`) wraps a Wasmtime engine to execute untrusted modules in isolation, returning results without exposing host memory.
 
-### Polymorphic Payload Weave
+### Virtual PUF (Micro-Timing Anchor)
 
-`chacha_weave_payload` (C99) XORs arbitrary plaintext against a ChaCha20 keystream whose key is mixed with the current Lorenz attractor state, producing a **session-unique, attractor-bound cipher stream**.
+High-resolution timing measurements taken at boot provide a device-unique entropy contribution, seeding the random state with environmental jitter that is not predictable across hardware.
 
 ---
 
@@ -84,26 +67,15 @@ YuKKi-OS/
 ├── README.md
 ├── CONTRIBUTING.md
 ├── LICENSE
-├── Cargo.toml                   ← root package (v6.4.3 OOB Integrity)
+├── Cargo.toml                        ← v6.6.4 Apex Synthesis
 ├── build.rs
-├── src/                         ← v6.4.3 OOB Integrity Edition
-│   ├── main.rs
+├── src/
+│   ├── main.rs                       ← v6.6.4 Apex entry point
+│   ├── adi_auto_tune.rs              ← ADI Dynamic Integration suite
+│   ├── wasm_sandbox.rs               ← Rustasm WebAssembly sandbox
 │   └── ffi/
 │       ├── laminar_api.h
 │       └── chaos_weave.c
-├── yukkios_6_5_ephemeral/       ← v6.5.0 Ephemeral Mesh
-├── yukkios_6_6_sentinel/        ← v6.6.0 Sentinel Mesh (current)
-│   ├── Cargo.toml
-│   ├── build.rs
-│   └── src/
-│       ├── main.rs
-│       └── ffi/
-│           ├── laminar_api.h
-│           └── chaos_weave.c
-├── scripts/
-│   ├── deploy/
-│   │   └── deploy_yukki_6_6_4_apex.zsh   ← v6.6.4 Apex deployment script
-│   └── legacy/                            ← archived v6.4.x scripts (deprecated)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── API.md
@@ -111,9 +83,17 @@ YuKKi-OS/
 │   ├── DEPLOYMENT.md
 │   ├── SECURITY.md
 │   ├── TROUBLESHOOTING.md
-│   ├── VERSIONING.md
+│   ├── VERSIONING.md                 ← version history (archived)
 │   └── licensing/
 │       └── vault_license.txt
+├── scripts/
+│   ├── deploy/
+│   │   ├── deploy_yukki_6_6_4_apex.zsh
+│   │   └── README.md
+│   └── legacy/
+│       ├── YuKKi_OS_6.4.3_OOB-Integrity.sh
+│       ├── YuKKi_OS_6.4_Interim-Crypt.sh
+│       └── DEPRECATED.md
 └── .github/
     ├── ISSUE_TEMPLATE/
     │   ├── bug_report.md
@@ -136,11 +116,10 @@ YuKKi-OS/
 ### Build
 
 ```bash
-cd yukkios_6_6_sentinel
 cargo build --release
 ```
 
-Binary output: `yukkios_6_6_sentinel/target/release/yukki_sentinel`
+Binary output: `target/release/yukki_core_node`
 
 #### MUSL static build (optional)
 
@@ -154,8 +133,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 Start the bootstrap server (listens for inbound node connections):
 
 ```bash
-cd yukkios_6_6_sentinel
-./target/release/yukki_sentinel bootstrap 0.0.0.0:7660
+./target/release/yukki_core_node bootstrap 0.0.0.0:7660
 ```
 
 ### Run — Peer node
@@ -163,8 +141,7 @@ cd yukkios_6_6_sentinel
 Connect a peer node to the bootstrap:
 
 ```bash
-cd yukkios_6_6_sentinel
-./target/release/yukki_sentinel node 127.0.0.1:7660
+./target/release/yukki_core_node node 127.0.0.1:7660 9999
 ```
 
 ---
@@ -180,22 +157,6 @@ From the interactive prompt (`>`):
 | `weave <data>` | Announce a polymorphic-woven payload (`WeaveAnnounce`) |
 | `exit` / `quit` | Shut down the node |
 
-### Examples
-
-```
-> fleet peers
-  node-3f7a2... @ 127.0.0.1:49821 [q=0]
-
-> msg node-3f7a2 hello sentinel mesh
-[node-…] msg from node-3f7a2 [seq=1]: hello sentinel mesh
-
-> weave deadbeef
-[node-…] weave from … [seq=2]: <hex>
-
-> exit
-Exiting...
-```
-
 ---
 
 ## Core Concepts
@@ -206,30 +167,48 @@ Exiting...
 seq_id (u64) | x y z (f64×3) | u v w (f64×3) | fluidity (f32) | drag (f32) | divergence (f64) | payload (u8×16)
 ```
 
-The `#[repr(C, packed)]` Rust struct and the `#pragma pack(push,1)` C struct are kept byte-identical.
+The `#[repr(C, packed)]` Rust struct and the `#pragma pack(push,1)` C struct are kept byte-identical across FFI boundaries.
 
 ### X25519 Handshake Protocol
 
 1. Node A sends its X25519 ephemeral public key (32 bytes raw) over TCP.
 2. Node B responds with its own public key.
 3. Both sides compute `shared = ECDH(my_secret, peer_pub)`.
-4. A lightweight KDF (XOR + rotate with a domain separator) produces the 32-byte session key.
+4. A lightweight KDF produces the 32-byte session key.
 5. All subsequent frames are AEAD-framed: `[u32 len BE][12-byte nonce][ciphertext+16-byte tag]`.
+
+### Epsilon-Threshold Failsafe
+
+When Lorenz attractor state diverges beyond a configurable epsilon threshold, the system resets to a known stable attractor point, preventing runaway divergence from corrupting frame generation.
 
 ---
 
 ## Security Notes
 
-- **Research/demo software**: the sentinel quarantine and cryptographic mechanisms are proofs-of-concept and have **not** undergone formal security audit.
-- The KDF used (`shared_secret XOR domain_separator + rotate`) is intentionally minimal; replace with **HKDF-SHA256** before any production use.
+- **Research/demo software**: cryptographic mechanisms are proofs-of-concept and have **not** undergone formal security audit.
+- The KDF used is intentionally minimal; replace with **HKDF-SHA256** before any production use.
 - The polymorphic weave (`chacha_weave_payload`) is illustrative; it is **not** an authenticated cipher — replay and mutation attacks are possible.
-- Unsafe FFI calls are minimized to explicit `unsafe` blocks with documented invariants (null pointer guards in C, `CString` bounds checks in Rust).
+- Unsafe FFI calls are minimized to explicit `unsafe` blocks with documented invariants.
 - Do not deploy on untrusted networks without hardening the framing protocol and adding mutual authentication.
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, dual-plane architecture, FFI boundary |
+| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, known limitations, audit checklist |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | Version history (archived) |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Build, bootstrap setup, node configuration, commands |
+| [docs/API.md](docs/API.md) | FFI reference, C headers, function signatures |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common errors, debug logging, performance tuning |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Code style, testing, PR process, security reporting |
 
 ---
 
 ## License
 
 This project is distributed under **GNU General Public License v3.0 (GPL-3.0)**.  
-See `yukkios_6_6_sentinel/vault_license.txt` and repository licensing metadata for details.
-
+See [`docs/licensing/vault_license.txt`](docs/licensing/vault_license.txt) and `LICENSE` for details.

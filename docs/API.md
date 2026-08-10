@@ -1,157 +1,153 @@
-# YuKKi OS — FFI & API Reference
+# YuKKi OS v6.6.4 — FFI & API Reference
 
-This document describes the C ABI exported by `chaos_weave.c` and consumed by the Rust runtime via FFI.
-
-Header: `src/ffi/laminar_api.h` (shared across versions)
+This document describes the C ABI exported by `src/ffi/chaos_weave.c` and consumed by the Rust runtime via FFI, plus the Rust-level public API for v6.6.4 modules.
 
 ---
 
-## SpatiotemporalFrame (ABI-stable, 88 bytes)
+## C FFI Layer — `src/ffi/laminar_api.h`
+
+### SpatiotemporalFrame
 
 ```c
 #pragma pack(push, 1)
 typedef struct {
-    uint64_t seq_id;       // Monotonic frame sequence number
-    double   x;            // Lorenz state x
-    double   y;            // Lorenz state y
-    double   z;            // Lorenz state z
-    double   u;            // Lorenz velocity u
-    double   v;            // Lorenz velocity v
-    double   w;            // Lorenz velocity w
-    float    fluidity;     // Fluidity coefficient (derived from state)
-    float    drag;         // Drag coefficient
-    double   divergence;   // Divergence scalar
-    uint8_t  payload[16];  // Application payload slot
+    uint64_t seq_id;
+    double   x, y, z;
+    double   u, v, w;
+    float    fluidity;
+    float    drag;
+    double   divergence;
+    uint8_t  payload[16];
 } SpatiotemporalFrame;
 #pragma pack(pop)
 ```
 
-The Rust counterpart is `#[repr(C, packed)]` and must remain byte-identical to the C struct.
+Total size: 88 bytes. Layout is ABI-stable and byte-identical to the Rust `#[repr(C, packed)]` struct.
 
 ---
 
-## Lorenz Engine
+### Frame Functions
 
-### `chaos_engine_reseed`
-
-```c
-void chaos_engine_reseed(double sigma, double rho, double beta,
-                         double x0, double y0, double z0);
-```
-
-Initialise or re-seed the Lorenz attractor. Standard parameters: σ=10, ρ=28, β=8/3.
-
-### `weave_spatiotemporal_frame`
+#### `lorenz_step`
 
 ```c
-void weave_spatiotemporal_frame(uint64_t seq,
-                                const uint8_t *payload_src,
-                                SpatiotemporalFrame *out_frame);
+void lorenz_step(SpatiotemporalFrame *frame, double dt);
 ```
 
-Step the Lorenz integrator and fill `out_frame` with the current state. Copies up to 16 bytes from `payload_src` into `out_frame->payload`. `out_frame` must not be NULL.
+Advances the Lorenz attractor by one time step `dt`. Updates `x`, `y`, `z` (attractor state), `u`, `v`, `w` (velocity), and `divergence`.
+
+#### `chacha_weave_payload`
+
+```c
+void chacha_weave_payload(
+    SpatiotemporalFrame *frame,
+    const uint8_t *key,      // 32 bytes
+    const uint8_t *nonce,    // 12 bytes
+    const uint8_t *input,    // up to 16 bytes
+    uint8_t *output          // 16 bytes
+);
+```
+
+XORs `input` against a ChaCha20 keystream whose 32-byte key is mixed with the current Lorenz attractor state. **Not authenticated** — illustrative only.
 
 ---
 
-## ChaCha20 Polymorphic Weave
+### Quarantine Functions
 
-### `chacha_weave_payload`
+#### `sentinel_quarantine_node`
 
 ```c
-int chacha_weave_payload(const uint8_t *nonce12,
-                         const uint8_t *shared_key32,
-                         const uint8_t *plaintext,
-                         size_t len,
-                         uint8_t *out);
+void sentinel_quarantine_node(uint64_t node_id, int hard);
 ```
 
-XORs `plaintext` of `len` bytes against a ChaCha20 keystream whose 256-bit key is formed by mixing `shared_key32` with the current Lorenz state. The 12-byte `nonce12` is used directly as the ChaCha20 nonce.
+Adds `node_id` to the quarantine registry. `hard = 0` is soft quarantine (messages logged and dropped); `hard = 1` is hard quarantine (connection rejected at handshake).
 
-Returns `0` on success, `-1` on invalid arguments (NULL pointers or `len == 0`).
+#### `sentinel_release_node`
 
-> **⚠ Warning:** This function does not produce an authenticated ciphertext. Use `chacha20poly1305` for authenticated encryption.
+```c
+void sentinel_release_node(uint64_t node_id);
+```
 
-**Rust FFI binding:**
+Removes `node_id` from all quarantine levels.
+
+#### `is_quarantined`
+
+```c
+int is_quarantined(uint64_t node_id);
+```
+
+Returns `1` if the node is quarantined (either level), `0` otherwise.
+
+---
+
+## Rust Public API
+
+### `ADIAutoTuner` — `src/adi_auto_tune.rs`
+
 ```rust
-extern "C" {
-    fn chacha_weave_payload(
-        nonce12: *const u8,
-        shared_key32: *const u8,
-        plaintext: *const u8,
-        len: usize,
-        out: *mut u8,
-    ) -> std::os::raw::c_int;
+pub struct ADIAutoTuner {
+    pub optimal_queue_depth: usize,
+    pub active_hardware_profile: String,
+}
+
+impl ADIAutoTuner {
+    pub fn new() -> Self;
+    pub fn test_encoding_throughput(&self) -> bool;
+    pub fn test_enquing_efficiency(&mut self) -> bool;
 }
 ```
 
----
-
-## Sentinel Quarantine
-
-### `sentinel_quarantine_node`
-
-```c
-void sentinel_quarantine_node(const char *node_uuid);
-```
-
-Registers `node_uuid` in the quarantine registry. If already soft-quarantined, escalates to hard quarantine. Registry capacity: 256 entries.
-
-### `sentinel_release_node`
-
-```c
-void sentinel_release_node(const char *node_uuid);
-```
-
-Removes `node_uuid` from the quarantine registry at all levels.
-
-### `sentinel_is_quarantined`
-
-```c
-int sentinel_is_quarantined(const char *node_uuid);
-```
-
-Returns `1` if the node is quarantined at any level, `0` otherwise.
-
-### `sentinel_quarantine_level`
-
-```c
-int sentinel_quarantine_level(const char *node_uuid);
-```
-
-Returns `2` (hard), `1` (soft), or `0` (clear).
+Instantiate with `ADIAutoTuner::new()`, then call both test methods. Results are printed to stdout; return value indicates pass (`true`) or fail (`false`).
 
 ---
 
-## Usage Example (Rust)
+### `WasmSandbox` — `src/wasm_sandbox.rs`
 
 ```rust
-use std::ffi::CString;
+pub struct WasmSandbox {
+    engine: wasmtime::Engine,
+}
 
-unsafe {
-    let node = CString::new("node-3f7a2abc").unwrap();
-    sentinel_quarantine_node(node.as_ptr());
-    assert_eq!(sentinel_quarantine_level(node.as_ptr()), 1);
-    sentinel_quarantine_node(node.as_ptr()); // escalate
-    assert_eq!(sentinel_quarantine_level(node.as_ptr()), 2);
-    sentinel_release_node(node.as_ptr());
-    assert_eq!(sentinel_is_quarantined(node.as_ptr()), 0);
+impl WasmSandbox {
+    pub fn new() -> Self;
+    pub fn execute(&self, wasm_bytes: &[u8]) -> Result<i32, String>;
 }
 ```
 
+Provide raw WASM bytes to `execute`. Returns the integer result of the module's `main` export, or an error string.
+
 ---
 
-## Build Integration
-
-The C source is compiled by `build.rs` using the `cc` crate:
+### `SpatiotemporalFrame` — `src/main.rs`
 
 ```rust
-// build.rs
+#[repr(C, packed)]
+pub struct SpatiotemporalFrame {
+    pub seq_id:     u64,
+    pub x: f64, pub y: f64, pub z: f64,
+    pub u: f64, pub v: f64, pub w: f64,
+    pub fluidity:   f32,
+    pub drag:       f32,
+    pub divergence: f64,
+    pub payload:    [u8; 16],
+}
+```
+
+Byte-identical to the C struct above.
+
+---
+
+## Build Dependencies
+
+The FFI layer is compiled by `build.rs`:
+
+```rust
 fn main() {
+    println!("cargo:rerun-if-changed=src/ffi/chaos_weave.c");
     cc::Build::new()
         .file("src/ffi/chaos_weave.c")
+        .include("src/ffi")
         .flag("-std=c99")
         .compile("chaos_weave");
 }
 ```
-
-No separate `make` step is required — `cargo build` handles everything.

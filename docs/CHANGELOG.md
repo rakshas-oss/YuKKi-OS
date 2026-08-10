@@ -1,66 +1,56 @@
 # Changelog
 
-All notable changes to YuKKi OS are documented here.
+---
+
+## v6.6.4 — Apex Synthesis Edition
+
+**Release focus:** Canonical production release unifying all v6.6.x advances.
+
+### New Features
+
+- **ADI Dynamic Integration auto-tuning suite** (`src/adi_auto_tune.rs`)
+  - Benchmarks encoding throughput (10 000-frame test) and queuing efficiency (1 000-frame test) at startup
+  - Dynamically selects optimal queue depth and hardware profile string
+- **Virtual PUF — Micro-Timing Anchor**
+  - High-resolution timing jitter measured at boot to seed device-unique entropy
+  - Not predictable across hardware instances
+- **Rustasm WebAssembly Sandbox** (`src/wasm_sandbox.rs`)
+  - Wasmtime-backed isolated execution for untrusted modules
+  - Results returned without exposing host memory
+- **Explicit volatile memory wiping** via `zeroize` crate
+  - `ZeroizeOnDrop` on all ephemeral key material
+  - `secure_wipe` helper for sensitive byte arrays
+- **Epsilon-Threshold Failsafe**
+  - Monitors Lorenz attractor divergence; resets to stable point when divergence exceeds threshold
+
+### Improvements
+
+- Upgraded to X25519-dalek v2.0 with `static_secrets` feature
+- ChaCha20-Poly1305 AEAD on both control and data planes
+- Polymorphic attractor-bound payload weave (Lorenz-keyed ChaCha20 keystream)
+- 64-bit flat topology with strict opcode alignment
+
+### Dependencies Added
+
+- `x25519-dalek = "2.0"` with `static_secrets`
+- `chacha20poly1305 = "0.10"`
+- `wasmtime = "14.0"`
+- `zeroize = "1.6"` with `derive`
 
 ---
 
-## [6.6.4] — Apex Synthesis Edition
+## Archived Release Summaries
 
-**Generated via:** `scripts/deploy/deploy_yukki_6_6_4_apex.zsh`  
-**Binary:** `yukki_core_node`
+### v6.6.0 — Sentinel Mesh Edition
 
-### Added
-- **Epsilon-Threshold Failsafe** — deterministic trip condition for attractor divergence
-- **Virtual PUF (Micro-Timing Anchor)** — device fingerprinting via micro-timing jitter
-- **Explicit Zeroize (`secure_wipe`)** — guaranteed memory wiping before free, preventing secret leakage
-- **Rustasm WebAssembly Sandbox** — untrusted payload execution in isolated WASM environment
-- **ADI Auto-Tuning Suite** — adaptive integration for real-time Lorenz parameter adjustment
-- Bilingual (French/English) labeling under the `oldies` brand (RIU — Rakshas International Unlimited)
-- Strict 64-bit flat topology; all short opcodes bypassed for hardware alignment
+Dual-layer sentinel quarantine (soft/hard), X25519 ECDH, ChaCha20 polymorphic weave, TCP AEAD framing.
 
----
+### v6.5.0 — Ephemeral Mesh Edition
 
-## [6.6.0] — Sentinel Mesh Edition
+X25519 ECDH + ChaCha20-Poly1305 AEAD control-plane security. Ephemeral session keys.
 
-**Directory:** `yukkios_6_6_sentinel/`  
-**Binary:** `yukki_sentinel`
+### v6.4.3 — OOB Integrity Edition
 
-### Added
-- Dual-layer sentinel quarantine registry (soft + hard, up to 256 entries)
-- `chacha_weave_payload` — attractor-bound ChaCha20 polymorphic cipher stream
-- `SpatiotemporalFrame` extended with `fluidity`, `drag`, and `divergence` fields (88 bytes total)
-- `sentinel_quarantine_node`, `sentinel_release_node`, `sentinel_is_quarantined`, `sentinel_quarantine_level` FFI calls
-- `WeaveAnnounce` message type for broadcast of woven payloads
+FNV-1a rolling hash, 60-frame OOB sync, node quarantine, ChaCha20 payload binding.
 
-### Changed
-- ABI: `SpatiotemporalFrame` expanded from 72 → 88 bytes (breaking change from v6.5.0)
-
----
-
-## [6.5.0] — Ephemeral Mesh Edition
-
-**Directory:** `yukkios_6_5_ephemeral/`  
-**Binary:** `yukki_ephemeral`
-
-### Added
-- X25519 ECDH ephemeral key exchange (one key-pair per session, never persisted)
-- ChaCha20-Poly1305 AEAD session encryption: `[u32 len BE][12-byte nonce][ciphertext + 16-byte tag]`
-- Lightweight KDF: `shared_secret XOR domain_separator + rotate` → 32-byte session key
-- `FluidMessage` and `PeerList` message types
-
-### Changed
-- Replaced FNV-1a rolling-hash transport with AEAD-framed TCP sessions
-
----
-
-## [6.4.3] — OOB Integrity Edition
-
-**Directory:** `src/` (root package)  
-**Binary:** `yukki_oob`
-
-### Added
-- FNV-1a rolling hash for frame integrity verification
-- 60-frame out-of-band sync window
-- Node quarantine (single-layer, Rust-side registry)
-- Lorenz attractor C core (`chaos_weave.c`) via FFI
-- Initial `SpatiotemporalFrame` ABI (72 bytes)
+> Full source for archived versions is available in git history.

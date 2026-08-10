@@ -1,8 +1,5 @@
 # Build artifacts
-/target/
-yukkios_6_6_sentinel/target/
-yukkios_6_5_ephemeral/target/
-yukkios_6_6_4_apex/
+target/
 
 # Cargo lock (library crate) — pin if binary
 Cargo.lock
