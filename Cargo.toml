@@ -3,6 +3,14 @@ name = "yukkios_6_6_4_apex"
 version = "6.6.4"
 edition = "2021"
 
+[lib]
+name = "yukkios_6_6_4_apex"
+path = "src/lib.rs"
+
+[[bin]]
+name = "yukki_core_node"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full", "process"] }
 tokio-tungstenite = "0.20"
