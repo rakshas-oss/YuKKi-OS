@@ -1,7 +1,8 @@
 mod adi_auto_tune;
 mod wasm_sandbox;
 
-use tokio::{net::{TcpListener, TcpStream}, sync::{mpsc, Mutex}, io::{AsyncReadExt, AsyncWriteExt}};
+use tokio::{net::{TcpListener, TcpStream}, sync::{mpsc, Mutex}, io::{AsyncReadExt, AsyncWriteExt, AsyncBufReadExt}};
+use std::io::Write;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::protocol::Message as WsMessage};
 use futures_util::{StreamExt, SinkExt};
 use serde::{Serialize, Deserialize};
@@ -30,6 +31,7 @@ pub struct SpatiotemporalFrame {
    anchor_x: Option<f64>, anchor_y: Option<f64>, anchor_z: Option<f64>, anchor_seq: Option<u64>,
 }
 
+#[link(name = "chaos_weave", kind = "static")]
 extern "C" {
    fn chaos_engine_init(sigma: f64, rho: f64, beta: f64);
    fn force_lorenz_resync(x: f64, y: f64, z: f64);

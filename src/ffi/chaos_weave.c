@@ -185,3 +185,13 @@ int oob_is_quarantined(const char *node_uuid) {
     }
     return 0;
 }
+
+/*
+ * force_lorenz_resync — forcibly sets the Lorenz attractor state to the
+ * provided (x, y, z) coordinates, triggering an immediate resynchronisation.
+ */
+void force_lorenz_resync(double x, double y, double z) {
+    x_state = x;
+    y_state = y;
+    z_state = z;
+}

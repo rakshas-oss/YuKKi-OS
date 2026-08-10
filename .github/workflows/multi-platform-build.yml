@@ -1,0 +1,139 @@
+name: Multi-Platform Build
+
+on:
+  push:
+    branches: ["main", "copilot/**"]
+  pull_request:
+    branches: ["main"]
+  release:
+    types: [created]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Linux (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            artifact: yukki_core_node-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            artifact: yukki_core_node-linux-arm64
+            cross: true
+          - target: armv7-unknown-linux-gnueabihf
+            artifact: yukki_core_node-linux-armv7
+            cross: true
+          - target: x86_64-unknown-linux-musl
+            artifact: yukki_core_node-linux-x86_64-musl
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross-compilation tools
+        if: matrix.cross == true
+        run: cargo install cross --locked
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get install -y musl-tools
+      - name: Build (cross)
+        if: matrix.cross == true
+        run: cross build --release --target ${{ matrix.target }}
+      - name: Build (native)
+        if: matrix.cross != true
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/yukki_core_node*
+          if-no-files-found: warn
+
+  build-macos:
+    name: macOS (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            artifact: yukki_core_node-macos-x86_64
+          - target: aarch64-apple-darwin
+            artifact: yukki_core_node-macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/yukki_core_node
+
+  build-windows:
+    name: Windows (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukki_core_node-windows-x86_64
+          path: target/x86_64-pc-windows-msvc/release/yukki_core_node.exe
+
+  build-wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --lib --release --target wasm32-unknown-unknown
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukki_core_node-wasm
+          path: target/wasm32-unknown-unknown/release/*.wasm
+          if-no-files-found: warn
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows, build-wasm]
+    if: always()
+    steps:
+      - name: Report build results
+        run: |
+          echo "Linux builds: ${{ needs.build-linux.result }}"
+          echo "macOS builds: ${{ needs.build-macos.result }}"
+          echo "Windows build: ${{ needs.build-windows.result }}"
+          echo "WASM build: ${{ needs.build-wasm.result }}"
