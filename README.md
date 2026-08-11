@@ -75,7 +75,7 @@ Below is the complete structural operation, memory flow, and active security heu
 ```text
 ========================================================================================
              YuKKi OS v6.6.4 [APEX SYNTHESIS] - ARCHITECTURAL SCHEMATIC
-                   (C) 2076 RIU | MARQUE : oldies | BRAND : oldies
+                   (C) 2026 Rakshas Intl Unltd
 ========================================================================================
  
                             [ P2P MESH TOPOLOGY ]
