@@ -64,8 +64,7 @@ Here is the architecture formatted specifically for a GitHub `README.md` file. T
 
 # YuKKi OS v6.6.4 [APEX SYNTHESIS]
 
-> **© 2076 RIU (Rakshas International Unlimited)**
-> **Marque : oldies | Brand : oldies**
+> **© 2026 RIU (Rakshas International Unlimited)**
 
 ---
 
