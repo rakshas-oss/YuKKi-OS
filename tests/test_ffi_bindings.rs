@@ -1,7 +1,7 @@
 /// Tests for C FFI Layer Bindings
 /// Validates extern "C" declarations and function correctness
 
-use yukkios_6_6_4_apex::SpatiotemporalFrame;
+use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 
 // Extern declarations matching those in main.rs
 extern "C" {

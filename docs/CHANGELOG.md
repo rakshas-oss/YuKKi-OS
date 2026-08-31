@@ -2,7 +2,7 @@
 
 ---
 
-## v6.6.4 — Apex Synthesis Edition
+## v6.6.4 — Inet3 Edition
 
 **Release focus:** Canonical production release unifying all v6.6.x advances.
 

@@ -1,10 +1,10 @@
 [package]
-name = "yukkios_6_6_4_apex"
-version = "6.6.4"
+name = "yukkios_6_6_6_inet3"
+version = "6.6.6"
 edition = "2021"
 
 [lib]
-name = "yukkios_6_6_4_apex"
+name = "yukkios_6_6_6_inet3"
 path = "src/lib.rs"
 
 [[bin]]

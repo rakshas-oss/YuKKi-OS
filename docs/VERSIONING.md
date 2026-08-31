@@ -6,7 +6,7 @@
 
 ## Current Version
 
-### v6.6.4 — Apex Synthesis Edition (Current)
+### v6.6.4 — Inet3 Edition (Current)
 
 The canonical production release. Fuses the highest-performing elements from the v6.6.x architecture line into a single unified deployment.
 
