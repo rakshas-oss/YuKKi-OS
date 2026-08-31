@@ -37,8 +37,8 @@ Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
 An automated deployment script is provided at `scripts/deploy/deploy_yukki_6_6_4_apex.zsh` (legacy filename retained).
 
 ```bash
-chmod +x scripts/deploy/deploy_yukki_6_6_4_apex.zsh
-./scripts/deploy/deploy_yukki_6_6_4_apex.zsh
+chmod +x scripts/deploy/deploy_yukki_6_6_4_inet3.zsh
+./scripts/deploy/deploy_yukki_6_6_4_inet3.zsh
 ```
 
 This script generates the full source tree, builds the binary, and confirms the deployment.

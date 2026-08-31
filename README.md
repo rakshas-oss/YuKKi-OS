@@ -202,7 +202,7 @@ YuKKi-OS/
 │       └── vault_license.txt
 ├── scripts/
 │   ├── deploy/
-│   │   ├── deploy_yukki_6_6_4_apex.zsh
+│   │   ├── deploy_yukki_6_6_4_inet3.zsh
 │   │   └── README.md
 │   └── legacy/
 │       ├── YuKKi_OS_6.4.3_OOB-Integrity.sh
