@@ -24,5 +24,20 @@ rand_core = { version = "0.6", features = ["getrandom", "std"] }
 wasmtime = "14.0"
 zeroize = { version = "1.6", features = ["derive"] }
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "adi_benchmarks"
+harness = false
+
+[[bench]]
+name = "crypto_benchmarks"
+harness = false
+
+[[bench]]
+name = "frame_benchmarks"
+harness = false
+
 [build-dependencies]
 cc = "1.0"
