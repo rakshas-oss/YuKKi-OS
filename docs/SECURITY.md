@@ -1,4 +1,4 @@
-# YuKKi OS v6.6.4 — Security Documentation
+# YuKKi OS v6.6.6 — Security Documentation
 
 > **This is research/demo software. Do not deploy on untrusted networks without further hardening.**
 

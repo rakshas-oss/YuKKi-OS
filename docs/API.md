@@ -1,6 +1,6 @@
-# YuKKi OS v6.6.4 — FFI & API Reference
+# YuKKi OS v6.6.6 — FFI & API Reference
 
-This document describes the C ABI exported by `src/ffi/chaos_weave.c` and consumed by the Rust runtime via FFI, plus the Rust-level public API for v6.6.4 modules.
+This document describes the C ABI exported by `src/ffi/chaos_weave.c` and consumed by the Rust runtime via FFI, plus the Rust-level public API for v6.6.6 modules.
 
 ---
 

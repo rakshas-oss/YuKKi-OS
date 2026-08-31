@@ -1,12 +1,12 @@
 # Version History (Archived)
 
-> **v6.6.4 is the current production version.** Previous versions are available in git history only.
+> **v6.6.6 is the current production version.** Previous versions are available in git history only.
 
 ---
 
 ## Current Version
 
-### v6.6.4 — Apex Synthesis Edition (Current)
+### v6.6.6 — Inet3 Edition (Current)
 
 The canonical production release. Fuses the highest-performing elements from the v6.6.x architecture line into a single unified deployment.
 
@@ -23,7 +23,7 @@ The canonical production release. Fuses the highest-performing elements from the
 
 ## Archived Versions
 
-The following versions have been superseded by v6.6.4. Their source code exists in git history.
+The following versions have been superseded by v6.6.6. Their source code exists in git history.
 
 ### v6.6.0 — Sentinel Mesh Edition
 
@@ -51,4 +51,4 @@ git log --oneline
 git checkout <commit-hash>
 ```
 
-Previous version directories (`yukkios_6_5_ephemeral/`, `yukkios_6_6_sentinel/`) were removed in the v6.6.4 canonical restructure. Their full contents remain accessible via git history.
+Previous version directories (`yukkios_6_5_ephemeral/`, `yukkios_6_6_sentinel/`) were removed in the v6.6.6 canonical restructure. Their full contents remain accessible via git history.

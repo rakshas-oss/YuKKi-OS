@@ -2,9 +2,9 @@
 
 ---
 
-## v6.6.4 — Apex Synthesis Edition
+## v6.6.6 — Inet3 Edition
 
-**Release focus:** Canonical production release unifying all v6.6.x advances.
+**Release focus:** Documentation and branch-alignment refresh for v6.6.6, including transition from Apex naming to Inet3 across project documentation.
 
 ### New Features
 
