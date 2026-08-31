@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # ==============================================================================
-# PROJET : YuKKi OS v6.6.4 (ÉDITION APEX SYNTHESIS) / PROJECT : YuKKi OS v6.6.4
+# PROJET : YuKKi OS v6.6.4 (ÉDITION Inet3 SYNTHESIS) / PROJECT : YuKKi OS v6.6.4
 # ARCHITECTE : Aditya Muralidhar / RIU (Rakshas International Unlimited)
 # MARQUE : oldies | BRAND : oldies
 # LICENCE : GNU General Public License Version 3 (GPL-3)
@@ -8,7 +8,7 @@
 # ==============================================================================
 
 setopt err_exit no_unset pipe_fail
-ARCHIVE_DIR="yukkios_6_6_4_apex"
+ARCHIVE_DIR="yukkios_6_6_6_inet3"
 EXECUTABLE_NAME="yukki_core_node"
 
 TEAL='%F{37}'
@@ -20,7 +20,7 @@ print -P "${GOLD}    __  __      _  ___  ___    ____  ____    ____              
 print -P "${GOLD}    \\ \\/ /_  _ | |/ / |/ /_   / __ \\/ ___|  / ___|                    ${RESET}"
 print -P "${GOLD}     \\  /| | | | ' /| ' /(_) | |  | \\___ \\ | |                        ${RESET}"
 print -P "${GOLD}     / / | |_| | . \\| . \\_   | |__| |___) || |___                     ${RESET}"
-print -P "${GOLD}    /_/   \\__,_|_|\\_\\_|\\_(_)  \\____/|____/  \\____| 6.6.4 APEX         ${RESET}"
+print -P "${GOLD}    /_/   \\__,_|_|\\_\\_|\\_(_)  \\____/|____/  \\____| 6.6.4 Inet3         ${RESET}"
 print -P "${GOLD}======================================================================${RESET}"
 
 print -P "${TEAL}[*] MARQUE : oldies | BRAND : oldies${RESET}"
@@ -214,7 +214,7 @@ EOF
 print -P "${TEAL}[*] Generating Cargo project file...${RESET}"
 cat << 'EOF_CARGO' > "$ARCHIVE_DIR/Cargo.toml"
 [package]
-name = "yukkios_6_6_4_apex"
+name = "yukkios_6_6_6_inet3"
 version = "6.6.4"
 edition = "2021"
 
@@ -558,7 +558,7 @@ async fn run_client_node(c2_addr: &str, p2p_port: u16) -> Result<(), Box<dyn std
    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
    let mut line = String::new();
    loop {
-       print!("\n\x1b[38;5;136mYuKKiOS_6.6.4_APEX > \x1b[0m"); std::io::stdout().flush().ok();
+       print!("\n\x1b[38;5;136mYuKKiOS_6.6.4_Inet3 > \x1b[0m"); std::io::stdout().flush().ok();
        line.clear();
        if tokio::time::timeout(Duration::from_millis(100), stdin.read_line(&mut line)).await.is_err() { continue; }
        if line.trim() == "exit" { break; }
@@ -600,9 +600,9 @@ cargo build --release
 BUILD_PATH="./$ARCHIVE_DIR/target/release/$EXECUTABLE_NAME"
 
 print -P "${GOLD}======================================================================${RESET}"
-print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.6.4 Apex Synthesis successful.${RESET}"
+print -P "${TEAL}[+] CONGRATULATIONS: YuKKi OS 6.6.4 Inet3 Edition successful.${RESET}"
 print -P "${GOLD}======================================================================${RESET}"
-print -P "${TEAL}  BUILD CONTENTS (GPL-3 - APEX HARDENED):${RESET}"
+print -P "${TEAL}  BUILD CONTENTS (GPL-3 - Inet3 HARDENED):${RESET}"
 print -P "  - Strict 64-bit bounds alignment (all short opcodes bypassed)."
 print -P "  - ADI Dynamic Integration Tests (Encoding, Enqueue, Acquisition)."
 print -P "  - Polymorphic ChaCha20 + X25519 ECDH + Epsilon Zero-State Failsafe."

@@ -1,7 +1,7 @@
 /// Tests for SpatiotemporalFrame
 /// Validates ABI stability, memory layout, and FFI correctness
 
-use yukkios_6_6_4_apex::SpatiotemporalFrame;
+use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 
 #[test]
 fn test_spatiotemporal_frame_size() {
