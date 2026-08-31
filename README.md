@@ -1,4 +1,4 @@
-# YuKKi OS v6.6.4 — Apex Synthesis Edition
+# YuKKi OS v6.6.4 — Inet3 Edition
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
 
@@ -62,7 +62,7 @@ Here is the architecture formatted specifically for a GitHub `README.md` file. T
 
 ---
 
-# YuKKi OS v6.6.4 [APEX SYNTHESIS]
+# YuKKi OS v6.6.4 [INET3]
 
 > **© 2026 RIU (Rakshas International Unlimited)**
 
@@ -74,7 +74,7 @@ Below is the complete structural operation, memory flow, and active security heu
 
 ```text
 ========================================================================================
-             YuKKi OS v6.6.4 [APEX SYNTHESIS] - ARCHITECTURAL SCHEMATIC
+             YuKKi OS v6.6.4 [INET3] - ARCHITECTURAL SCHEMATIC
                    (C) 2026 Rakshas Intl Unltd
 ========================================================================================
  
@@ -181,10 +181,10 @@ YuKKi-OS/
 ├── README.md
 ├── CONTRIBUTING.md
 ├── LICENSE
-├── Cargo.toml                        ← v6.6.4 Apex Synthesis
+├── Cargo.toml                        ← v6.6.6 Inet3
 ├── build.rs
 ├── src/
-│   ├── main.rs                       ← v6.6.4 Apex entry point
+│   ├── main.rs                       ← v6.6.6 Inet3 entry point
 │   ├── adi_auto_tune.rs              ← ADI Dynamic Integration suite
 │   ├── wasm_sandbox.rs               ← Rustasm WebAssembly sandbox
 │   └── ffi/
@@ -202,7 +202,7 @@ YuKKi-OS/
 │       └── vault_license.txt
 ├── scripts/
 │   ├── deploy/
-│   │   ├── deploy_yukki_6_6_4_apex.zsh
+│   │   ├── deploy_yukki_6_6_4_inet3.zsh
 │   │   └── README.md
 │   └── legacy/
 │       ├── YuKKi_OS_6.4.3_OOB-Integrity.sh

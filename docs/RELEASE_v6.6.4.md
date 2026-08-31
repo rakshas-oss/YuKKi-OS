@@ -1,4 +1,4 @@
-# v6.6.4 — Apex Synthesis Edition
+# v6.6.4 — Inet3 Edition
 
 Tag: v6.6.4
 
@@ -6,7 +6,7 @@ Release date: 2026-08-13
 
 Summary
 
-v6.6.4 (Apex Synthesis Edition) is a production release consolidating the v6.6.x development stream. It focuses on secure ephemeral key handling, improved isolated WebAssembly execution, hardware-tuned ADI integration, deterministic volatile-memory wiping, and operational failsafes for chaotic attractor divergence.
+v6.6.4 (Inet3 Edition) is a production release consolidating the v6.6.x development stream. It focuses on secure ephemeral key handling, improved isolated WebAssembly execution, hardware-tuned ADI integration, deterministic volatile-memory wiping, and operational failsafes for chaotic attractor divergence.
 
 Highlights
 

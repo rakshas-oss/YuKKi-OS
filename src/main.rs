@@ -226,7 +226,7 @@ async fn run_client_node(c2_addr: &str, p2p_port: u16) -> Result<(), Box<dyn std
    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
    let mut line = String::new();
    loop {
-       print!("\n\x1b[38;5;136mYuKKiOS_6.6.4_APEX > \x1b[0m"); std::io::stdout().flush().ok();
+       print!("\n\x1b[38;5;136mYuKKiOS_6.6.6_Inet3 > \x1b[0m"); std::io::stdout().flush().ok();
        line.clear();
        if tokio::time::timeout(Duration::from_millis(100), stdin.read_line(&mut line)).await.is_err() { continue; }
        if line.trim() == "exit" { break; }

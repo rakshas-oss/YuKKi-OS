@@ -4,7 +4,7 @@
 
 ## Overview
 
-YuKKi OS v6.6.4 (Apex Synthesis Edition) is a dual-plane peer-to-peer system built in Rust with a C FFI layer for the Lorenz attractor engine.
+YuKKi OS v6.6.4 (Inet3 Edition) is a dual-plane peer-to-peer system built in Rust with a C FFI layer for the Lorenz attractor engine.
 
 ```
 ┌─────────────────────────────────────────────────┐
