@@ -1,4 +1,4 @@
-# YuKKi OS v6.6.4 — Deployment Guide
+# YuKKi OS v6.6.6 — Deployment Guide
 
 ---
 
@@ -34,7 +34,7 @@ Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
 
 ## Automated Deployment Script
 
-An automated deployment script is provided at `scripts/deploy/deploy_yukki_6_6_4_inet3.zsh`.
+An automated deployment script is provided at `scripts/deploy/deploy_yukki_6_6_4_apex.zsh` (legacy filename retained).
 
 ```bash
 chmod +x scripts/deploy/deploy_yukki_6_6_4_inet3.zsh

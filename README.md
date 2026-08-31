@@ -1,4 +1,4 @@
-# YuKKi OS v6.6.4 — Inet3 Edition
+# YuKKi OS v6.6.6 — Inet3 Edition
 
 Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
 
@@ -34,7 +34,7 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 ## Architecture Overview
 
-YuKKi OS v6.6.4 is a dual-plane peer-to-peer system with ephemeral session security, ADI auto-tuning, and a Rustasm WebAssembly sandbox.
+YuKKi OS v6.6.6 is a dual-plane peer-to-peer system with ephemeral session security, ADI auto-tuning, and a Rustasm WebAssembly sandbox.
 
 ### Control Plane
 
@@ -62,7 +62,7 @@ Here is the architecture formatted specifically for a GitHub `README.md` file. T
 
 ---
 
-# YuKKi OS v6.6.4 [INET3]
+# YuKKi OS v6.6.6 [INET3]
 
 > **© 2026 RIU (Rakshas International Unlimited)**
 
@@ -70,11 +70,11 @@ Here is the architecture formatted specifically for a GitHub `README.md` file. T
 
 ## 🏛️ Architectural Schematic
 
-Below is the complete structural operation, memory flow, and active security heuristic map for the YuKKi OS v6.6.4 architecture.
+Below is the complete structural operation, memory flow, and active security heuristic map for the YuKKi OS v6.6.6 architecture.
 
 ```text
 ========================================================================================
-             YuKKi OS v6.6.4 [INET3] - ARCHITECTURAL SCHEMATIC
+             YuKKi OS v6.6.6 [INET3] - ARCHITECTURAL SCHEMATIC
                    (C) 2026 Rakshas Intl Unltd
 ========================================================================================
  
@@ -318,6 +318,7 @@ When Lorenz attractor state diverges beyond a configurable epsilon threshold, th
 | [docs/API.md](docs/API.md) | FFI reference, C headers, function signatures |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common errors, debug logging, performance tuning |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release notes |
+| [docs/RELEASE_v6.6.6.md](docs/RELEASE_v6.6.6.md) | Branch v6.6.6 release documentation |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Code style, testing, PR process, security reporting |
 
 ---
