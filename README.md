@@ -1,8 +1,8 @@
 # YuKKi OS v6.6.6 — Inet3 Edition
 
-Linux-based P2P application with dependency-aware runtime behavior for Internet 3.
+Experimental authenticated mesh-control service built in Rust.
 
-> **Research & Demo Software** — Not for production use. See [Security Notes](#security-notes) and [`docs/licensing/vault_license.txt`](docs/licensing/vault_license.txt).
+> **Not production-ready.** The pre-shared-key authentication and operational controls are a hardening baseline, not a substitute for an audit and managed identity system. See [Security Notes](#security-notes).
 
 ---
 
@@ -24,7 +24,7 @@ Linux-based P2P application with dependency-aware runtime behavior for Internet 
 
 - ✅ **ADI Dynamic Integration** auto-tuning suite — runtime queue depth and hardware profile optimization
 - ✅ **Virtual PUF** micro-timing anchor for entropy seeding
-- ✅ **Rustasm WebAssembly Sandbox** (Wasmtime) — isolated execution environment
+- ✅ **Rustasm WebAssembly Sandbox** (Wasmtime) — fuel- and memory-bounded isolated execution API
 - ✅ **Explicit volatile memory wiping** with `zeroize` crate
 - ✅ **Epsilon-Threshold Failsafe** for Lorenz attractor recovery
 - ✅ **X25519 ECDH** ephemeral key exchange + **ChaCha20-Poly1305 AEAD** control plane
@@ -38,13 +38,12 @@ YuKKi OS v6.6.6 is a dual-plane peer-to-peer system with ephemeral session secur
 
 ### Control Plane
 
-JSON messages over raw TCP, framed with a 4-byte big-endian length prefix.
-Every message is encrypted with **ChaCha20-Poly1305 AEAD** using a session key derived from an **X25519 Diffie-Hellman** exchange (one ephemeral key-pair per session, never persisted).
+JSON messages over raw TCP, framed with a 4-byte big-endian length prefix and capped at 64 KiB.
+Every connection performs ephemeral **X25519** key exchange and confirms possession of a shared 32-byte pre-shared key. HKDF-SHA256 derives distinct directional **ChaCha20-Poly1305 AEAD** keys, binding protocol context as associated data.
 
-### Data Plane
+### Frame Generation API
 
-Binary `SpatiotemporalFrame` (88 bytes) stream produced by the **Lorenz attractor** C core (`src/ffi/chaos_weave.c`).
-Frames carry a 16-byte payload slot, a fluidity/drag coefficient pair, and a divergence scalar.
+`SpatiotemporalFrame` is an 88-byte FFI structure produced by the Lorenz C core (`src/ffi/chaos_weave.c`). It is not exposed as a network data plane.
 
 ### ADI Auto-Tuning Suite
 
@@ -247,6 +246,7 @@ cargo build --release --target x86_64-unknown-linux-musl
 Start the bootstrap server (listens for inbound node connections):
 
 ```bash
+export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
 ./target/release/yukki_core_node bootstrap 0.0.0.0:7660
 ```
 
@@ -255,7 +255,7 @@ Start the bootstrap server (listens for inbound node connections):
 Connect a peer node to the bootstrap:
 
 ```bash
-./target/release/yukki_core_node node 127.0.0.1:7660 9999
+./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
 ---
@@ -266,10 +266,9 @@ From the interactive prompt (`>`):
 
 | Command | Description |
 |---------|-------------|
-| `fleet peers` | List all currently connected peer nodes |
-| `msg <to> <text>` | Send an AEAD-encrypted `FluidMessage` to a peer (by node-id or `all`) |
-| `weave <data>` | Announce a polymorphic-woven payload (`WeaveAnnounce`) |
-| `exit` / `quit` | Shut down the node |
+| `bootstrap <bind-address>` | Start a 128-connection authenticated bootstrap service |
+| `node <bootstrap-address> <advertised-address>` | Register an authenticated node |
+| Ctrl-C | Gracefully terminate the current process |
 
 ---
 
@@ -300,8 +299,8 @@ When Lorenz attractor state diverges beyond a configurable epsilon threshold, th
 ## Security Notes
 
 - **Research/demo software**: cryptographic mechanisms are proofs-of-concept and have **not** undergone formal security audit.
-- The KDF used is intentionally minimal; replace with **HKDF-SHA256** before any production use.
-- The polymorphic weave (`chacha_weave_payload`) is illustrative; it is **not** an authenticated cipher — replay and mutation attacks are possible.
+- Bootstrap and peer authentication currently depend on a manually distributed pre-shared key; add managed, per-peer identities before deployment.
+- The frame-generation API is illustrative; it is **not** an authenticated network cipher.
 - Unsafe FFI calls are minimized to explicit `unsafe` blocks with documented invariants.
 - Do not deploy on untrusted networks without hardening the framing protocol and adding mutual authentication.
 

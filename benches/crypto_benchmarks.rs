@@ -1,15 +1,15 @@
-/// Cryptographic Primitives Benchmarks
-///
-/// Measures X25519 ECDH key exchange and ChaCha20-Poly1305 encrypt / decrypt
-/// performance under representative payload sizes.
+//! Cryptographic Primitives Benchmarks
+//!
+//! Measures X25519 ECDH key exchange and ChaCha20-Poly1305 encrypt / decrypt
+//! performance under representative payload sizes.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand_core::OsRng;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn bench_x25519_keypair_generation(c: &mut Criterion) {
     c.bench_function("x25519_keypair_generation", |b| {

@@ -1,5 +1,5 @@
-/// YuKKi OS v6.6.6 — Library Interface (Inet3 Edition)
-/// Exports core modules for testing and external use
+//! YuKKi OS v6.6.6 — Library Interface (Inet3 Edition)
+//! Exports core modules for testing and external use
 
 pub mod adi_auto_tune;
 pub mod wasm_sandbox;

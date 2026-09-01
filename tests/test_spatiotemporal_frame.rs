@@ -1,5 +1,5 @@
-/// Tests for SpatiotemporalFrame
-/// Validates ABI stability, memory layout, and FFI correctness
+//! Tests for SpatiotemporalFrame
+//! Validates ABI stability, memory layout, and FFI correctness
 
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 
@@ -110,8 +110,7 @@ fn test_spatiotemporal_frame_repr_c_packed() {
     };
 
     // Cast to bytes and check first 8 bytes match seq_id
-    let bytes: &[u8] =
-        unsafe { std::slice::from_raw_parts(&frame as *const _ as *const u8, 88) };
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(&frame as *const _ as *const u8, 88) };
 
     // Verify seq_id bytes (little-endian interpretation)
     let seq_id_bytes = &bytes[0..8];
@@ -146,7 +145,7 @@ fn test_spatiotemporal_frame_payload_independence() {
         payload: [0xAA; 16],
     };
 
-    let mut frame2 = SpatiotemporalFrame {
+    let frame2 = SpatiotemporalFrame {
         seq_id: 2,
         x: 0.0,
         y: 0.0,

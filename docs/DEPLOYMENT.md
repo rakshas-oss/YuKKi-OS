@@ -32,16 +32,13 @@ Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
 
 ---
 
-## Automated Deployment Script
+## Authentication configuration
 
-An automated deployment script is provided at `scripts/deploy/deploy_yukki_6_6_4_apex.zsh` (legacy filename retained).
+Every bootstrap and node must receive the same 32-byte secret using the `YUKKI_PSK_HEX` environment variable. Generate and distribute it through a secret manager; never place it in source control, command history, or logs.
 
 ```bash
-chmod +x scripts/deploy/deploy_yukki_6_6_4_inet3.zsh
-./scripts/deploy/deploy_yukki_6_6_4_inet3.zsh
+export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
 ```
-
-This script generates the full source tree, builds the binary, and confirms the deployment.
 
 ---
 
@@ -57,13 +54,13 @@ Start the first node (bootstrap server) that peers will connect to:
 
 ### Peer Node
 
-Connect a peer node to an existing bootstrap:
+Connect a peer node to an existing bootstrap, supplying the address it advertises to the mesh:
 
 ```bash
-./target/release/yukki_core_node node 127.0.0.1:7660 9999
+./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
-`9999` is the local peer identifier (arbitrary u64).
+Use a routable advertised address in a multi-host deployment.
 
 ---
 
@@ -94,7 +91,7 @@ Results are printed to stdout with `[AUTO-TUNE]` prefix.
 
 ## Configuration
 
-Currently all configuration is via command-line arguments. Environment variables and config files are not yet supported.
+The bootstrap bind address and node addresses are command-line arguments. `YUKKI_PSK_HEX` is required and must be exactly 64 hexadecimal characters. Logs are JSON and respect `RUST_LOG` (default: `info`).
 
 ---
 

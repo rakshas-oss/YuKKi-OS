@@ -1,7 +1,12 @@
-/// YuKKi OS v6.6.4 — Integration Test Suite
-///
-/// Covers: mesh peer management, encryption flows, and frame sequencing.
+//! YuKKi OS v6.6.6 — Integration Test Suite
+//!
+//! Covers: mesh peer management, encryption flows, and frame sequencing.
 
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -9,11 +14,6 @@ use std::{
 };
 use uuid::Uuid;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use chacha20poly1305::{
-    aead::{Aead, KeyInit},
-    ChaCha20Poly1305, Key, Nonce,
-};
-use rand_core::OsRng;
 
 // ---------------------------------------------------------------------------
 // Shared types mirrored from main (not re-exported from the binary)
@@ -182,7 +182,10 @@ fn encryption_aead_frame_integrity_validation() {
     // Tamper with the ciphertext
     ciphertext[0] ^= 0xFF;
     let result = cipher.decrypt(nonce, ciphertext.as_ref());
-    assert!(result.is_err(), "Tampered ciphertext must fail MAC verification");
+    assert!(
+        result.is_err(),
+        "Tampered ciphertext must fail MAC verification"
+    );
 }
 
 #[test]
@@ -263,9 +266,15 @@ fn frame_sequence_ordering() {
 fn frame_payload_isolation_between_frames() {
     let mut f1 = SpatiotemporalFrame {
         seq_id: 0,
-        x: 0.0, y: 0.0, z: 0.0,
-        u: 0.0, v: 0.0, w: 0.0,
-        fluidity: 0.0, drag: 0.0, divergence: 0.0,
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+        u: 0.0,
+        v: 0.0,
+        w: 0.0,
+        fluidity: 0.0,
+        drag: 0.0,
+        divergence: 0.0,
         payload: [0xAAu8; 16],
     };
     let f2 = SpatiotemporalFrame {

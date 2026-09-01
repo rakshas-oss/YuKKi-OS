@@ -1,9 +1,6 @@
 # Build artifacts
 target/
 
-# Cargo lock (library crate) — pin if binary
-Cargo.lock
-
 # Editor & OS
 .DS_Store
 .idea/
