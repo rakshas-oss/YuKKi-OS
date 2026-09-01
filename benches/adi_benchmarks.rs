@@ -1,7 +1,7 @@
-/// ADI Auto-Tuner Heuristics & Throughput Benchmarks
-///
-/// Measures the performance of the RIU ADI Dynamic Integration Suite:
-/// encoding throughput simulation, queue allocation, and data acquisition.
+//! ADI Auto-Tuner Heuristics & Throughput Benchmarks
+//!
+//! Measures the performance of the RIU ADI Dynamic Integration Suite:
+//! encoding throughput simulation, queue allocation, and data acquisition.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use yukkios_6_6_6_inet3::adi_auto_tune::ADIAutoTuner;
@@ -44,8 +44,12 @@ fn bench_full_hardware_calibration(c: &mut Criterion) {
 fn bench_queue_depth_heuristic(c: &mut Criterion) {
     let frame = SpatiotemporalFrame {
         seq_id: 1,
-        x: 0.1, y: 0.2, z: 0.3,
-        u: 0.0, v: 0.0, w: 0.0,
+        x: 0.1,
+        y: 0.2,
+        z: 0.3,
+        u: 0.0,
+        v: 0.0,
+        w: 0.0,
         fluidity: 0.9,
         drag: 0.1,
         divergence: 0.0,
@@ -54,19 +58,15 @@ fn bench_queue_depth_heuristic(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("queue_depth_heuristic");
     for depth in [60usize, 120, 240, 480] {
-        group.bench_with_input(
-            format!("depth_{}", depth),
-            &depth,
-            |b, &d| {
-                b.iter(|| {
-                    let mut q = Vec::with_capacity(d);
-                    for _ in 0..d {
-                        q.push(black_box(frame));
-                    }
-                    black_box(q.len())
-                })
-            },
-        );
+        group.bench_with_input(format!("depth_{}", depth), &depth, |b, &d| {
+            b.iter(|| {
+                let mut q = Vec::with_capacity(d);
+                for _ in 0..d {
+                    q.push(black_box(frame));
+                }
+                black_box(q.len())
+            })
+        });
     }
     group.finish();
 }
@@ -75,17 +75,13 @@ fn bench_queue_depth_heuristic(c: &mut Criterion) {
 fn bench_encoding_loop_heuristic(c: &mut Criterion) {
     let mut group = c.benchmark_group("encoding_loop_heuristic");
     for count in [1_000usize, 5_000, 10_000] {
-        group.bench_with_input(
-            format!("frames_{}", count),
-            &count,
-            |b, &n| {
-                b.iter(|| {
-                    for _ in 0..n {
-                        std::hint::black_box(0u64);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(format!("frames_{}", count), &count, |b, &n| {
+            b.iter(|| {
+                for _ in 0..n {
+                    std::hint::black_box(0u64);
+                }
+            })
+        });
     }
     group.finish();
 }

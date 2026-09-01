@@ -1,5 +1,5 @@
-/// Tests for ADI Auto-Tuning Suite
-/// Validates hardware calibration, throughput, and queueing efficiency
+//! Tests for ADI Auto-Tuning Suite
+//! Validates hardware calibration, throughput, and queueing efficiency
 
 use yukkios_6_6_6_inet3::adi_auto_tune::ADIAutoTuner;
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
@@ -7,10 +7,12 @@ use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 #[test]
 fn test_adi_auto_tuner_initialization() {
     let tuner = ADIAutoTuner::new();
-    assert_eq!(tuner.optimal_queue_depth, 60, "Default queue depth should be 60");
     assert_eq!(
-        tuner.active_hardware_profile,
-        "64-BIT_ELECTRICAL_FLAT",
+        tuner.optimal_queue_depth, 60,
+        "Default queue depth should be 60"
+    );
+    assert_eq!(
+        tuner.active_hardware_profile, "64-BIT_ELECTRICAL_FLAT",
         "Default hardware profile mismatch"
     );
 }
@@ -19,13 +21,15 @@ fn test_adi_auto_tuner_initialization() {
 fn test_encoding_throughput_passes() {
     let tuner = ADIAutoTuner::new();
     let result = tuner.test_encoding_throughput();
-    assert!(result, "Encoding throughput test should pass on modern hardware");
+    assert!(
+        result,
+        "Encoding throughput test should pass on modern hardware"
+    );
 }
 
 #[test]
 fn test_enquing_efficiency_adjusts_queue_depth() {
     let mut tuner = ADIAutoTuner::new();
-    let initial_depth = tuner.optimal_queue_depth;
     tuner.test_enquing_efficiency();
     // Queue depth should either remain at 60 or increase to 120
     assert!(
@@ -39,10 +43,7 @@ fn test_enquing_efficiency_adjusts_queue_depth() {
 fn test_data_acquisition_alignment() {
     let tuner = ADIAutoTuner::new();
     let result = tuner.test_data_acquisition();
-    assert!(
-        result,
-        "Data acquisition must pass 8-byte alignment check"
-    );
+    assert!(result, "Data acquisition must pass 8-byte alignment check");
 }
 
 #[test]
@@ -58,7 +59,7 @@ fn test_hardware_calibration_completes() {
 
 #[test]
 fn test_frame_size_calculation() {
-    let frame = SpatiotemporalFrame {
+    let _frame = SpatiotemporalFrame {
         seq_id: 0,
         x: 0.0,
         y: 0.0,
@@ -73,14 +74,13 @@ fn test_frame_size_calculation() {
     };
 
     let frame_size = std::mem::size_of::<SpatiotemporalFrame>();
-    assert_eq!(frame_size, 88, "SpatiotemporalFrame must be exactly 88 bytes");
+    assert_eq!(
+        frame_size, 88,
+        "SpatiotemporalFrame must be exactly 88 bytes"
+    );
 
     // Verify alignment
-    assert_eq!(
-        frame_size % 8,
-        0,
-        "Frame size must be 8-byte aligned"
-    );
+    assert_eq!(frame_size % 8, 0, "Frame size must be 8-byte aligned");
 }
 
 #[test]

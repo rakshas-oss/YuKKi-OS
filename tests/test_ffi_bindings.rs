@@ -1,5 +1,5 @@
-/// Tests for C FFI Layer Bindings
-/// Validates extern "C" declarations and function correctness
+//! Tests for C FFI Layer Bindings
+//! Validates extern "C" declarations and function correctness
 
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 
@@ -7,7 +7,6 @@ use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 extern "C" {
     fn chaos_engine_init(sigma: f64, rho: f64, beta: f64);
     fn chaos_engine_reseed(sigma: f64, rho: f64, beta: f64, x0: f64, y0: f64, z0: f64);
-    fn generate_lorenz_step(dt: f64);
     fn oob_fnv1a_rolling_hash(seed: u64, data: *const u8, len: u32) -> u64;
     fn oob_integrity_update(seq: u64, payload: *const u8, len: u32);
     fn oob_sync_check(seq: u64) -> i32;
@@ -18,8 +17,6 @@ fn test_chaos_engine_init_no_crash() {
     unsafe {
         chaos_engine_init(10.0, 28.0, 8.33333333333);
     }
-    // Test passes if no segfault occurs
-    assert!(true);
 }
 
 #[test]
@@ -40,7 +37,10 @@ fn test_oob_fnv1a_different_inputs() {
     unsafe {
         let hash1 = oob_fnv1a_rolling_hash(0, data1.as_ptr(), 4);
         let hash2 = oob_fnv1a_rolling_hash(0, data2.as_ptr(), 4);
-        assert_ne!(hash1, hash2, "Different inputs must produce different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different inputs must produce different hashes"
+        );
     }
 }
 
@@ -72,7 +72,6 @@ fn test_oob_integrity_update_no_crash() {
         oob_integrity_update(0, payload.as_ptr(), 16);
         oob_integrity_update(1, payload.as_ptr(), 16);
     }
-    assert!(true, "Integrity updates completed without crash");
 }
 
 #[test]
@@ -102,7 +101,10 @@ fn test_null_pointer_guards() {
     unsafe {
         // FNV-1a hash should handle null data pointer
         let hash_null = oob_fnv1a_rolling_hash(0, std::ptr::null(), 0);
-        assert_eq!(hash_null, 0, "Null data pointer should return seed unchanged");
+        assert_eq!(
+            hash_null, 0,
+            "Null data pointer should return seed unchanged"
+        );
     }
 }
 
@@ -123,11 +125,7 @@ fn test_payload_size_constants() {
         payload: [0; 16],
     };
 
-    assert_eq!(
-        frame.payload.len(),
-        16,
-        "Payload must be exactly 16 bytes"
-    );
+    assert_eq!(frame.payload.len(), 16, "Payload must be exactly 16 bytes");
 }
 
 #[test]
@@ -139,5 +137,4 @@ fn test_chaos_engine_reseed_parameters() {
         // Reseed with different parameters
         chaos_engine_reseed(12.0, 25.0, 8.0, 1.0, 2.0, 3.0);
     }
-    assert!(true, "Reseed completed without error");
 }

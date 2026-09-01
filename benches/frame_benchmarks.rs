@@ -1,7 +1,7 @@
-/// SpatiotemporalFrame Operations Benchmarks
-///
-/// Measures frame construction, copy throughput, payload isolation,
-/// and memory footprint heuristics at various queue depths.
+//! SpatiotemporalFrame Operations Benchmarks
+//!
+//! Measures frame construction, copy throughput, payload isolation,
+//! and memory footprint heuristics at various queue depths.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
@@ -78,7 +78,7 @@ fn bench_alignment_check(c: &mut Criterion) {
     c.bench_function("frame_alignment_check", |b| {
         b.iter(|| {
             let size = std::mem::size_of::<SpatiotemporalFrame>();
-            black_box(size % 8 == 0)
+            black_box(size.is_multiple_of(8))
         })
     });
 }

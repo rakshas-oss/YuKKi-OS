@@ -1,9 +1,12 @@
-/// Tests for Cryptographic Primitives
-/// Validates X25519 ECDH, ChaCha20-Poly1305, and key derivation
+//! Tests for Cryptographic Primitives
+//! Validates X25519 ECDH, ChaCha20-Poly1305, and key derivation
 
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, aead::{Aead, KeyInit}};
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use rand_core::OsRng;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 #[test]
 fn test_x25519_key_exchange() {
@@ -41,7 +44,11 @@ fn test_chacha20_poly1305_encryption() {
         .decrypt(&nonce, ciphertext.as_ref())
         .expect("Decryption failed");
 
-    assert_eq!(plaintext, &decrypted[..], "Decrypted text must match plaintext");
+    assert_eq!(
+        plaintext,
+        &decrypted[..],
+        "Decrypted text must match plaintext"
+    );
 }
 
 #[test]
@@ -61,7 +68,10 @@ fn test_chacha20_poly1305_authentication() {
 
     // Decryption should fail due to MAC verification
     let result = cipher.decrypt(&nonce, corrupted.as_ref());
-    assert!(result.is_err(), "MAC verification must fail on corrupted ciphertext");
+    assert!(
+        result.is_err(),
+        "MAC verification must fail on corrupted ciphertext"
+    );
 }
 
 #[test]
@@ -81,7 +91,10 @@ fn test_chacha20_poly1305_nonce_uniqueness() {
         .expect("Encryption failed");
 
     // Same plaintext with different nonces must produce different ciphertexts
-    assert_ne!(ct1, ct2, "Different nonces must produce different ciphertexts");
+    assert_ne!(
+        ct1, ct2,
+        "Different nonces must produce different ciphertexts"
+    );
 }
 
 #[test]
