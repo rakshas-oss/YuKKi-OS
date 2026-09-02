@@ -24,6 +24,8 @@ Experimental authenticated mesh-control service built in Rust.
 
 - [Features](#features)
 - [Architecture Overview](#architecture-overview)
+- [Architecture Map](#architecture-map)
+- [Heuristics Map](#heuristics-map)
 - [Build Prerequisites](#build-prerequisites)
 - [Quickstart](#quickstart)
 - [Command Reference](#command-reference)
@@ -49,6 +51,53 @@ Experimental authenticated mesh-control service built in Rust.
 ## Architecture Overview
 
 YuKKi OS v6.6.6 is a dual-plane peer-to-peer system with ephemeral session security, ADI auto-tuning, and a Rustasm WebAssembly sandbox.
+
+### Architecture Map
+
+```text
+                         Linux based p2p application
+                    dependency-aware RBE for Internet 3
+
+  Bootstrap / Peer CLI
+          |
+          +-- Control plane: TCP -> X25519 + PSK -> HKDF -> AEAD JSON frames
+          |                                      |
+          |                                      +--> authenticated peer mesh
+          |
+          +-- Runtime services: Virtual PUF -> entropy seed
+          |                      ADI tuner   -> queue depth + hardware profile
+          |                      WasmSandbox -> bounded isolated execution
+          |
+          +-- Frame API: Rust FFI -> chaos_weave.c -> Lorenz frames (local API)
+                                           |
+                                           +--> epsilon failsafe -> stable reset
+```
+
+### Heuristics Map
+
+```text
+startup
+  |
+  +-- collect micro-timing jitter -> seed entropy
+  +-- benchmark encoding + queueing
+  |     |
+  |     +-- queueing passes target -> queue depth 120
+  |     +-- otherwise               -> queue depth 60 (default)
+  |
+peer connection
+  |
+  +-- valid length-prefixed frame (<= 64 KiB)?
+  |     +-- no  -> reject
+  |     +-- yes -> X25519 + shared-PSK proof -> derive directional AEAD keys
+  |                                      |
+  |                                      +-- authenticated -> route JSON control message
+  |                                      +-- failed        -> reject
+  |
+frame generation
+  |
+  +-- divergence exceeds epsilon? -> reset Lorenz state to stable point
+  +-- otherwise                   -> emit local 88-byte SpatiotemporalFrame
+```
 
 ### Control Plane
 
