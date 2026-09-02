@@ -12,15 +12,15 @@ A clear and concise description of what the bug is.
 
 ## Version
 
-Which version of YuKKi OS are you using? (e.g., v6.6.0 Sentinel Mesh)
+Which version of YuKKi OS are you using? (e.g., v6.6.6 Inet3 Edition)
 
 ```
-./yukki_sentinel --version   # or equivalent
+./target/release/yukki_core_node --version   # or equivalent
 ```
 
 ## Steps to Reproduce
 
-1. Start node with `./yukki_sentinel bootstrap ...`
+1. Start node with `./target/release/yukki_core_node bootstrap ...`
 2. ...
 3. See error
 

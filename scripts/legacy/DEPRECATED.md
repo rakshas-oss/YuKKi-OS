@@ -1,6 +1,6 @@
 # Legacy Scripts (Deprecated)
 
-The scripts in this directory correspond to deprecated versions of YuKKi OS that have been superseded by v6.6.4 Inet3 Edition.
+The scripts in this directory correspond to deprecated versions of YuKKi OS that have been superseded by v6.6.6 (Inet3 Edition), the current canonical version.
 
 | Script | Version | Status |
 |--------|---------|--------|
@@ -9,6 +9,6 @@ The scripts in this directory correspond to deprecated versions of YuKKi OS that
 
 These scripts are preserved here for archival reference only. **Do not use them for new deployments.**
 
-For the current deployment script, see [`../deploy/deploy_yukki_6_6_4_inet3.zsh`](../deploy/deploy_yukki_6_6_4_inet3.zsh).
+For the current deployment script, see [`../deploy/deploy_yukki_6_6_6_inet3.zsh`](../deploy/deploy_yukki_6_6_6_inet3.zsh).
 
 Full source code for legacy versions is available in git history.
