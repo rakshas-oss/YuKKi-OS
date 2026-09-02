@@ -25,17 +25,17 @@
 
 ### Improvements
 
-- Upgraded to X25519-dalek v2.0 with `static_secrets` feature
+- Uses X25519-dalek v3.0 with `static_secrets` feature
 - ChaCha20-Poly1305 AEAD on both control and data planes
 - Polymorphic attractor-bound payload weave (Lorenz-keyed ChaCha20 keystream)
 - 64-bit flat topology with strict opcode alignment
 
-### Dependencies Added
+### Dependencies
 
-- `x25519-dalek = "2.0"` with `static_secrets`
-- `chacha20poly1305 = "0.10"`
-- `wasmtime = "14.0"`
-- `zeroize = "1.6"` with `derive`
+- `x25519-dalek = "3.0"` with `static_secrets`
+- `chacha20poly1305 = "0.11"`
+- `wasmtime = "48.0"`
+- `zeroize = "1.9"` with `derive`
 
 ---
 

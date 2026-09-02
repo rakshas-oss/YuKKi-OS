@@ -1,4 +1,6 @@
-# v6.6.4 — Inet3 Edition
+# v6.6.4 — Inet3 Edition (Legacy / Historical)
+
+> **This release has been superseded by v6.6.6, the current canonical version.** Kept for historical reference only; see [RELEASE_v6.6.6.md](RELEASE_v6.6.6.md) and [VERSIONING.md](VERSIONING.md).
 
 Tag: v6.6.4
 
@@ -57,19 +59,10 @@ Testing checklist (required before publishing)
 
 Release artifacts
 
-- Tag: v6.6.4 (create after QA pass)
-- Binaries: linux-x86_64, linux-aarch64, wasm targets
-- Checksums: SHA256 for each artifact; GPG-signed release notes or artifacts as required
+- Tag: v6.6.4
+- Binaries: linux-x86_64, linux-aarch64 (historical release; no prebuilt binaries are distributed)
 
 Maintainers / contributors
 
 - Release manager: rakshas-oss
 - Full contributor list available from git history (see `git shortlog -sne`)
-
-Next steps I can perform for you
-
-- Create the Git tag `v6.6.4` in the repository when you confirm QA is complete
-- Draft a GitHub Release using this release notes body
-- Build binaries and produce SHA256 checksums and GPG signatures (provide signing key or CI instructions)
-
-If you'd like me to publish the GitHub release draft or create the tag now, tell me which action to take and any signing details or preferred targets for build artifacts.

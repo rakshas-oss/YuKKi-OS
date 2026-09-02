@@ -8,7 +8,7 @@
 
 **Error:**
 ```
-error: failed to run custom build command for `yukkios_6_6_sentinel`
+error: failed to run custom build command for `yukkios_6_6_6_inet3`
   failed to find tool. Is `cc` installed?
 ```
 
@@ -57,7 +57,7 @@ printf '#include "src/ffi/laminar_api.h"\n#include <stdio.h>\nint main(){printf(
 **Cause:** The bootstrap node is not yet running, or is listening on a different address/port.
 
 **Fix:**
-1. Start the bootstrap node first: `./yukki_sentinel bootstrap 0.0.0.0:7660`
+1. Start the bootstrap node first: `./target/release/yukki_core_node bootstrap 0.0.0.0:7660`
 2. Confirm port 7660 is open: `ss -tlnp | grep 7660`
 3. Ensure no firewall is blocking the port.
 
@@ -109,7 +109,7 @@ Lower the RK4 step size in `chaos_weave.c` (`DT` constant) for higher-fidelity a
 Set the `RUST_LOG` environment variable for verbose Tokio runtime output:
 
 ```bash
-RUST_LOG=debug ./yukki_sentinel bootstrap 0.0.0.0:7660
+RUST_LOG=debug ./target/release/yukki_core_node bootstrap 0.0.0.0:7660
 ```
 
 For FFI-level tracing, add `printf` statements to `chaos_weave.c` and rebuild.

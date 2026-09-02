@@ -1,17 +1,17 @@
-# Deploy Scripts — YuKKi OS v6.6.4
+# Deploy Scripts — YuKKi OS
 
-## `deploy_yukki_6_6_4_inet3.zsh`
+## `deploy_yukki_6_6_6_inet3.zsh`
 
-Automated deployment script for YuKKi OS v6.6.4 Inet3 Edition.
+Self-contained deployment script that scaffolds a standalone copy of the YuKKi OS Inet3 source tree and builds it with `cargo build --release`. It is kept as a legacy/standalone convenience path and internally retains some v6.6.4-era identifiers; for the canonical, actively maintained v6.6.6 source tree, build from the repository root as described in the top-level [README](../../README.md).
 
 ### Usage
 
 ```bash
-chmod +x deploy_yukki_6_6_4_inet3.zsh
-./deploy_yukki_6_6_4_inet3.zsh
+chmod +x deploy_yukki_6_6_6_inet3.zsh
+./deploy_yukki_6_6_6_inet3.zsh
 ```
 
-This script generates the full v6.6.4 source tree, builds the binary with `cargo build --release`, and prints a deployment confirmation.
+This script generates a self-contained source tree in `./yukkios_6_6_6_inet3/`, builds the binary with `cargo build --release`, and prints a deployment confirmation.
 
 ### Requirements
 

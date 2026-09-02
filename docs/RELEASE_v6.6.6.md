@@ -27,22 +27,22 @@ Highlights
 - Epsilon-Threshold Failsafe
   - Monitors Lorenz attractor divergence and resets state when divergence exceeds configured threshold.
 - Cryptography & Performance
-  - Upgraded to x25519-dalek v2.0 with `static_secrets` feature.
+  - Uses x25519-dalek v3.0 with `static_secrets` feature.
   - ChaCha20-Poly1305 AEAD used on both control and data planes.
   - 64-bit flat topology with strict opcode alignment.
 
 Dependency changes
 
-- Added: `x25519-dalek = "2.0"` (static_secrets)
-- Added: `chacha20poly1305 = "0.10"`
-- Added: `wasmtime = "14.0"`
-- Added: `zeroize = "1.6"` (with `derive`)
+- Added: `x25519-dalek = "3.0"` (static_secrets)
+- Added: `chacha20poly1305 = "0.11"`
+- Added: `wasmtime = "48.0"`
+- Added: `zeroize = "1.9"` (with `derive`)
 
 Upgrade notes / breaking changes
 
 - Key material lifecycle: Ephemeral secrets are now zeroed on drop. Code paths that rely on runtime retention of ephemeral secrets must be updated to preserve copies explicitly when required.
 - X25519 behavior: Confirm compatibility with downstream users expecting previous x25519-dalek semantics.
-- Wasm host requirements: Wasmtime 14.0 may impose host dependency changes; verify runtime environments.
+- Wasm host requirements: Wasmtime 48.0 may impose host dependency changes; verify runtime environments.
 
 Security
 
@@ -59,19 +59,10 @@ Testing checklist (required before publishing)
 
 Release artifacts
 
-- Tag: v6.6.6 (create after QA pass)
-- Binaries: linux-x86_64, linux-aarch64, wasm targets
-- Checksums: SHA256 for each artifact; GPG-signed release notes or artifacts as required
+- Tag: v6.6.6
+- Binaries: linux-x86_64, linux-aarch64 (build locally with `cargo build --release`; no prebuilt binaries are distributed at this time)
 
 Maintainers / contributors
 
 - Release manager: rakshas-oss
 - Full contributor list available from git history (see `git shortlog -sne`)
-
-Next steps I can perform for you
-
-- Create the Git tag `v6.6.6` in the repository when you confirm QA is complete
-- Draft a GitHub Release using this release notes body
-- Build binaries and produce SHA256 checksums and GPG signatures (provide signing key or CI instructions)
-
-If you'd like me to publish the GitHub release draft or create the tag now, tell me which action to take and any signing details or preferred targets for build artifacts.
