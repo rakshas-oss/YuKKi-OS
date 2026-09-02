@@ -2,6 +2,20 @@
 
 Experimental authenticated mesh-control service built in Rust.
 
+## SYSTEM SNAPSHOT
+
+```text
+===============================================================
+             YUKKI OS v6.6.6 :: REPOSITORY SNAPSHOT
+===============================================================
+ REPOSITORY      : rakshas-oss/YuKKi-OS
+ REPOSITORY ID   : 1086802206
+ DESCRIPTION     : Linux based p2p application with
+                   dependency-aware RBE for Internet 3
+ LANGUAGE MIX    : Rust 51% | Shell 39.5% | C 9.2% | Dockerfile 0.3%
+===============================================================
+```
+
 > **Not production-ready.** The pre-shared-key authentication and operational controls are a hardening baseline, not a substitute for an audit and managed identity system. See [Security Notes](#security-notes).
 
 ---
