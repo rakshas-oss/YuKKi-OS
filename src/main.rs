@@ -5,7 +5,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Key, Nonce,
 };
 use hkdf::Hkdf;
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::{
@@ -18,7 +18,7 @@ use tokio::{
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroize;
 
 const MAX_FRAME_BYTES: usize = 64 * 1024;
@@ -88,7 +88,10 @@ async fn establish_session(
     psk: &[u8; 32],
     server: bool,
 ) -> io::Result<Session> {
-    let secret = EphemeralSecret::random_from_rng(OsRng);
+    let mut secret_bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut secret_bytes);
+    let secret = StaticSecret::from(secret_bytes);
+    secret_bytes.zeroize();
     let public = PublicKey::from(&secret);
     let mut peer_public = [0u8; 32];
 

@@ -79,6 +79,16 @@ printf '#include "src/ffi/laminar_api.h"\n#include <stdio.h>\nint main(){printf(
 
 ---
 
+### `wasm execution aborted: fuel exhausted`
+
+**Cause:** The configured WebAssembly fuel budget was too low for the module.
+
+**Fix:**
+1. Set a larger positive value for `YUKKI_WASM_MAX_FUEL` before startup.
+2. For embedded usage, construct the sandbox with `RustasmSandbox::with_max_fuel(...)`.
+
+---
+
 ## Performance Tuning
 
 ### Enable link-time optimisation (LTO)

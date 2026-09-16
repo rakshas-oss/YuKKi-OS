@@ -68,3 +68,28 @@ fn test_sandbox_max_stack_limit() {
     let wasm = b"\0asm\x01\0\0\0\x01\x05\x01`\0\x01\x7f\x03\x02\x01\0\x07\x08\x01\x04main\0\0\x0a\x06\x01\x04\0A*\x0b";
     assert_eq!(sandbox.execute(wasm).unwrap(), 42);
 }
+
+#[test]
+fn test_custom_fuel_budget_configuration() {
+    let sandbox = RustasmSandbox::with_max_fuel(1_024).unwrap();
+    assert_eq!(sandbox.max_fuel(), 1_024);
+}
+
+#[test]
+fn test_zero_fuel_budget_rejected() {
+    let err = RustasmSandbox::with_max_fuel(0)
+        .err()
+        .expect("zero fuel budget should be rejected");
+    assert!(err.contains("must be greater than zero"));
+}
+
+#[test]
+fn test_fuel_exhaustion_reports_clear_error() {
+    let sandbox = RustasmSandbox::with_max_fuel(64).unwrap();
+    let infinite_loop_wasm = b"\0asm\x01\0\0\0\x01\x05\x01`\0\x01\x7f\x03\x02\x01\0\x07\x08\x01\x04main\0\0\x0a\x0b\x01\x09\0\x03\x40\x0c\0\x0b\x41\0\x0b";
+    let error = sandbox.execute(infinite_loop_wasm).unwrap_err();
+    assert!(
+        error.contains("fuel exhausted"),
+        "unexpected error for exhausted fuel: {error}"
+    );
+}

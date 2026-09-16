@@ -101,20 +101,24 @@ Instantiate with `ADIAutoTuner::new()`, then call both test methods. Results are
 
 ---
 
-### `WasmSandbox` — `src/wasm_sandbox.rs`
+### `RustasmSandbox` — `src/wasm_sandbox.rs`
 
 ```rust
-pub struct WasmSandbox {
+pub struct RustasmSandbox {
     engine: wasmtime::Engine,
+    execution_buffer: std::sync::Mutex<Vec<u8>>,
+    max_fuel: u64,
 }
 
-impl WasmSandbox {
+impl RustasmSandbox {
     pub fn new() -> Self;
+    pub fn with_max_fuel(max_fuel: u64) -> Result<Self, String>;
+    pub fn max_fuel(&self) -> u64;
     pub fn execute(&self, wasm_bytes: &[u8]) -> Result<i32, String>;
 }
 ```
 
-Provide raw WASM bytes to `execute`. Returns the integer result of the module's `main` export, or an error string.
+Provide raw WASM bytes to `execute`. Returns the integer result of the module's `main` export, or an error string. `new()` uses `YUKKI_WASM_MAX_FUEL` when set to a positive integer; otherwise it falls back to the default fuel budget.
 
 ---
 
