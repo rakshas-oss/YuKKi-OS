@@ -21,7 +21,7 @@ YuKKi OS v6.6.6 (Inet3 Edition) is a dual-plane peer-to-peer system built in Rus
                │                      │
     ┌──────────▼──────────────────────▼────────────┐
     │              Rust Runtime (main.rs)           │
-    │  ADIAutoTuner │ WasmSandbox │ ZeroizeMemory   │
+    │  ADIAutoTuner │ RustasmSandbox │ ZeroizeMemory   │
     └──────────────────────┬────────────────────────┘
                            │ FFI
     ┌──────────────────────▼────────────────────────┐
@@ -103,10 +103,10 @@ The `active_hardware_profile` string describes the detected environment (e.g., `
 ## Rustasm WebAssembly Sandbox
 
 ```
-WasmSandbox::new()
+RustasmSandbox::new()
   │  Wasmtime Engine initialization
   │
-WasmSandbox::execute(wasm_bytes)
+RustasmSandbox::execute(wasm_bytes)
   │  Compile WASM module
   │  Instantiate in isolated linear memory
   │  Call "main" export
