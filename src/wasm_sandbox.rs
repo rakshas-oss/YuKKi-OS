@@ -19,11 +19,20 @@ impl RustasmSandbox {
     const MAX_FUEL_ENV: &'static str = "YUKKI_WASM_MAX_FUEL";
 
     pub fn new() -> Self {
-        let max_fuel = env::var(Self::MAX_FUEL_ENV)
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|fuel| *fuel > 0)
-            .unwrap_or(Self::DEFAULT_MAX_FUEL);
+        let max_fuel = match env::var(Self::MAX_FUEL_ENV) {
+            Ok(value) => match value.parse::<u64>() {
+                Ok(fuel) if fuel > 0 => fuel,
+                _ => {
+                    eprintln!(
+                        "ignoring invalid {} value; expected positive integer, using default {}",
+                        Self::MAX_FUEL_ENV,
+                        Self::DEFAULT_MAX_FUEL
+                    );
+                    Self::DEFAULT_MAX_FUEL
+                }
+            },
+            Err(_) => Self::DEFAULT_MAX_FUEL,
+        };
         Self::with_max_fuel(max_fuel).expect("validated Wasm fuel configuration")
     }
 

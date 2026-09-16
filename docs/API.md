@@ -106,6 +106,8 @@ Instantiate with `ADIAutoTuner::new()`, then call both test methods. Results are
 ```rust
 pub struct RustasmSandbox {
     engine: wasmtime::Engine,
+    execution_buffer: std::sync::Mutex<Vec<u8>>,
+    max_fuel: u64,
 }
 
 impl RustasmSandbox {
