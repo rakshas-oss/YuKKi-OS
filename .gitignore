@@ -1,6 +1,12 @@
 # Build artifacts
 target/
 
+# Node / Next.js dashboard
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
 # Editor & OS
 .DS_Store
 .idea/
@@ -21,5 +27,6 @@ dist/
 
 # Environment & secrets
 .env
+.env*.local
 *.key
 *.pem
