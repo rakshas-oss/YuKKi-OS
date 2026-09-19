@@ -1,118 +1,165 @@
-# YuKKi OS v6.6.6 — Deployment Guide
+# YuKKi OS v6.7.0 — Architecture Reference
 
 ---
 
-## Prerequisites
+## Overview
 
-- Rust stable toolchain: `rustup toolchain install stable`
-- C99 compiler: `gcc` or `clang`
-- `cargo` (included with Rust toolchain)
-- Linux x86-64 recommended (64-bit flat topology)
+YuKKi OS v6.7.0 (Inet3 Edition) is a dual-plane peer-to-peer system built in Rust with a C FFI layer for the Lorenz attractor engine.
 
----
-
-## Build
-
-From the repository root:
-
-```bash
-cargo build --release
 ```
-
-Binary output: `target/release/yukki_core_node`
-
-### MUSL Static Build (optional)
-
-```bash
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --target x86_64-unknown-linux-musl
-```
-
-Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
-
----
-
-## Authentication configuration
-
-Every bootstrap and node must receive the same 32-byte secret using the `YUKKI_PSK_HEX` environment variable. Generate and distribute it through a secret manager; never place it in source control, command history, or logs.
-
-```bash
-export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
+┌─────────────────────────────────────────────────┐
+│                  Application Layer               │
+│  Bootstrap / Peer CLI  │  Interactive Prompt     │
+└──────────────┬──────────────────────┬────────────┘
+               │                      │
+    ┌──────────▼──────────┐  ┌────────▼────────────┐
+    │    Control Plane     │  │     Data Plane       │
+    │  TCP + AEAD frames   │  │  SpatiotemporalFrame │
+    │  JSON messages       │  │  88-byte binary      │
+    │  X25519 ECDH handshk │  │  Lorenz attractor    │
+    └──────────┬──────────┘  └────────┬────────────┘
+               │                      │
+    ┌──────────▼──────────────────────▼────────────┐
+    │              Rust Runtime (main.rs)           │
+    │  ADIAutoTuner │ RustasmSandbox │ ZeroizeMemory   │
+    └──────────────────────┬────────────────────────┘
+                           │ FFI
+    ┌──────────────────────▼────────────────────────┐
+    │           C Layer (chaos_weave.c)              │
+    │  lorenz_step │ chacha_weave_payload │ quarantine│
+    └───────────────────────────────────────────────┘
 ```
 
 ---
 
-## Running
+## Control Plane
 
-### Bootstrap Node
+- **Transport:** Raw TCP with 4-byte big-endian length-prefixed frames
+- **Encryption:** ChaCha20-Poly1305 AEAD (12-byte nonce, 16-byte tag)
+- **Key Exchange:** X25519 ECDH — one ephemeral key-pair per session, never persisted
+- **Messages:** JSON-encoded (`NodeAnnounce`, `FluidMessage`, `WeaveAnnounce`, `Heartbeat`)
+- **Broker boundary:** optional broker task submissions use a separate Rust client with the same length-prefixed TCP framing discipline
 
-Start the first node (bootstrap server) that peers will connect to:
+### X25519 Handshake Flow
 
-```bash
-./target/release/yukki_core_node bootstrap 0.0.0.0:7660
+```
+Node A                             Node B
+  │──── pub_key_A (32 bytes) ────▶│
+  │◀─── pub_key_B (32 bytes) ─────│
+  │                                │
+  shared = ECDH(priv_A, pub_B)    shared = ECDH(priv_B, pub_A)
+  session_key = KDF(shared)       session_key = KDF(shared)
+  │                                │
+  │══════ AEAD frames ════════════▶│
 ```
 
-### Peer Node
+### Broker Interoperability Boundary
 
-Connect a peer node to an existing bootstrap, supplying the address it advertises to the mesh:
+YuKKi-OS keeps broker interoperability outside the authenticated peer mesh:
 
-```bash
-./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
+- peer mesh sessions stay on the X25519 + PSK + HKDF + ChaCha20-Poly1305 path
+- broker requests use `src/broker_client.rs` as a distinct integration boundary
+- production deployments should place the broker hop behind authenticated infrastructure such as mTLS termination or a service mesh
+- reverse-direction routing is represented by swapping the request `source` and `destination` fields while preserving the same framed JSON protocol
+
+---
+
+## Data Plane
+
+- **Frame:** `SpatiotemporalFrame` (88 bytes, `#[repr(C, packed)]`)
+- **Engine:** Lorenz attractor (`chaos_weave.c`) — produces chaotic but deterministic frame sequences
+- **Payload Weave:** `chacha_weave_payload` XORs arbitrary data against a Lorenz-keyed ChaCha20 keystream
+
+### Lorenz Attractor Parameters
+
+```
+σ = 10.0,  ρ = 28.0,  β = 8/3
+dt = 0.01 (default)
 ```
 
-Use a routable advertised address in a multi-host deployment.
+### Epsilon-Threshold Failsafe
 
----
-
-## Interactive Commands
-
-Once a node is running, the interactive prompt (`>`) accepts:
-
-| Command | Description |
-|---------|-------------|
-| `fleet peers` | List all connected peer nodes |
-| `msg <to> <text>` | Send encrypted `FluidMessage` to a peer or `all` |
-| `weave <data>` | Announce a polymorphic-woven payload |
-| `exit` / `quit` | Shut down the node |
-
----
-
-## ADI Auto-Tuning
-
-On startup, the ADI auto-tuner runs two benchmarks:
-
-1. **Encoding throughput** — 10 000-frame evaluation; target < 15 ms
-2. **Queuing efficiency** — 1 000-frame queue test; target < 2 000 µs
-
-If queuing is sufficiently fast, `optimal_queue_depth` is raised to 120 (default: 60).  
-Results are printed to stdout with `[AUTO-TUNE]` prefix.
-
----
-
-## Configuration
-
-The bootstrap bind address and node addresses are command-line arguments. `YUKKI_PSK_HEX` is required and must be exactly 64 hexadecimal characters. Logs are JSON and respect `RUST_LOG` (default: `info`).
-
-### Optional broker client configuration
-
-Use these settings when the control plane needs to offload work through an
-external broker:
-
-```bash
-export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
-export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
-export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
-export YUKKI_BROKER_MAX_FRAME_BYTES=65536
-export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
+```
+if |divergence| > EPSILON_THRESHOLD:
+    reset attractor to stable point (x=1, y=1, z=1)
+    increment failsafe_counter
 ```
 
-`authenticated-proxy` does not change the wire protocol in YuKKi-OS; it marks
-the expectation that you have placed the raw TCP broker hop behind mTLS or an
-equivalent authenticated boundary. Default tests do not require a broker,
-CUDA, TensorRT, or any external service.
+When the Lorenz state diverges beyond the epsilon threshold, the failsafe resets to a known stable point, preventing runaway divergence from corrupting frame generation.
 
 ---
 
-## Troubleshooting
+## ADI Auto-Tuning Suite
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common errors and debug logging.
+```
+startup
+  │
+  ├─ test_encoding_throughput()
+  │    evaluate 10 000 frames
+  │    target: < 15 ms
+  │    result: bool (pass/fail)
+  │
+  └─ test_enquing_efficiency()
+       queue 1 000 frames
+       target: < 2 000 µs
+       if pass → optimal_queue_depth = 120
+       else    → optimal_queue_depth = 60  (default)
+```
+
+The `active_hardware_profile` string describes the detected environment (e.g., `"64-BIT_ELECTRICAL_FLAT"`).
+
+---
+
+## Rustasm WebAssembly Sandbox
+
+```
+RustasmSandbox::new()
+  │  Wasmtime Engine initialization
+  │
+RustasmSandbox::execute(wasm_bytes)
+  │  Compile WASM module
+  │  Instantiate in isolated linear memory
+  │  Call "main" export
+  └─ Return i32 result or error
+```
+
+The sandbox provides hard memory isolation — WASM modules cannot access Rust heap or stack outside their own linear memory segment.
+
+---
+
+## Virtual PUF — Micro-Timing Anchor
+
+At boot, a series of high-resolution timing measurements (`std::time::Instant`) captures environmental jitter. This timing fingerprint is unique per hardware instance and is mixed into the initial entropy pool before peer registration and operational runtime startup.
+
+```
+t0 = Instant::now()
+[tight loop N iterations]
+t1 = Instant::now()
+entropy_contribution = (t1 - t0).subsec_nanos() XOR device_constant
+```
+
+---
+
+## Memory Wiping
+
+All ephemeral key material uses the `zeroize` crate:
+
+```rust
+#[derive(ZeroizeOnDrop)]
+struct SessionKey([u8; 32]);
+```
+
+On drop, `SessionKey` is overwritten with zeros before deallocation. The `secure_wipe` helper provides explicit wiping for ad-hoc byte arrays.
+
+---
+
+## FFI Boundary
+
+The Rust–C boundary is defined in `src/ffi/laminar_api.h` and consumed via `extern "C"` declarations in Rust.
+
+Safety invariants:
+- C functions receive valid non-null pointers (checked at call site in Rust)
+- Struct layout is ABI-stable (`#pragma pack(push,1)` ↔ `#[repr(C, packed)]`)
+- No dynamic allocation in C hot paths
+
+See [API.md](API.md) for full function signatures.

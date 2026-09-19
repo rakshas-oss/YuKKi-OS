@@ -1,60 +1,114 @@
-# YuKKi OS v6.6.6 — Security Documentation
-
-> **This is research/demo software. Do not deploy on untrusted networks without further hardening.**
+# YuKKi OS v6.7.0 — Deployment Guide
 
 ---
 
-## Cryptographic Primitives
+## Prerequisites
 
-| Component | Primitive | Notes |
-|-----------|-----------|-------|
-| Key exchange | X25519 ECDH (x25519-dalek v2) | One ephemeral key-pair per connection |
-| Key derivation | HKDF-SHA256 | Distinct client→server and server→client keys |
-| Peer authentication | 32-byte pre-shared key | Required through `YUKKI_PSK_HEX` |
-| Authenticated encryption | ChaCha20-Poly1305 AEAD | Direction-marked nonces, protocol context as AAD |
-| Payload weave | Lorenz frame generator | **Not a network encryption mechanism** |
+- Rust stable toolchain: `rustup toolchain install stable`
+- C99 compiler: `gcc` or `clang`
+- `cargo` (included with Rust toolchain)
+- Linux x86-64 recommended (64-bit flat topology)
 
 ---
 
-## Known Limitations
+## Build
 
-1. **Shared PSK identity** — all peers with the same PSK have equal authority; production requires per-peer identities, rotation, and revocation.
-2. **No transport encryption beyond the application protocol** — deploy only behind an appropriate network policy until TLS or a formally reviewed Noise protocol is added.
-3. **Frame generation is not authenticated** — it is not exposed as a network transport.
-4. **No formal audit** — cryptographic mechanisms have not undergone third-party security review.
-5. **Lorenz attractor is not cryptographically secure** — it provides structural variety in the data plane, not cryptographic randomness.
+From the repository root:
 
----
+```bash
+cargo build --release
+```
 
-## Memory Safety
+Binary output: `target/release/yukki_core_node`
 
-- Derived key buffers and decrypted ciphertext buffers are explicitly overwritten with `zeroize`.
-- C FFI functions reject null output pointers and non-finite state parameters.
-- The C layer (`chaos_weave.c`) uses stack-allocated buffers; no dynamic allocation in hot paths.
+### MUSL Static Build (optional)
 
----
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
+```
 
-## WebAssembly Sandbox
-
-- The Rustasm sandbox (`src/wasm_sandbox.rs`) uses Wasmtime isolation with a 16 MiB memory limit and a 10 million fuel budget.
-- No host functions are exposed to sandboxed modules.
+Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
 
 ---
 
-## Threat Model
+## Authentication configuration
 
-| Threat | Mitigation | Status |
-|--------|-----------|--------|
-| Passive eavesdropping | ChaCha20-Poly1305 AEAD | ✅ Mitigated |
-| Key reuse | Ephemeral X25519 per session | ✅ Mitigated |
-| Memory disclosure | zeroize on key material | ✅ Mitigated |
-| Replay attack | Sequence counter in frames | ⚠️ Partial |
-| Man-in-the-middle | PSK-authenticated HKDF-derived AEAD keys | ⚠️ Shared-key trust model |
-| Oversized/control-plane flooding | 64 KiB frame cap, handshake/idle timeouts, 128 connection cap | ⚠️ Tune and test under load |
-| Malicious WASM module | Wasmtime memory and fuel limits; no host functions | ⚠️ Requires independent review |
+Every bootstrap and node must receive the same 32-byte secret using the `YUKKI_PSK_HEX` environment variable. Generate and distribute it through a secret manager; never place it in source control, command history, or logs.
+
+```bash
+export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
+```
 
 ---
 
-## Reporting Security Issues
+## Running
 
-Report security vulnerabilities via the GitHub issue tracker with the `security` label, or contact the maintainer directly. Do not disclose vulnerabilities publicly before a fix is available.
+### Bootstrap Node
+
+Start the first node (bootstrap server) that peers will connect to:
+
+```bash
+./target/release/yukki_core_node bootstrap 0.0.0.0:7660
+```
+
+### Peer Node
+
+Connect a peer node to an existing bootstrap, supplying the address it advertises to the mesh:
+
+```bash
+./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
+```
+
+Use a routable advertised address in a multi-host deployment.
+
+---
+
+## Interactive Commands
+
+Once a node is running, the interactive prompt (`>`) accepts:
+
+| Command | Description |
+|---------|-------------|
+| `fleet peers` | List all connected peer nodes |
+| `msg <to> <text>` | Send encrypted `FluidMessage` to a peer or `all` |
+| `weave <data>` | Announce a polymorphic-woven payload |
+| `exit` / `quit` | Shut down the node |
+
+---
+
+## ADI Auto-Tuning
+
+On startup, the ADI auto-tuner runs two benchmarks:
+
+1. **Encoding throughput** — 10 000-frame evaluation; target < 15 ms
+2. **Queuing efficiency** — 1 000-frame queue test; target < 2 000 µs
+
+If queuing is sufficiently fast, `optimal_queue_depth` is raised to 120 (default: 60).  
+Results are printed to stdout with `[AUTO-TUNE]` prefix.
+
+---
+
+## Configuration
+
+The bootstrap bind address and node addresses are command-line arguments. `YUKKI_PSK_HEX` is required and must be exactly 64 hexadecimal characters. Logs are JSON and respect `RUST_LOG` (default: `info`).
+
+### Optional broker client configuration
+
+Use these settings when the control plane needs to offload work through an external broker:
+
+```bash
+export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
+export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
+export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
+export YUKKI_BROKER_MAX_FRAME_BYTES=65536
+export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
+```
+
+`authenticated-proxy` does not change the wire protocol in YuKKi-OS; it marks the expectation that you have placed the raw TCP broker hop behind mTLS or an equivalent authenticated boundary. Default tests do not require a broker, CUDA, TensorRT, or any external service.
+
+---
+
+## Troubleshooting
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common errors and debug logging.

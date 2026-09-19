@@ -1,167 +1,205 @@
-# YuKKi OS v6.6.6 — Architecture Reference
+# YuKKi OS v6.7.0 — FFI & API Reference
+
+This document describes the C ABI exported by `src/ffi/chaos_weave.c` and consumed by the Rust runtime via FFI, plus the Rust-level public API for the v6.7.0 module set.
 
 ---
 
-## Overview
+## C FFI Layer — `src/ffi/laminar_api.h`
 
-YuKKi OS v6.6.6 (Inet3 Edition) is a dual-plane peer-to-peer system built in Rust with a C FFI layer for the Lorenz attractor engine.
+### SpatiotemporalFrame
 
+```c
+#pragma pack(push, 1)
+typedef struct {
+    uint64_t seq_id;
+    double   x, y, z;
+    double   u, v, w;
+    float    fluidity;
+    float    drag;
+    double   divergence;
+    uint8_t  payload[16];
+} SpatiotemporalFrame;
+#pragma pack(pop)
 ```
-┌─────────────────────────────────────────────────┐
-│                  Application Layer               │
-│  Bootstrap / Peer CLI  │  Interactive Prompt     │
-└──────────────┬──────────────────────┬────────────┘
-               │                      │
-    ┌──────────▼──────────┐  ┌────────▼────────────┐
-    │    Control Plane     │  │     Data Plane       │
-    │  TCP + AEAD frames   │  │  SpatiotemporalFrame │
-    │  JSON messages       │  │  88-byte binary      │
-    │  X25519 ECDH handshk │  │  Lorenz attractor    │
-    └──────────┬──────────┘  └────────┬────────────┘
-               │                      │
-    ┌──────────▼──────────────────────▼────────────┐
-    │              Rust Runtime (main.rs)           │
-    │  ADIAutoTuner │ RustasmSandbox │ ZeroizeMemory   │
-    └──────────────────────┬────────────────────────┘
-                           │ FFI
-    ┌──────────────────────▼────────────────────────┐
-    │           C Layer (chaos_weave.c)              │
-    │  lorenz_step │ chacha_weave_payload │ quarantine│
-    └───────────────────────────────────────────────┘
-```
+
+Total size: 88 bytes. Layout is ABI-stable and byte-identical to the Rust `#[repr(C, packed)]` struct.
 
 ---
 
-## Control Plane
+### Frame Functions
 
-- **Transport:** Raw TCP with 4-byte big-endian length-prefixed frames
-- **Encryption:** ChaCha20-Poly1305 AEAD (12-byte nonce, 16-byte tag)
-- **Key Exchange:** X25519 ECDH — one ephemeral key-pair per session, never persisted
-- **Messages:** JSON-encoded (`NodeAnnounce`, `FluidMessage`, `WeaveAnnounce`, `Heartbeat`)
-- **Broker boundary:** optional broker task submissions use a separate Rust client with the same length-prefixed TCP framing discipline
+#### `lorenz_step`
 
-### X25519 Handshake Flow
-
-```
-Node A                             Node B
-  │──── pub_key_A (32 bytes) ────▶│
-  │◀─── pub_key_B (32 bytes) ─────│
-  │                                │
-  shared = ECDH(priv_A, pub_B)    shared = ECDH(priv_B, pub_A)
-  session_key = KDF(shared)       session_key = KDF(shared)
-  │                                │
-  │══════ AEAD frames ════════════▶│
+```c
+void lorenz_step(SpatiotemporalFrame *frame, double dt);
 ```
 
-### Broker Interoperability Boundary
+Advances the Lorenz attractor by one time step `dt`. Updates `x`, `y`, `z` (attractor state), `u`, `v`, `w` (velocity), and `divergence`.
 
-YuKKi-OS keeps broker interoperability outside the authenticated peer mesh:
+#### `chacha_weave_payload`
 
-- peer mesh sessions stay on the X25519 + PSK + HKDF + ChaCha20-Poly1305 path
-- broker requests use `src/broker_client.rs` as a distinct integration boundary
-- production deployments should place the broker hop behind authenticated
-  infrastructure such as mTLS termination or a service mesh
-- reverse-direction routing is represented by swapping the request `source` and
-  `destination` fields while preserving the same framed JSON protocol
+```c
+void chacha_weave_payload(
+    SpatiotemporalFrame *frame,
+    const uint8_t *key,      // 32 bytes
+    const uint8_t *nonce,    // 12 bytes
+    const uint8_t *input,    // up to 16 bytes
+    uint8_t *output          // 16 bytes
+);
+```
+
+XORs `input` against a ChaCha20 keystream whose 32-byte key is mixed with the current Lorenz attractor state. **Not authenticated** — illustrative only.
 
 ---
 
-## Data Plane
+### Quarantine Functions
 
-- **Frame:** `SpatiotemporalFrame` (88 bytes, `#[repr(C, packed)]`)
-- **Engine:** Lorenz attractor (`chaos_weave.c`) — produces chaotic but deterministic frame sequences
-- **Payload Weave:** `chacha_weave_payload` XORs arbitrary data against a Lorenz-keyed ChaCha20 keystream
+#### `sentinel_quarantine_node`
 
-### Lorenz Attractor Parameters
-
-```
-σ = 10.0,  ρ = 28.0,  β = 8/3
-dt = 0.01 (default)
+```c
+void sentinel_quarantine_node(uint64_t node_id, int hard);
 ```
 
-### Epsilon-Threshold Failsafe
+Adds `node_id` to the quarantine registry. `hard = 0` is soft quarantine (messages logged and dropped); `hard = 1` is hard quarantine (connection rejected at handshake).
 
-```
-if |divergence| > EPSILON_THRESHOLD:
-    reset attractor to stable point (x=1, y=1, z=1)
-    increment failsafe_counter
+#### `sentinel_release_node`
+
+```c
+void sentinel_release_node(uint64_t node_id);
 ```
 
-When the Lorenz state diverges beyond the epsilon threshold, the failsafe resets to a known stable point, preventing runaway divergence from corrupting frame generation.
+Removes `node_id` from all quarantine levels.
+
+#### `is_quarantined`
+
+```c
+int is_quarantined(uint64_t node_id);
+```
+
+Returns `1` if the node is quarantined (either level), `0` otherwise.
 
 ---
 
-## ADI Auto-Tuning Suite
+## Rust Public API
 
-```
-startup
-  │
-  ├─ test_encoding_throughput()
-  │    evaluate 10 000 frames
-  │    target: < 15 ms
-  │    result: bool (pass/fail)
-  │
-  └─ test_enquing_efficiency()
-       queue 1 000 frames
-       target: < 2 000 µs
-       if pass → optimal_queue_depth = 120
-       else    → optimal_queue_depth = 60  (default)
-```
-
-The `active_hardware_profile` string describes the detected environment (e.g., `"64-BIT_ELECTRICAL_FLAT"`).
-
----
-
-## Rustasm WebAssembly Sandbox
-
-```
-RustasmSandbox::new()
-  │  Wasmtime Engine initialization
-  │
-RustasmSandbox::execute(wasm_bytes)
-  │  Compile WASM module
-  │  Instantiate in isolated linear memory
-  │  Call "main" export
-  └─ Return i32 result or error
-```
-
-The sandbox provides hard memory isolation — WASM modules cannot access Rust heap or stack outside their own linear memory segment.
-
----
-
-## Virtual PUF — Micro-Timing Anchor
-
-At boot, a series of high-resolution timing measurements (`std::time::Instant`) captures environmental jitter. This timing fingerprint is unique per hardware instance and is mixed into the initial entropy pool.
-
-```
-t0 = Instant::now()
-[tight loop N iterations]
-t1 = Instant::now()
-entropy_contribution = (t1 - t0).subsec_nanos() XOR device_constant
-```
-
----
-
-## Memory Wiping
-
-All ephemeral key material uses the `zeroize` crate:
+### `ADIAutoTuner` — `src/adi_auto_tune.rs`
 
 ```rust
-#[derive(ZeroizeOnDrop)]
-struct SessionKey([u8; 32]);
+pub struct ADIAutoTuner {
+    pub optimal_queue_depth: usize,
+    pub active_hardware_profile: String,
+}
+
+impl ADIAutoTuner {
+    pub fn new() -> Self;
+    pub fn test_encoding_throughput(&self) -> bool;
+    pub fn test_enquing_efficiency(&mut self) -> bool;
+}
 ```
 
-On drop, `SessionKey` is overwritten with zeros before deallocation. The `secure_wipe` helper provides explicit wiping for ad-hoc byte arrays.
+Instantiate with `ADIAutoTuner::new()`, then call both test methods. Results are printed to stdout; return value indicates pass (`true`) or fail (`false`).
 
 ---
 
-## FFI Boundary
+### `RustasmSandbox` — `src/wasm_sandbox.rs`
 
-The Rust–C boundary is defined in `src/ffi/laminar_api.h` and consumed via `extern "C"` declarations in Rust.
+```rust
+pub struct RustasmSandbox {
+    engine: wasmtime::Engine,
+    execution_buffer: std::sync::Mutex<Vec<u8>>,
+    max_fuel: u64,
+}
 
-Safety invariants:
-- C functions receive valid non-null pointers (checked at call site in Rust)
-- Struct layout is ABI-stable (`#pragma pack(push,1)` ↔ `#[repr(C, packed)]`)
-- No dynamic allocation in C hot paths
+impl RustasmSandbox {
+    pub fn new() -> Self;
+    pub fn with_max_fuel(max_fuel: u64) -> Result<Self, String>;
+    pub fn max_fuel(&self) -> u64;
+    pub fn execute(&self, wasm_bytes: &[u8]) -> Result<i32, String>;
+}
+```
 
-See [API.md](API.md) for full function signatures.
+Provide raw WASM bytes to `execute`. Returns the integer result of the module's `main` export, or an error string. `new()` uses `YUKKI_WASM_MAX_FUEL` when set to a positive integer; otherwise it uses the default engine budget.
+
+---
+
+### `BrokerClient` — `src/broker_client.rs`
+
+```rust
+pub enum BrokerTransportSecurity {
+    PlaintextBoundary,
+    AuthenticatedProxy,
+}
+
+pub struct BrokerClientConfig {
+    pub connect_timeout: std::time::Duration,
+    pub request_timeout: std::time::Duration,
+    pub max_frame_size: usize,
+    pub transport_security: BrokerTransportSecurity,
+}
+
+pub struct BrokerTask {
+    pub task_id: String,
+    pub source: String,
+    pub destination: String,
+    pub kind: String,
+    pub priority: u8,
+    pub timeout_ms: u32,
+    pub payload: serde_json::Value,
+}
+
+pub struct BrokerResult {
+    pub task_id: String,
+    pub status: String,
+    pub gpu_id: Option<i32>,
+    pub execution_ms: Option<u64>,
+    pub result: Option<serde_json::Value>,
+}
+```
+
+`BrokerClient` uses a dedicated TCP connection per submission, a 4-byte big-endian length prefix, bounded frame sizes, request validation, and whole-request timeouts. `BrokerTask::validate()` rejects empty routing fields, zero timeouts, and null payloads before any I/O occurs.
+
+Configuration can be loaded from:
+
+- `YUKKI_BROKER_ENDPOINT`
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- `YUKKI_BROKER_MAX_FRAME_BYTES`
+- `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` or `authenticated-proxy`)
+
+The broker transport is intentionally isolated from YuKKi-OS's authenticated peer mesh. For production deployments, terminate the broker hop with mTLS or another authenticated proxy and use `BrokerTransportSecurity::AuthenticatedProxy` to reflect that operational boundary.
+
+---
+
+### `SpatiotemporalFrame` — `src/main.rs`
+
+```rust
+#[repr(C, packed)]
+pub struct SpatiotemporalFrame {
+    pub seq_id:     u64,
+    pub x: f64, pub y: f64, pub z: f64,
+    pub u: f64, pub v: f64, pub w: f64,
+    pub fluidity:   f32,
+    pub drag:       f32,
+    pub divergence: f64,
+    pub payload:    [u8; 16],
+}
+```
+
+Byte-identical to the C struct above.
+
+---
+
+## Build Dependencies
+
+The FFI layer is compiled by `build.rs`:
+
+```rust
+fn main() {
+    println!("cargo:rerun-if-changed=src/ffi/chaos_weave.c");
+    cc::Build::new()
+        .file("src/ffi/chaos_weave.c")
+        .include("src/ffi")
+        .flag("-std=c99")
+        .compile("chaos_weave");
+}
+```
