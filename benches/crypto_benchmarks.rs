@@ -7,14 +7,14 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use rand_core::OsRng;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
+use x25519_dalek::{PublicKey, StaticSecret};
 
 fn bench_x25519_keypair_generation(c: &mut Criterion) {
     c.bench_function("x25519_keypair_generation", |b| {
         b.iter(|| {
-            let secret = EphemeralSecret::random_from_rng(OsRng);
+            let secret = StaticSecret::from([0x11; 32]);
             let public = PublicKey::from(&secret);
             black_box((secret, public))
         })
@@ -24,11 +24,11 @@ fn bench_x25519_keypair_generation(c: &mut Criterion) {
 fn bench_x25519_diffie_hellman(c: &mut Criterion) {
     c.bench_function("x25519_diffie_hellman", |b| {
         // Pre-generate Bob's public key outside the timed region.
-        let bob_secret = EphemeralSecret::random_from_rng(OsRng);
+        let bob_secret = StaticSecret::from([0x22; 32]);
         let bob_public = PublicKey::from(&bob_secret);
 
         b.iter(|| {
-            let alice_secret = EphemeralSecret::random_from_rng(OsRng);
+            let alice_secret = StaticSecret::from([0x33; 32]);
             let shared = alice_secret.diffie_hellman(black_box(&bob_public));
             black_box(shared)
         })
@@ -80,16 +80,16 @@ fn bench_chacha20_decrypt(c: &mut Criterion) {
 fn bench_session_establishment_heuristic(c: &mut Criterion) {
     c.bench_function("session_establishment_heuristic", |b| {
         b.iter(|| {
-            let alice_secret = EphemeralSecret::random_from_rng(OsRng);
+            let alice_secret = StaticSecret::from([0x44; 32]);
             let alice_public = PublicKey::from(&alice_secret);
 
-            let bob_secret = EphemeralSecret::random_from_rng(OsRng);
+            let bob_secret = StaticSecret::from([0x55; 32]);
             let bob_public = PublicKey::from(&bob_secret);
 
             let alice_shared = alice_secret.diffie_hellman(black_box(&bob_public));
             let _bob_shared = bob_secret.diffie_hellman(black_box(&alice_public));
 
-            let cipher = ChaCha20Poly1305::new(Key::from_slice(alice_shared.as_bytes()));
+            let cipher = ChaCha20Poly1305::new(&Key::from(*alice_shared.as_bytes()));
             let nonce = Nonce::from([1u8; 12]);
             let ct = cipher
                 .encrypt(&nonce, black_box(b"session init".as_ref()))
