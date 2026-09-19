@@ -107,6 +107,12 @@ frame generation
 JSON messages over raw TCP, framed with a 4-byte big-endian length prefix and capped at 64 KiB.
 Every connection performs ephemeral **X25519** key exchange and confirms possession of a shared 32-byte pre-shared key. HKDF-SHA256 derives distinct directional **ChaCha20-Poly1305 AEAD** keys, binding protocol context as associated data.
 
+### Integration Boundary
+
+- **YuKKi-OS** is the authenticated/control-plane peer mesh: bootstrap + peer registration, fleet updates, and encrypted control messages.
+- **[`rakshas-oss/overhauled`](https://github.com/rakshas-oss/overhauled)** is the external GPU placement/execution broker side of the integration boundary.
+- The broker hop is a separate raw TCP client boundary in `src/broker_client.rs`; it is **not** the same authenticated transport as the peer mesh.
+
 ### Frame Generation API
 
 `SpatiotemporalFrame` is an 88-byte FFI structure produced by the Lorenz C core (`src/ffi/chaos_weave.c`). It is not exposed as a network data plane.
@@ -213,17 +219,72 @@ Connect a peer node to the bootstrap:
 
 ## Broker Interoperability
 
-YuKKi-OS remains the authenticated Rust control plane. Broker transport is a
-separate interoperability boundary used to reach external execution systems
-such as `rakshas-oss/overhauled`.
+YuKKi-OS remains the authenticated Rust control plane. Interop with
+[`rakshas-oss/overhauled`](https://github.com/rakshas-oss/overhauled) happens
+through a distinct broker client boundary used for GPU placement/execution
+requests.
 
-- `src/broker_client.rs` sends **length-prefixed JSON** requests over raw TCP.
-- Every request is **validated**, **size-bounded**, and **timeout-bounded**.
-- The broker hop is **not** end-to-end authenticated by YuKKi-OS today; deploy
-  it behind an authenticated proxy, mTLS sidecar, or service mesh when used on
-  untrusted networks.
-- Reverse-direction broker operations are represented by swapping `source` and
-  `destination` values while keeping the same request/response framing contract.
+### Two-plane split
+
+- **Control plane (YuKKi-OS peer mesh):** authenticated peer sessions using
+  X25519 + shared PSK + HKDF + ChaCha20-Poly1305.
+- **Broker plane (YuKKi-OS -> overhauled):** one raw TCP connection per
+  submission from `src/broker_client.rs`, using length-prefixed JSON and no
+  YuKKi-OS end-to-end broker authentication.
+
+### Current wire contract
+
+- Transport: raw TCP.
+- Framing: `[u32 big-endian length][UTF-8 JSON body]`.
+- Connection model: one dedicated broker socket per request; timeouts and
+  cancellations drop the socket instead of reusing it.
+- Default limits: connect timeout `3000 ms`, whole-request timeout `5000 ms`,
+  max request/response frame `65536` bytes.
+- Validation before send:
+  - request JSON must fit within `YUKKI_BROKER_MAX_FRAME_BYTES`
+  - `task_id`, `source`, `destination`, and `kind` must be non-empty
+  - `timeout_ms` must be greater than zero
+  - `payload` must not be `null`
+- Response validation:
+  - response frame length must be greater than zero and within the configured
+    max frame size
+  - `task_id` must exactly match the request
+  - `status` must be non-empty
+
+#### Request body (`BrokerTask`)
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `task_id` | string | yes | caller-generated identifier |
+| `source` | string | yes | logical origin, e.g. `yukki` |
+| `destination` | string | yes | logical target, e.g. `overhauled` |
+| `kind` | string | yes | task class such as `inference` |
+| `priority` | u8 | yes | advisory priority value |
+| `timeout_ms` | u32 | yes | broker-side task timeout hint; must be `> 0` |
+| `payload` | JSON value | yes | task-specific body; must not be `null` |
+
+#### Response body (`BrokerResult`)
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `task_id` | string | yes | must match the submitted request |
+| `status` | string | yes | any non-empty broker status string |
+| `gpu_id` | integer or null | no | optional execution placement detail |
+| `execution_ms` | integer or null | no | optional execution timing |
+| `result` | JSON value or null | no | optional task result payload |
+
+Reverse-direction broker operations, if you need them, keep the same framed
+JSON contract and swap the logical `source` / `destination` values.
+
+### Security boundary
+
+- `YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy` is **documentary**; it
+  does not enable TLS or change the wire format.
+- The broker hop is **not** end-to-end authenticated by YuKKi-OS today.
+- For any non-loopback deployment, front the broker listener with an
+  authenticated proxy, mTLS sidecar, or service mesh.
+- Preserve the existing caveat: the current PSK/authenticated mesh is only a
+  hardening baseline, and this repository is **not production-ready**.
 
 Environment variables:
 
@@ -289,6 +350,7 @@ When Lorenz attractor state diverges beyond a configurable epsilon threshold, th
 | Document | Description |
 |----------|-------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, dual-plane architecture, FFI boundary |
+| [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md) | Concise Linux operator guide for build, install, service layout, broker integration, and rollback |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, known limitations, audit checklist |
 | [docs/VERSIONING.md](docs/VERSIONING.md) | Version history (archived) |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Build, bootstrap setup, node configuration, commands |
