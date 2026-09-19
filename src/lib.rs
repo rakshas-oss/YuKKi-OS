@@ -5,7 +5,11 @@ pub mod adi_auto_tune;
 pub mod broker_client;
 pub mod wasm_sandbox;
 
-pub use broker_client::{BrokerClient, BrokerResult, BrokerTask};
+pub use broker_client::{
+    BrokerClient, BrokerClientConfig, BrokerClientError, BrokerResult, BrokerTask,
+    BrokerTransportSecurity, DEFAULT_BROKER_CONNECT_TIMEOUT, DEFAULT_BROKER_ENDPOINT,
+    DEFAULT_BROKER_MAX_FRAME_BYTES, DEFAULT_BROKER_REQUEST_TIMEOUT,
+};
 
 use std::marker::PhantomData;
 

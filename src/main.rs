@@ -78,7 +78,7 @@ fn derive_key(shared: &[u8], psk: &[u8; 32], label: &[u8]) -> io::Result<ChaCha2
     let mut key = [0u8; 32];
     hkdf.expand(label, &mut key)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key derivation failed"))?;
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = ChaCha20Poly1305::new(&Key::from(key));
     key.zeroize();
     Ok(cipher)
 }
@@ -154,7 +154,7 @@ fn nonce(direction: u32, counter: u64) -> Nonce {
     let mut bytes = [0u8; 12];
     bytes[..4].copy_from_slice(&direction.to_be_bytes());
     bytes[4..].copy_from_slice(&counter.to_be_bytes());
-    *Nonce::from_slice(&bytes)
+    Nonce::from(bytes)
 }
 
 async fn send_frame(

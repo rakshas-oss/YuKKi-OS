@@ -5,16 +5,15 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-use rand_core::OsRng;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 #[test]
 fn test_x25519_key_exchange() {
     // Test basic ECDH key exchange
-    let alice_secret = EphemeralSecret::random_from_rng(OsRng);
+    let alice_secret = StaticSecret::from([0x11; 32]);
     let alice_public = PublicKey::from(&alice_secret);
 
-    let bob_secret = EphemeralSecret::random_from_rng(OsRng);
+    let bob_secret = StaticSecret::from([0x22; 32]);
     let bob_public = PublicKey::from(&bob_secret);
 
     // Compute shared secrets
@@ -99,8 +98,8 @@ fn test_chacha20_poly1305_nonce_uniqueness() {
 
 #[test]
 fn test_ephemeral_key_uniqueness() {
-    let secret1 = EphemeralSecret::random_from_rng(OsRng);
-    let secret2 = EphemeralSecret::random_from_rng(OsRng);
+    let secret1 = StaticSecret::from([0x33; 32]);
+    let secret2 = StaticSecret::from([0x44; 32]);
 
     let pub1 = PublicKey::from(&secret1);
     let pub2 = PublicKey::from(&secret2);
@@ -151,7 +150,7 @@ fn test_chacha20_poly1305_tag_size() {
 
 #[test]
 fn test_x25519_public_key_size() {
-    let secret = EphemeralSecret::random_from_rng(OsRng);
+    let secret = StaticSecret::from([0x55; 32]);
     let public = PublicKey::from(&secret);
 
     assert_eq!(
