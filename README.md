@@ -1,4 +1,4 @@
-# YuKKi OS v6.6.6 — Inet3 Edition
+# YuKKi OS v6.7.0 — Overhauled
 
 Experimental authenticated mesh-control service built in Rust.
 
