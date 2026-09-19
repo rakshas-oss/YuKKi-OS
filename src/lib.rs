@@ -2,7 +2,10 @@
 //! Exports core modules for testing and external use
 
 pub mod adi_auto_tune;
+pub mod broker_client;
 pub mod wasm_sandbox;
+
+pub use broker_client::{BrokerClient, BrokerResult, BrokerTask};
 
 use std::marker::PhantomData;
 
