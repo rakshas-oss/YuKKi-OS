@@ -1,25 +1,7 @@
-#pragma once
-
-#include <string>
-#include <vector>
-
-namespace nvlink::broker {
-
-struct BrokerTask {
-    std::string task_id;
-    std::string source;
-    std::string destination;
-    std::string kind;
-    std::vector<double> payload;
-};
-
-struct BrokerResult {
-    std::string task_id;
-    std::string status;
-    int gpu_id = -1;
-    std::vector<double> result;
-};
-
-BrokerResult execute_broker_task(const BrokerTask& task);
-
-} // namespace nvlink::broker
+// This header was mistakenly added to YuKKi-OS during broker integration work.
+// The C++ broker adapter belongs to the GPU execution side of the
+// integration and now lives in:
+//   rakshas-oss/overhauled/include/broker_adapter.h
+//
+// YuKKi-OS's broker integration point is the Rust client at
+// src/broker_client.rs.
