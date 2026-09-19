@@ -93,6 +93,24 @@ Results are printed to stdout with `[AUTO-TUNE]` prefix.
 
 The bootstrap bind address and node addresses are command-line arguments. `YUKKI_PSK_HEX` is required and must be exactly 64 hexadecimal characters. Logs are JSON and respect `RUST_LOG` (default: `info`).
 
+### Optional broker client configuration
+
+Use these settings when the control plane needs to offload work through an
+external broker:
+
+```bash
+export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
+export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
+export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
+export YUKKI_BROKER_MAX_FRAME_BYTES=65536
+export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
+```
+
+`authenticated-proxy` does not change the wire protocol in YuKKi-OS; it marks
+the expectation that you have placed the raw TCP broker hop behind mTLS or an
+equivalent authenticated boundary. Default tests do not require a broker,
+CUDA, TensorRT, or any external service.
+
 ---
 
 ## Troubleshooting

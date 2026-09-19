@@ -28,6 +28,7 @@ Experimental authenticated mesh-control service built in Rust.
 - [Heuristics Map](#heuristics-map)
 - [Build Prerequisites](#build-prerequisites)
 - [Quickstart](#quickstart)
+- [Broker Interoperability](#broker-interoperability)
 - [Command Reference](#command-reference)
 - [Core Concepts](#core-concepts)
 - [Security Notes](#security-notes)
@@ -45,6 +46,7 @@ Experimental authenticated mesh-control service built in Rust.
 - ✅ **Epsilon-Threshold Failsafe** for Lorenz attractor recovery
 - ✅ **X25519 ECDH** ephemeral key exchange + **ChaCha20-Poly1305 AEAD** control plane
 - ✅ **Polymorphic payload weave** — attractor-bound cipher stream
+- ✅ **Broker client boundary** — bounded Rust TCP client for broker-first interoperability
 
 ---
 
@@ -63,6 +65,7 @@ YuKKi OS v6.6.6 is a dual-plane peer-to-peer system with ephemeral session secur
           +-- Control plane: TCP -> X25519 + PSK -> HKDF -> AEAD JSON frames
           |                                      |
           |                                      +--> authenticated peer mesh
+          |                                      +--> optional broker offload boundary
           |
           +-- Runtime services: Virtual PUF -> entropy seed
           |                      ADI tuner   -> queue depth + hardware profile
@@ -134,6 +137,7 @@ YuKKi-OS/
 ├── src/
 │   ├── main.rs                       ← v6.6.6 Inet3 entry point
 │   ├── adi_auto_tune.rs              ← ADI Dynamic Integration suite
+│   ├── broker_client.rs              ← enterprise broker client boundary
 │   ├── wasm_sandbox.rs               ← Rustasm WebAssembly sandbox
 │   └── ffi/
 │       ├── laminar_api.h
@@ -207,6 +211,30 @@ Connect a peer node to the bootstrap:
 ./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
+## Broker Interoperability
+
+YuKKi-OS remains the authenticated Rust control plane. Broker transport is a
+separate interoperability boundary used to reach external execution systems
+such as `rakshas-oss/overhauled`.
+
+- `src/broker_client.rs` sends **length-prefixed JSON** requests over raw TCP.
+- Every request is **validated**, **size-bounded**, and **timeout-bounded**.
+- The broker hop is **not** end-to-end authenticated by YuKKi-OS today; deploy
+  it behind an authenticated proxy, mTLS sidecar, or service mesh when used on
+  untrusted networks.
+- Reverse-direction broker operations are represented by swapping `source` and
+  `destination` values while keeping the same request/response framing contract.
+
+Environment variables:
+
+```bash
+export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
+export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
+export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
+export YUKKI_BROKER_MAX_FRAME_BYTES=65536
+export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
+```
+
 ---
 
 ## Command Reference
@@ -237,7 +265,7 @@ The `#[repr(C, packed)]` Rust struct and the `#pragma pack(push,1)` C struct are
 2. Node B responds with its own public key.
 3. Both sides compute `shared = ECDH(my_secret, peer_pub)`.
 4. A lightweight KDF produces the 32-byte session key.
-5. All subsequent frames are AEAD-framed: `[u32 len BE][12-byte nonce][ciphertext+16-byte tag]`.
+5. All subsequent frames are AEAD-framed: `[u32 len BE][ciphertext+16-byte tag]`, with the nonce derived from direction + message counter.
 
 ### Epsilon-Threshold Failsafe
 
@@ -249,6 +277,7 @@ When Lorenz attractor state diverges beyond a configurable epsilon threshold, th
 
 - **Research/demo software**: cryptographic mechanisms are proofs-of-concept and have **not** undergone formal security audit.
 - Bootstrap and peer authentication currently depend on a manually distributed pre-shared key; add managed, per-peer identities before deployment.
+- Broker interoperability is isolated to the Rust client boundary and should be fronted by authenticated infrastructure if used beyond loopback or a trusted private network.
 - The frame-generation API is illustrative; it is **not** an authenticated network cipher.
 - Unsafe FFI calls are minimized to explicit `unsafe` blocks with documented invariants.
 - Do not deploy on untrusted networks without hardening the framing protocol and adding mutual authentication.

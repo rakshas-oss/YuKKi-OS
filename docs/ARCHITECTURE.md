@@ -38,6 +38,7 @@ YuKKi OS v6.6.6 (Inet3 Edition) is a dual-plane peer-to-peer system built in Rus
 - **Encryption:** ChaCha20-Poly1305 AEAD (12-byte nonce, 16-byte tag)
 - **Key Exchange:** X25519 ECDH — one ephemeral key-pair per session, never persisted
 - **Messages:** JSON-encoded (`NodeAnnounce`, `FluidMessage`, `WeaveAnnounce`, `Heartbeat`)
+- **Broker boundary:** optional broker task submissions use a separate Rust client with the same length-prefixed TCP framing discipline
 
 ### X25519 Handshake Flow
 
@@ -51,6 +52,17 @@ Node A                             Node B
   │                                │
   │══════ AEAD frames ════════════▶│
 ```
+
+### Broker Interoperability Boundary
+
+YuKKi-OS keeps broker interoperability outside the authenticated peer mesh:
+
+- peer mesh sessions stay on the X25519 + PSK + HKDF + ChaCha20-Poly1305 path
+- broker requests use `src/broker_client.rs` as a distinct integration boundary
+- production deployments should place the broker hop behind authenticated
+  infrastructure such as mTLS termination or a service mesh
+- reverse-direction routing is represented by swapping the request `source` and
+  `destination` fields while preserving the same framed JSON protocol
 
 ---
 

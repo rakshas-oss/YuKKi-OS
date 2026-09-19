@@ -88,9 +88,8 @@ impl RustasmSandbox {
         store
             .set_fuel(self.max_fuel)
             .map_err(|error| Self::classify_wasm_error(error.to_string()))?;
-        let instance =
-            Instance::new(&mut store, &module, &[])
-                .map_err(|error| Self::classify_wasm_error(error.to_string()))?;
+        let instance = Instance::new(&mut store, &module, &[])
+            .map_err(|error| Self::classify_wasm_error(error.to_string()))?;
         let main = instance
             .get_typed_func::<(), i32>(&mut store, "main")
             .map_err(|error| Self::classify_wasm_error(error.to_string()))?;

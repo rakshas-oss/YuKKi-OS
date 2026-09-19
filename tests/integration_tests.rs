@@ -6,14 +6,13 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
 };
 use uuid::Uuid;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 // ---------------------------------------------------------------------------
 // Shared types mirrored from main (not re-exported from the binary)
@@ -158,30 +157,32 @@ fn mesh_sovereign_command_fleet_serialization() {
 #[test]
 fn encryption_framed_message_encrypt_decrypt() {
     let key_bytes = [0x42u8; 32];
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
+    let cipher = ChaCha20Poly1305::new(&Key::from(key_bytes));
 
     let mut nonce_bytes = [0u8; 12];
     nonce_bytes[4..12].copy_from_slice(&0u64.to_le_bytes());
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     let plaintext = b"hello secure world";
-    let ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).expect("encrypt");
-    let recovered = cipher.decrypt(nonce, ciphertext.as_ref()).expect("decrypt");
+    let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref()).expect("encrypt");
+    let recovered = cipher
+        .decrypt(&nonce, ciphertext.as_ref())
+        .expect("decrypt");
     assert_eq!(recovered, plaintext);
 }
 
 #[test]
 fn encryption_aead_frame_integrity_validation() {
     let key_bytes = [0xABu8; 32];
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
-    let nonce = Nonce::from_slice(&[0u8; 12]);
+    let cipher = ChaCha20Poly1305::new(&Key::from(key_bytes));
+    let nonce = Nonce::from([0u8; 12]);
 
     let plaintext = b"integrity test payload";
-    let mut ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).expect("encrypt");
+    let mut ciphertext = cipher.encrypt(&nonce, plaintext.as_ref()).expect("encrypt");
 
     // Tamper with the ciphertext
     ciphertext[0] ^= 0xFF;
-    let result = cipher.decrypt(nonce, ciphertext.as_ref());
+    let result = cipher.decrypt(&nonce, ciphertext.as_ref());
     assert!(
         result.is_err(),
         "Tampered ciphertext must fail MAC verification"
@@ -191,10 +192,10 @@ fn encryption_aead_frame_integrity_validation() {
 #[test]
 fn encryption_session_establishment_flow() {
     // Simulate X25519 key exchange → shared secret → session cipher
-    let alice_secret = EphemeralSecret::random_from_rng(OsRng);
+    let alice_secret = StaticSecret::from([0x11; 32]);
     let alice_public = PublicKey::from(&alice_secret);
 
-    let bob_secret = EphemeralSecret::random_from_rng(OsRng);
+    let bob_secret = StaticSecret::from([0x22; 32]);
     let bob_public = PublicKey::from(&bob_secret);
 
     let alice_shared = alice_secret.diffie_hellman(&bob_public);
@@ -204,13 +205,13 @@ fn encryption_session_establishment_flow() {
     assert_eq!(alice_shared.as_bytes(), bob_shared.as_bytes());
 
     // Derive session cipher from shared secret
-    let alice_cipher = ChaCha20Poly1305::new(Key::from_slice(alice_shared.as_bytes()));
-    let bob_cipher = ChaCha20Poly1305::new(Key::from_slice(bob_shared.as_bytes()));
+    let alice_cipher = ChaCha20Poly1305::new(&Key::from(*alice_shared.as_bytes()));
+    let bob_cipher = ChaCha20Poly1305::new(&Key::from(*bob_shared.as_bytes()));
 
-    let nonce = Nonce::from_slice(&[1u8; 12]);
+    let nonce = Nonce::from([1u8; 12]);
     let msg = b"session message";
-    let ct = alice_cipher.encrypt(nonce, msg.as_ref()).expect("encrypt");
-    let pt = bob_cipher.decrypt(nonce, ct.as_ref()).expect("decrypt");
+    let ct = alice_cipher.encrypt(&nonce, msg.as_ref()).expect("encrypt");
+    let pt = bob_cipher.decrypt(&nonce, ct.as_ref()).expect("decrypt");
     assert_eq!(pt, msg);
 }
 
@@ -229,8 +230,8 @@ fn encryption_nonce_sequence_uniqueness() {
 
 #[test]
 fn encryption_ephemeral_key_uniqueness() {
-    let pub1 = PublicKey::from(&EphemeralSecret::random_from_rng(OsRng));
-    let pub2 = PublicKey::from(&EphemeralSecret::random_from_rng(OsRng));
+    let pub1 = PublicKey::from(&StaticSecret::from([0x33; 32]));
+    let pub2 = PublicKey::from(&StaticSecret::from([0x44; 32]));
     assert_ne!(pub1.as_bytes(), pub2.as_bytes());
 }
 

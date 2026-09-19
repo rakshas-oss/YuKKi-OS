@@ -3,7 +3,8 @@
 //! Measures the performance of the RIU ADI Dynamic Integration Suite:
 //! encoding throughput simulation, queue allocation, and data acquisition.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use yukkios_6_6_6_inet3::adi_auto_tune::ADIAutoTuner;
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 

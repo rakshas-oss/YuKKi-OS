@@ -3,7 +3,8 @@
 //! Measures frame construction, copy throughput, payload isolation,
 //! and memory footprint heuristics at various queue depths.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use yukkios_6_6_6_inet3::SpatiotemporalFrame;
 
 fn make_frame(seq: u64) -> SpatiotemporalFrame {

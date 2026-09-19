@@ -122,6 +122,60 @@ Provide raw WASM bytes to `execute`. Returns the integer result of the module's 
 
 ---
 
+### `BrokerClient` — `src/broker_client.rs`
+
+```rust
+pub enum BrokerTransportSecurity {
+    PlaintextBoundary,
+    AuthenticatedProxy,
+}
+
+pub struct BrokerClientConfig {
+    pub connect_timeout: std::time::Duration,
+    pub request_timeout: std::time::Duration,
+    pub max_frame_size: usize,
+    pub transport_security: BrokerTransportSecurity,
+}
+
+pub struct BrokerTask {
+    pub task_id: String,
+    pub source: String,
+    pub destination: String,
+    pub kind: String,
+    pub priority: u8,
+    pub timeout_ms: u32,
+    pub payload: serde_json::Value,
+}
+
+pub struct BrokerResult {
+    pub task_id: String,
+    pub status: String,
+    pub gpu_id: Option<i32>,
+    pub execution_ms: Option<u64>,
+    pub result: Option<serde_json::Value>,
+}
+```
+
+`BrokerClient` uses a dedicated TCP connection per submission, a 4-byte
+big-endian length prefix, bounded frame sizes, request validation, and
+whole-request timeouts. `BrokerTask::validate()` rejects empty routing fields,
+zero timeouts, and null payloads before any I/O occurs.
+
+Configuration can be loaded from:
+
+- `YUKKI_BROKER_ENDPOINT`
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- `YUKKI_BROKER_MAX_FRAME_BYTES`
+- `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` or `authenticated-proxy`)
+
+The broker transport is intentionally isolated from YuKKi-OS's authenticated
+peer mesh. For production deployments, terminate the broker hop with mTLS or
+another authenticated proxy and use `BrokerTransportSecurity::AuthenticatedProxy`
+to reflect that operational boundary.
+
+---
+
 ### `SpatiotemporalFrame` — `src/main.rs`
 
 ```rust
