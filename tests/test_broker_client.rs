@@ -6,7 +6,7 @@ use tokio::{
     net::TcpListener,
     time::sleep,
 };
-use yukkios_6_6_6_inet3::{
+use yukkios_6_7_0_inet3::{
     BrokerClient, BrokerClientConfig, BrokerClientError, BrokerResult, BrokerTask,
     BrokerTransportSecurity, DEFAULT_BROKER_MAX_FRAME_BYTES,
 };

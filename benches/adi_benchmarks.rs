@@ -5,8 +5,8 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
-use yukkios_6_6_6_inet3::adi_auto_tune::ADIAutoTuner;
-use yukkios_6_6_6_inet3::SpatiotemporalFrame;
+use yukkios_6_7_0_inet3::adi_auto_tune::ADIAutoTuner;
+use yukkios_6_7_0_inet3::SpatiotemporalFrame;
 
 fn bench_encoding_throughput(c: &mut Criterion) {
     let tuner = ADIAutoTuner::new();

@@ -1,125 +1,58 @@
-# YuKKi OS — Troubleshooting
+# YuKKi OS v6.7.0 — Troubleshooting
 
----
+## Build failures
 
-## Build Errors
+### C compiler missing
 
-### `cc` crate can't find C compiler
+Symptom: build fails in `cc` build script for `src/ffi/chaos_weave.c`.
 
-**Error:**
-```
-error: failed to run custom build command for `yukkios_6_6_6_inet3`
-  failed to find tool. Is `cc` installed?
-```
+Fix: install `gcc` or `clang`, then rebuild.
 
-**Fix:** Install a C99 compiler.
-```bash
-# Debian/Ubuntu
-sudo apt-get install gcc
+### Lockfile mismatch
 
-# macOS
-xcode-select --install
+Symptom: `cargo ... --locked` fails after metadata edits.
 
-# Arch
-sudo pacman -S gcc
-```
+Fix: regenerate lockfile with plain `cargo check` once, commit `Cargo.lock`, then rerun locked commands.
 
----
+## Runtime failures
 
-### Linker error: undefined symbol `chaos_engine_reseed`
+### `YUKKI_PSK_HEX` missing or invalid
 
-**Cause:** The `build.rs` did not compile `chaos_weave.c`, or the C file path is wrong.
-
-**Fix:**
-1. Confirm `src/ffi/chaos_weave.c` exists in the versioned directory.
-2. Run `cargo clean && cargo build --release` to force a full rebuild.
-
----
-
-### `#[repr(C, packed)] struct` size mismatch at runtime
-
-**Cause:** The Rust and C structs for `SpatiotemporalFrame` have diverged.
-
-**Fix:** Check that both the Rust `#[repr(C, packed)]` definition and the C `#pragma pack(push, 1)` struct have identical field order and types. The expected total size is **88 bytes**.
+The binary requires a 64-character hex PSK.
 
 ```bash
-# Quick check (C side):
-printf '#include "src/ffi/laminar_api.h"\n#include <stdio.h>\nint main(){printf("%zu\\n",sizeof(SpatiotemporalFrame));}' | gcc -x c - -o /tmp/sz && /tmp/sz
-# Expected: 88
+export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
 ```
 
----
+### Peer cannot connect (`connection refused`)
 
-## Runtime Errors
+- verify bootstrap started first
+- verify bootstrap bind/listen address and firewall policy
+- check with `ss -tlnp | grep <port>`
 
-### `Connection refused` when starting a peer node
+### Authentication failure at startup
 
-**Cause:** The bootstrap node is not yet running, or is listening on a different address/port.
+- ensure all peers share exactly the same PSK value
+- verify no extra whitespace/newline in env files
 
-**Fix:**
-1. Start the bootstrap node first: `./target/release/yukki_core_node bootstrap 0.0.0.0:7660`
-2. Confirm port 7660 is open: `ss -tlnp | grep 7660`
-3. Ensure no firewall is blocking the port.
+### Broker request timeouts
 
----
+- verify broker endpoint reachability
+- tune `YUKKI_BROKER_CONNECT_TIMEOUT_MS` and `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- ensure `YUKKI_BROKER_MAX_FRAME_BYTES` matches both sides
 
-### `hard quarantine` — peer immediately rejected
+### Wasm fuel exhaustion
 
-**Cause:** A node UUID was escalated to hard quarantine (level 2) in a previous session. The registry is not persisted across restarts.
-
-**Fix:** Restart both nodes. Quarantine state is in-memory only and resets on process exit.
-
----
-
-### Garbled or zero frames from `weave_spatiotemporal_frame`
-
-**Cause:** `chaos_engine_reseed` was never called, so the Lorenz state is uninitialised (all zeros, which is an attractor fixed point).
-
-**Fix:** Always call `chaos_engine_reseed` with non-zero initial conditions before generating frames. Recommended defaults: σ=10, ρ=28, β=2.667, x0=0.1, y0=0.1, z0=0.1.
-
----
-
-### `wasm execution aborted: fuel exhausted`
-
-**Cause:** The configured WebAssembly fuel budget was too low for the module.
-
-**Fix:**
-1. Set a larger positive value for `YUKKI_WASM_MAX_FUEL` before startup.
-2. For embedded usage, construct the sandbox with `RustasmSandbox::with_max_fuel(...)`.
-
----
-
-## Performance Tuning
-
-### Enable link-time optimisation (LTO)
-
-Add to `Cargo.toml` under the appropriate versioned profile:
-
-```toml
-[profile.release]
-lto = "thin"
-codegen-units = 1
-```
-
-### MUSL static build for minimal overhead
+If sandbox execution returns fuel exhaustion, raise fuel budget:
 
 ```bash
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --target x86_64-unknown-linux-musl
+export YUKKI_WASM_MAX_FUEL=20000000
 ```
 
-### Increase Lorenz step resolution
+## Logging and diagnostics
 
-Lower the RK4 step size in `chaos_weave.c` (`DT` constant) for higher-fidelity attractor trajectories at the cost of CPU cycles.
-
----
-
-## Debug Logging
-
-Set the `RUST_LOG` environment variable for verbose Tokio runtime output:
+Use structured debug logs:
 
 ```bash
 RUST_LOG=debug ./target/release/yukki_core_node bootstrap 0.0.0.0:7660
 ```
-
-For FFI-level tracing, add `printf` statements to `chaos_weave.c` and rebuild.

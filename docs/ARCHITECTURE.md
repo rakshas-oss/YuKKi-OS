@@ -1,205 +1,77 @@
-# YuKKi OS v6.7.0 — FFI & API Reference
+# YuKKi OS v6.7.0 — Architecture
 
-This document describes the C ABI exported by `src/ffi/chaos_weave.c` and consumed by the Rust runtime via FFI, plus the Rust-level public API for the v6.7.0 module set.
+## Scope
 
----
+This document describes the architecture implemented in the current repository state.
 
-## C FFI Layer — `src/ffi/laminar_api.h`
+## Runtime topology
 
-### SpatiotemporalFrame
+YuKKi-OS currently runs as a control-plane mesh with two process roles:
 
-```c
-#pragma pack(push, 1)
-typedef struct {
-    uint64_t seq_id;
-    double   x, y, z;
-    double   u, v, w;
-    float    fluidity;
-    float    drag;
-    double   divergence;
-    uint8_t  payload[16];
-} SpatiotemporalFrame;
-#pragma pack(pop)
-```
+- `bootstrap <bind-address>`: accepts peer registrations and broadcasts fleet updates
+- `node <bootstrap-address> <advertised-address>`: registers to bootstrap and receives fleet updates
 
-Total size: 88 bytes. Layout is ABI-stable and byte-identical to the Rust `#[repr(C, packed)]` struct.
+No interactive REPL command surface is implemented in `src/main.rs`.
 
----
+## Control-plane transport
 
-### Frame Functions
+- Transport: TCP
+- Framing: 4-byte big-endian length prefix
+- Max plaintext frame: 64 KiB
+- Session setup:
+  1. X25519 ephemeral key exchange
+  2. HKDF-SHA256 using shared secret + `YUKKI_PSK_HEX`
+  3. ChaCha20-Poly1305 directional ciphers (`client->server`, `server->client`)
+  4. Auth confirmation frame exchange
+- Timeouts:
+  - handshake timeout: 10s
+  - I/O timeout: 30s
+- Bootstrap inbound concurrency cap: 128 connections
 
-#### `lorenz_step`
+## Peer registry behavior
 
-```c
-void lorenz_step(SpatiotemporalFrame *frame, double dt);
-```
+- Peer registration payload is JSON:
+  - `Register(PeerInfo { uuid, addr })`
+- Fleet update payload is JSON:
+  - `NodeFleet(Vec<PeerInfo>)`
+- Peer state is in-memory only.
 
-Advances the Lorenz attractor by one time step `dt`. Updates `x`, `y`, `z` (attractor state), `u`, `v`, `w` (velocity), and `divergence`.
+## C FFI frame engine
 
-#### `chacha_weave_payload`
+- Header: `src/ffi/laminar_api.h`
+- C implementation: `src/ffi/chaos_weave.c`
+- Rust ABI struct: `SpatiotemporalFrame` (`88` bytes, packed/aligned for C interop)
 
-```c
-void chacha_weave_payload(
-    SpatiotemporalFrame *frame,
-    const uint8_t *key,      // 32 bytes
-    const uint8_t *nonce,    // 12 bytes
-    const uint8_t *input,    // up to 16 bytes
-    uint8_t *output          // 16 bytes
-);
-```
+C exports include:
 
-XORs `input` against a ChaCha20 keystream whose 32-byte key is mixed with the current Lorenz attractor state. **Not authenticated** — illustrative only.
+- Lorenz/chaos functions (`chaos_engine_init`, `chaos_engine_reseed`, `generate_lorenz_step`, `weave_spatiotemporal_frame`)
+- OOB helper functions (`oob_fnv1a_rolling_hash`, `oob_integrity_update`, `oob_sync_check`, `oob_quarantine_node`, `oob_is_quarantined`)
 
----
+These FFI APIs are currently library-side primitives; the node CLI path does not expose direct runtime commands for OOB quarantine management.
 
-### Quarantine Functions
+## Broker integration boundary
 
-#### `sentinel_quarantine_node`
+`src/broker_client.rs` is intentionally isolated from peer-mesh transport:
 
-```c
-void sentinel_quarantine_node(uint64_t node_id, int hard);
-```
+- One TCP connection per broker submission
+- Length-prefixed JSON request/response
+- Independent request and connect timeout controls
+- Request/response shape validation before/after I/O
 
-Adds `node_id` to the quarantine registry. `hard = 0` is soft quarantine (messages logged and dropped); `hard = 1` is hard quarantine (connection rejected at handshake).
+Security note: broker transport auth is outside YuKKi-OS today.
 
-#### `sentinel_release_node`
+## WebAssembly sandbox
 
-```c
-void sentinel_release_node(uint64_t node_id);
-```
+`src/wasm_sandbox.rs` provides a Wasmtime-based execution sandbox:
 
-Removes `node_id` from all quarantine levels.
+- max linear memory: 16 MiB
+- default fuel budget: 10,000,000
+- optional fuel override: `YUKKI_WASM_MAX_FUEL` (must be positive)
+- no host function exports are wired into sandbox execution path
 
-#### `is_quarantined`
+## Known implementation limitations
 
-```c
-int is_quarantined(uint64_t node_id);
-```
-
-Returns `1` if the node is quarantined (either level), `0` otherwise.
-
----
-
-## Rust Public API
-
-### `ADIAutoTuner` — `src/adi_auto_tune.rs`
-
-```rust
-pub struct ADIAutoTuner {
-    pub optimal_queue_depth: usize,
-    pub active_hardware_profile: String,
-}
-
-impl ADIAutoTuner {
-    pub fn new() -> Self;
-    pub fn test_encoding_throughput(&self) -> bool;
-    pub fn test_enquing_efficiency(&mut self) -> bool;
-}
-```
-
-Instantiate with `ADIAutoTuner::new()`, then call both test methods. Results are printed to stdout; return value indicates pass (`true`) or fail (`false`).
-
----
-
-### `RustasmSandbox` — `src/wasm_sandbox.rs`
-
-```rust
-pub struct RustasmSandbox {
-    engine: wasmtime::Engine,
-    execution_buffer: std::sync::Mutex<Vec<u8>>,
-    max_fuel: u64,
-}
-
-impl RustasmSandbox {
-    pub fn new() -> Self;
-    pub fn with_max_fuel(max_fuel: u64) -> Result<Self, String>;
-    pub fn max_fuel(&self) -> u64;
-    pub fn execute(&self, wasm_bytes: &[u8]) -> Result<i32, String>;
-}
-```
-
-Provide raw WASM bytes to `execute`. Returns the integer result of the module's `main` export, or an error string. `new()` uses `YUKKI_WASM_MAX_FUEL` when set to a positive integer; otherwise it uses the default engine budget.
-
----
-
-### `BrokerClient` — `src/broker_client.rs`
-
-```rust
-pub enum BrokerTransportSecurity {
-    PlaintextBoundary,
-    AuthenticatedProxy,
-}
-
-pub struct BrokerClientConfig {
-    pub connect_timeout: std::time::Duration,
-    pub request_timeout: std::time::Duration,
-    pub max_frame_size: usize,
-    pub transport_security: BrokerTransportSecurity,
-}
-
-pub struct BrokerTask {
-    pub task_id: String,
-    pub source: String,
-    pub destination: String,
-    pub kind: String,
-    pub priority: u8,
-    pub timeout_ms: u32,
-    pub payload: serde_json::Value,
-}
-
-pub struct BrokerResult {
-    pub task_id: String,
-    pub status: String,
-    pub gpu_id: Option<i32>,
-    pub execution_ms: Option<u64>,
-    pub result: Option<serde_json::Value>,
-}
-```
-
-`BrokerClient` uses a dedicated TCP connection per submission, a 4-byte big-endian length prefix, bounded frame sizes, request validation, and whole-request timeouts. `BrokerTask::validate()` rejects empty routing fields, zero timeouts, and null payloads before any I/O occurs.
-
-Configuration can be loaded from:
-
-- `YUKKI_BROKER_ENDPOINT`
-- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
-- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
-- `YUKKI_BROKER_MAX_FRAME_BYTES`
-- `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` or `authenticated-proxy`)
-
-The broker transport is intentionally isolated from YuKKi-OS's authenticated peer mesh. For production deployments, terminate the broker hop with mTLS or another authenticated proxy and use `BrokerTransportSecurity::AuthenticatedProxy` to reflect that operational boundary.
-
----
-
-### `SpatiotemporalFrame` — `src/main.rs`
-
-```rust
-#[repr(C, packed)]
-pub struct SpatiotemporalFrame {
-    pub seq_id:     u64,
-    pub x: f64, pub y: f64, pub z: f64,
-    pub u: f64, pub v: f64, pub w: f64,
-    pub fluidity:   f32,
-    pub drag:       f32,
-    pub divergence: f64,
-    pub payload:    [u8; 16],
-}
-```
-
-Byte-identical to the C struct above.
-
----
-
-## Build Dependencies
-
-The FFI layer is compiled by `build.rs`:
-
-```rust
-fn main() {
-    println!("cargo:rerun-if-changed=src/ffi/chaos_weave.c");
-    cc::Build::new()
-        .file("src/ffi/chaos_weave.c")
-        .include("src/ffi")
-        .flag("-std=c99")
-        .compile("chaos_weave");
-}
-```
+- Shared PSK trust model; no per-peer identity or rotation protocol
+- No built-in TLS/mTLS transport wrapping for peer or broker sockets
+- No persistent runtime state store
+- No HTTP health endpoint; health is log- and process-state based

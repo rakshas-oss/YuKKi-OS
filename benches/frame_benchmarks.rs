@@ -5,7 +5,7 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
-use yukkios_6_6_6_inet3::SpatiotemporalFrame;
+use yukkios_6_7_0_inet3::SpatiotemporalFrame;
 
 fn make_frame(seq: u64) -> SpatiotemporalFrame {
     SpatiotemporalFrame {

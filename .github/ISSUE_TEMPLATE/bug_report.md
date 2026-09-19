@@ -12,10 +12,10 @@ A clear and concise description of what the bug is.
 
 ## Version
 
-Which version of YuKKi OS are you using? (e.g., v6.6.6 Inet3 Edition)
+Which version of YuKKi OS are you using? (e.g., v6.7.0)
 
 ```
-./target/release/yukki_core_node --version   # or equivalent
+cargo pkgid && echo "binary: yukki_core_node"
 ```
 
 ## Steps to Reproduce

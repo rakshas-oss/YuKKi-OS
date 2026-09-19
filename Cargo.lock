@@ -2397,8 +2397,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "yukkios_6_6_6_inet3"
-version = "6.6.6"
+name = "yukkios_6_7_0_inet3"
+version = "6.7.0"
 dependencies = [
  "cc",
  "chacha20poly1305",

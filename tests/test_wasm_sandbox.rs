@@ -1,6 +1,6 @@
 /// Tests for Rustasm WebAssembly Sandbox
 /// Validates isolation, memory management, and execution bounds
-use yukkios_6_6_6_inet3::wasm_sandbox::RustasmSandbox;
+use yukkios_6_7_0_inet3::wasm_sandbox::RustasmSandbox;
 
 #[test]
 fn test_sandbox_initialization() {

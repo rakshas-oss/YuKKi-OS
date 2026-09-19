@@ -1,4 +1,4 @@
-//! YuKKi OS v6.6.6 — Integration Test Suite
+//! YuKKi OS v6.7.0 — Integration Test Suite
 //!
 //! Covers: mesh peer management, encryption flows, and frame sequencing.
 
