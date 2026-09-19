@@ -1,6 +1,6 @@
 # v6.6.4 — Inet3 Edition (Legacy / Historical)
 
-> **This release has been superseded by v6.6.6, the current canonical version.** Kept for historical reference only; see [RELEASE_v6.6.6.md](RELEASE_v6.6.6.md) and [VERSIONING.md](VERSIONING.md).
+> **This release has been superseded by v6.7.0, the current baseline.** Kept for historical reference only; see [RELEASE_v6.7.0.md](RELEASE_v6.7.0.md), [RELEASE_v6.6.6.md](RELEASE_v6.6.6.md), and [VERSIONING.md](VERSIONING.md).
 
 Tag: v6.6.4
 

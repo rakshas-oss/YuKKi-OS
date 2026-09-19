@@ -1,114 +1,56 @@
-# YuKKi OS v6.7.0 — Deployment Guide
+# YuKKi OS v6.7.0 — Security Notes
 
----
+> Research/demo software. Do not expose directly to untrusted networks.
 
-## Prerequisites
+## Cryptographic baseline
 
-- Rust stable toolchain: `rustup toolchain install stable`
-- C99 compiler: `gcc` or `clang`
-- `cargo` (included with Rust toolchain)
-- Linux x86-64 recommended (64-bit flat topology)
+- Key exchange: X25519 (ephemeral per session)
+- Key schedule: HKDF-SHA256 with shared PSK as salt input
+- Authenticated transport encryption: ChaCha20-Poly1305
+- AAD: `YuKKi-OS/control/v1`
 
----
+## Current trust model
 
-## Build
+- Shared cluster PSK (`YUKKI_PSK_HEX`) is required.
+- Any node with PSK can authenticate as a mesh participant.
+- There is no per-peer certificate/identity system in current code.
 
-From the repository root:
+## Broker boundary
 
-```bash
-cargo build --release
-```
+Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 
-Binary output: `target/release/yukki_core_node`
+- `authenticated-proxy` mode is operational metadata only.
+- YuKKi-OS does not implement TLS/mTLS wrapping for broker traffic.
+- Deploy broker traffic behind authenticated infrastructure (mTLS sidecar/proxy/service mesh).
 
-### MUSL Static Build (optional)
+## Memory safety controls
 
-```bash
-rustup target add x86_64-unknown-linux-musl
-cargo build --release --target x86_64-unknown-linux-musl
-```
+- Session key material and plaintext buffers are zeroized in Rust where implemented.
+- FFI calls validate expected pointer/state conditions in C for critical paths.
+- Wasm sandbox enforces explicit memory/fuel limits.
 
-Output: `target/x86_64-unknown-linux-musl/release/yukki_core_node`
+## Denial-of-service controls present
 
----
+- Max frame size bound
+- Handshake timeout
+- Read timeout
+- Bootstrap connection semaphore cap (128)
 
-## Authentication configuration
+## Gaps and limitations
 
-Every bootstrap and node must receive the same 32-byte secret using the `YUKKI_PSK_HEX` environment variable. Generate and distribute it through a secret manager; never place it in source control, command history, or logs.
+- No formal external cryptographic audit
+- No replay window protocol beyond nonce monotonicity per session
+- No identity revocation/rotation protocol
+- No built-in secure secret distribution mechanism
+- No transport-layer TLS termination in process
 
-```bash
-export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
-```
+## Operational guidance
 
----
+- Keep `YUKKI_PSK_HEX` in secure env files, never in repository history.
+- Restrict listener exposure with host/network policy.
+- Log and monitor repeated auth/timeout failures.
+- Rotate PSK through coordinated restarts when needed.
 
-## Running
+## Vulnerability reporting
 
-### Bootstrap Node
-
-Start the first node (bootstrap server) that peers will connect to:
-
-```bash
-./target/release/yukki_core_node bootstrap 0.0.0.0:7660
-```
-
-### Peer Node
-
-Connect a peer node to an existing bootstrap, supplying the address it advertises to the mesh:
-
-```bash
-./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
-```
-
-Use a routable advertised address in a multi-host deployment.
-
----
-
-## Interactive Commands
-
-Once a node is running, the interactive prompt (`>`) accepts:
-
-| Command | Description |
-|---------|-------------|
-| `fleet peers` | List all connected peer nodes |
-| `msg <to> <text>` | Send encrypted `FluidMessage` to a peer or `all` |
-| `weave <data>` | Announce a polymorphic-woven payload |
-| `exit` / `quit` | Shut down the node |
-
----
-
-## ADI Auto-Tuning
-
-On startup, the ADI auto-tuner runs two benchmarks:
-
-1. **Encoding throughput** — 10 000-frame evaluation; target < 15 ms
-2. **Queuing efficiency** — 1 000-frame queue test; target < 2 000 µs
-
-If queuing is sufficiently fast, `optimal_queue_depth` is raised to 120 (default: 60).  
-Results are printed to stdout with `[AUTO-TUNE]` prefix.
-
----
-
-## Configuration
-
-The bootstrap bind address and node addresses are command-line arguments. `YUKKI_PSK_HEX` is required and must be exactly 64 hexadecimal characters. Logs are JSON and respect `RUST_LOG` (default: `info`).
-
-### Optional broker client configuration
-
-Use these settings when the control plane needs to offload work through an external broker:
-
-```bash
-export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
-export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
-export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
-export YUKKI_BROKER_MAX_FRAME_BYTES=65536
-export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
-```
-
-`authenticated-proxy` does not change the wire protocol in YuKKi-OS; it marks the expectation that you have placed the raw TCP broker hop behind mTLS or an equivalent authenticated boundary. Default tests do not require a broker, CUDA, TensorRT, or any external service.
-
----
-
-## Troubleshooting
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common errors and debug logging.
+Open a private security report with repository maintainers before public disclosure.

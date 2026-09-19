@@ -1,56 +1,95 @@
-# Version History
+# YuKKi OS v6.7.0 — API and ABI Reference
 
-> **v6.7.0 is the current production baseline.** Previous release branches remain available in git history.
+## CLI API (`src/main.rs`)
 
----
+### Command forms
 
-## Current Version
-
-### v6.7.0 — Inet3 Production Refresh (Current)
-
-The current release baseline for YuKKi OS. It aligns the package metadata, project documentation, and release references under a single v6.7.0 version line while preserving the established Inet3 architecture stack.
-
-**Key features:**
-- ADI Dynamic Integration auto-tuning suite
-- Virtual PUF micro-timing anchor for entropy
-- Rustasm WebAssembly sandbox (Wasmtime)
-- Explicit volatile memory wiping (zeroize)
-- Epsilon-Threshold Failsafe for Lorenz recovery
-- X25519 ECDH + ChaCha20-Poly1305 AEAD control plane
-- Polymorphic attractor-bound payload weave
-
----
-
-## Archived Versions
-
-### v6.6.6 — Inet3 Edition
-
-Documentation refresh for the v6.6.x stream and branch alignment update to the Inet3 naming scheme.
-
-### v6.6.0 — Sentinel Mesh Edition
-
-Introduced dual-layer sentinel quarantine registry, X25519 ECDH ephemeral session security, and polymorphic ChaCha20 payload weave.
-
-### v6.5.0 — Ephemeral Mesh Edition
-
-Introduced X25519 ECDH key exchange and ChaCha20-Poly1305 AEAD for the control plane. Ephemeral session keys, no persistence.
-
-### v6.4.3 — OOB Integrity Edition
-
-FNV-1a rolling hash, 60-frame out-of-band sync, node quarantine, ChaCha20 payload binding.
-
----
-
-## Accessing Legacy Versions
-
-To access archived version code:
-
-```bash
-# View git log to find the commit for a legacy version
-git log --oneline
-
-# Checkout a specific legacy commit
-git checkout <commit-hash>
+```text
+yukki_core_node bootstrap <bind-address>
+yukki_core_node node <bootstrap-address> <advertised-address>
 ```
 
-Previous version directories and older release notes remain accessible via git history.
+### Required environment
+
+- `YUKKI_PSK_HEX`: 64-character hex string (32-byte PSK)
+
+### Optional environment
+
+- `RUST_LOG`: tracing filter (default `info`)
+
+## Peer mesh message schema
+
+```rust
+enum SovereignCommand {
+    Register(PeerInfo),
+    NodeFleet(Vec<PeerInfo>),
+}
+
+struct PeerInfo {
+    uuid: uuid::Uuid,
+    addr: String,
+}
+```
+
+Messages are JSON encoded and encrypted after session establishment.
+
+## Broker client API (`src/broker_client.rs`)
+
+### Environment variables
+
+- `YUKKI_BROKER_ENDPOINT`
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- `YUKKI_BROKER_MAX_FRAME_BYTES`
+- `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` | `authenticated-proxy`)
+
+### Request schema (`BrokerTask`)
+
+- `task_id: String` (required, non-empty)
+- `source: String` (required, non-empty)
+- `destination: String` (required, non-empty)
+- `kind: String` (required, non-empty)
+- `priority: u8`
+- `timeout_ms: u32` (required, > 0)
+- `payload: serde_json::Value` (required, non-null)
+
+### Response schema (`BrokerResult`)
+
+- `task_id: String` (must match request task_id)
+- `status: String` (required, non-empty)
+- `gpu_id: Option<i32>`
+- `execution_ms: Option<u64>`
+- `result: Option<serde_json::Value>`
+
+## C ABI (`src/ffi/laminar_api.h`)
+
+### `SpatiotemporalFrame`
+
+Packed/aligned C-compatible struct, 88 bytes:
+
+- `seq_id: uint64_t`
+- `x, y, z: double`
+- `u, v, w: double`
+- `fluidity: float`
+- `drag: float`
+- `divergence: double`
+- `payload[16]: uint8_t`
+
+### Exported C functions
+
+- `chaos_engine_init(double sigma, double rho, double beta)`
+- `chaos_engine_reseed(double sigma, double rho, double beta, double x0, double y0, double z0)`
+- `generate_lorenz_step(double dt)`
+- `weave_spatiotemporal_frame(uint64_t seq, const uint8_t* payload_src, SpatiotemporalFrame* out_frame)`
+- `oob_fnv1a_rolling_hash(uint64_t seed, const uint8_t *data, uint32_t len)`
+- `oob_integrity_update(uint64_t seq, const uint8_t *payload, uint32_t len)`
+- `oob_sync_check(uint64_t seq)`
+- `oob_quarantine_node(const char *node_uuid)`
+- `oob_is_quarantined(const char *node_uuid)`
+
+## Rust library exports (`src/lib.rs`)
+
+- `adi_auto_tune`
+- `broker_client`
+- `wasm_sandbox`
+- `SpatiotemporalFrame`

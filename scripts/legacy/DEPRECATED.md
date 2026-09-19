@@ -1,14 +1,12 @@
 # Legacy Scripts (Deprecated)
 
-The scripts in this directory correspond to deprecated versions of YuKKi OS that have been superseded by v6.6.6 (Inet3 Edition), the current canonical version.
+The scripts in this directory are archived legacy assets from older YuKKi-OS lines.
 
-| Script | Version | Status |
-|--------|---------|--------|
-| `YuKKi_OS_6.4.3_OOB-Integrity.sh` | v6.4.3 | ❌ Deprecated |
-| `YuKKi_OS_6.4_Interim-Crypt.sh` | v6.4 Interim | ❌ Deprecated |
+Current baseline is **v6.7.0**. Do not use these legacy scripts for new deployments.
 
-These scripts are preserved here for archival reference only. **Do not use them for new deployments.**
+| Script | Version line | Status |
+|--------|--------------|--------|
+| `YuKKi_OS_6.4.3_OOB-Integrity.sh` | v6.4.3 | Deprecated |
+| `YuKKi_OS_6.4_Interim-Crypt.sh` | v6.4 interim | Deprecated |
 
-For the current deployment script, see [`../deploy/deploy_yukki_6_6_6_inet3.zsh`](../deploy/deploy_yukki_6_6_6_inet3.zsh).
-
-Full source code for legacy versions is available in git history.
+For current deployment helpers, use `scripts/deploy/deploy_yukki_6_7_0_inet3.zsh`.

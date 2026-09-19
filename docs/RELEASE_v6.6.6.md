@@ -1,20 +1,25 @@
-# Deploy Scripts — YuKKi OS
+# v6.6.6 — Inet3 Edition (Legacy / Historical)
 
-## `deploy_yukki_6_7_0_inet3.zsh`
+> Superseded by [v6.7.0](RELEASE_v6.7.0.md). This file is archival.
 
-Self-contained deployment script that scaffolds a standalone copy of the YuKKi OS Inet3 source tree and builds it with `cargo build --release`. It is kept as a convenience path for the current v6.7.0 baseline.
+- Tag: `v6.6.6`
+- Status: historical reference
 
-### Usage
+## Historical summary
 
-```bash
-chmod +x deploy_yukki_6_7_0_inet3.zsh
-./deploy_yukki_6_7_0_inet3.zsh
-```
+v6.6.6 represented the late Inet3 line before the v6.7.0 baseline cleanup.
 
-This script generates a self-contained source tree in `./yukkios_6_7_0_inet3/`, builds the binary with `cargo build --release`, and prints a deployment confirmation.
+Key themes in that line:
 
-### Requirements
+- X25519 + PSK + HKDF + ChaCha20-Poly1305 control-plane design
+- C FFI Lorenz frame engine and associated ABI layout checks
+- Wasmtime-backed sandbox module integration
+- Broker boundary split from core peer-mesh transport
 
-- `zsh` shell
-- Rust stable toolchain (`rustup`)
-- C99 compiler (`gcc` or `clang`)
+## Archival note
+
+Use current deployment and operational guidance from:
+
+- [docs/DEPLOYMENT.md](DEPLOYMENT.md)
+- [docs/SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md)
+- [scripts/deploy/README.md](../scripts/deploy/README.md)
