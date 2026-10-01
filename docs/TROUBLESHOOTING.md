@@ -1,4 +1,4 @@
-# YuKKi OS v6.7.0 — Troubleshooting
+# YuKKi OS v6.8.0 — Troubleshooting
 
 ## Build failures
 

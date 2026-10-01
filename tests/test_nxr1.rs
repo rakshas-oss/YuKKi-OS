@@ -1,7 +1,7 @@
 //! Integration tests for the NXR1 geospatial frame codec and broker adapter,
 //! exercised through the crate's public API surface (`src/lib.rs`).
 
-use yukkios_6_7_0_inet3::{
+use yukkios_6_8_0_inet3::{
     from_broker_task, to_broker_task, BrokerTask, Nxr1Error, Nxr1Frame, GEOSPATIAL_FRAME_KIND,
     NXR1_HEADER_LEN, NXR1_MAGIC, NXR1_VERSION,
 };

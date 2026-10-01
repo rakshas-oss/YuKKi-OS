@@ -1,4 +1,4 @@
-# YuKKi OS v6.7.0 — Sysadmin How-To
+# YuKKi OS v6.8.0 — Sysadmin How-To
 
 > Research/demo software. Use strict network boundaries and secret handling.
 

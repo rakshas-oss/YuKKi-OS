@@ -1,8 +1,8 @@
-# Deploy Scripts — YuKKi OS v6.7.0
+# Deploy Scripts — YuKKi OS v6.8.0
 
 ## Script
 
-- `deploy_yukki_6_7_0_inet3.zsh`
+- `deploy_yukki_6_8_0_inet3.zsh`
 
 This script is a thin deployment helper for the current repository source. It does **not** scaffold legacy source trees.
 
@@ -16,10 +16,10 @@ This script is a thin deployment helper for the current repository source. It do
 
 ```bash
 cd scripts/deploy
-chmod +x deploy_yukki_6_7_0_inet3.zsh
-./deploy_yukki_6_7_0_inet3.zsh --build-only
+chmod +x deploy_yukki_6_8_0_inet3.zsh
+./deploy_yukki_6_8_0_inet3.zsh --build-only
 # or
-./deploy_yukki_6_7_0_inet3.zsh --install
+./deploy_yukki_6_8_0_inet3.zsh --install
 ```
 
 ## Notes
