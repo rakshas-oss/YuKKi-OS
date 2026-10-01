@@ -60,14 +60,28 @@ These FFI APIs are currently library-side primitives; the node CLI path does not
 
 Security note: broker transport auth is outside YuKKi-OS today.
 
-## WebAssembly sandbox
+## WebAssembly sandbox and GPU interop
 
 `src/wasm_sandbox.rs` provides a Wasmtime-based execution sandbox:
 
 - max linear memory: 16 MiB
 - default fuel budget: 10,000,000
 - optional fuel override: `YUKKI_WASM_MAX_FUEL` (must be positive)
-- no host function exports are wired into sandbox execution path
+- isolated memory: no direct host or CUDA memory pointers exposed to WASM guests
+
+`src/gpu_adapter.rs` provides the GPU task offloading adapter and module lifecycle manager targeting `rakshas-oss/overhauled`:
+
+- **Isolation Preservation**: Sandboxes communicate with GPU acceleration via host-mediated calls (`submit_gpu_task`). The host validates buffer sizes (capped at 64 KiB execution buffers) and generates high-level `BufferDescriptor`s. Sandboxes cannot bypass the runtime to touch CUDA APIs or device memory.
+- **Protocol Version Negotiation**: Version exchange (`overhauled.wasm.gpu.v1`) ensures mutual compatibility prior to workload dispatch.
+- **Retry and Idempotency**: Network failures or transient broker rejections (`retryable: true`) are retried automatically with backoff, preserving `task_id` for deduplication.
+- **Safe Module Hotswapping**:
+  1. *Prepare*: Compile and validate replacement module bytecode in the background.
+  2. *State Handoff*: Optional structured application state migration via `StateHandoffHook`. Live WASM linear memory and arbitrary GPU VRAM/streams are explicitly **not** migrated.
+  3. *Rollback on Failure*: Any validation or state handoff error aborts the swap, keeping the existing version actively serving.
+  4. *Atomic Routing*: Routing tables update atomically to redirect new submissions.
+  5. *Quiesce and Drain*: The old module version stops receiving new tasks while in-flight GPU tasks complete.
+  6. *Drain-Before-Release*: Resources tied to superseded versions are deallocated strictly after in-flight operations drop to zero.
+- **Configurable / Optional**: Disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`), allowing standard node operations on systems without GPUs or overhauled brokers.
 
 ## Known implementation limitations
 

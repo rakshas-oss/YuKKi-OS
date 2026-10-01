@@ -1,11 +1,20 @@
-use std::{env, sync::Mutex};
+use std::{
+    env,
+    sync::{Arc, Mutex},
+};
 use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder};
 use zeroize::Zeroize;
+
+use crate::gpu_adapter::{
+    BufferAccess, BufferDescriptor, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
+    CURRENT_PROTOCOL_VERSION,
+};
 
 pub struct RustasmSandbox {
     engine: Engine,
     execution_buffer: Mutex<Vec<u8>>,
     max_fuel: u64,
+    gpu_client: Option<Arc<GpuBrokerClient>>,
 }
 
 struct SandboxState {
@@ -47,7 +56,67 @@ impl RustasmSandbox {
             engine: Engine::new(&config).expect("valid Wasmtime configuration"),
             execution_buffer: Mutex::new(Vec::with_capacity(960)),
             max_fuel,
+            gpu_client: None,
         })
+    }
+
+    pub fn with_gpu_client(mut self, client: Arc<GpuBrokerClient>) -> Self {
+        self.gpu_client = Some(client);
+        self
+    }
+
+    pub fn gpu_client(&self) -> Option<&Arc<GpuBrokerClient>> {
+        self.gpu_client.as_ref()
+    }
+
+    /// Submit a GPU compute task to the overhauled broker on behalf of the sandbox.
+    ///
+    /// Preserves sandbox isolation: Sandboxes cannot issue raw CUDA or GPU memory
+    /// commands directly. Instead, payloads are bound to `MAX_BUFFER_BYTES`, validated,
+    /// and wrapped in high-level descriptors mediated by the host adapter.
+    pub async fn submit_gpu_task(
+        &self,
+        module_id: &str,
+        module_version: &str,
+        task_id: &str,
+        payload: &[u8],
+        priority: u8,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, GpuAdapterError> {
+        let client = self.gpu_client.as_ref().ok_or(GpuAdapterError::Disabled)?;
+        if payload.len() > Self::MAX_BUFFER_BYTES {
+            return Err(GpuAdapterError::SandboxLimitExceeded(format!(
+                "payload size {} exceeds maximum allowable buffer bytes {}",
+                payload.len(),
+                Self::MAX_BUFFER_BYTES
+            )));
+        }
+
+        let request = GpuTaskRequest {
+            protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
+            task_id: task_id.to_string(),
+            idempotency_key: Some(task_id.to_string()),
+            sandbox_id: "rustasm_sandbox".to_string(),
+            module_id: module_id.to_string(),
+            module_version: module_version.to_string(),
+            priority,
+            deadline_ms: None,
+            timeout_ms,
+            buffers: vec![BufferDescriptor::inline(
+                "input_buf",
+                payload.to_vec(),
+                BufferAccess::ReadOnly,
+            )],
+            metadata: None,
+        };
+
+        let response = client.submit_task(&request).await?;
+        for buf in response.output_buffers {
+            if let Some(data) = buf.inline_data {
+                return Ok(data);
+            }
+        }
+        Ok(Vec::new())
     }
 
     pub fn max_fuel(&self) -> u64 {
