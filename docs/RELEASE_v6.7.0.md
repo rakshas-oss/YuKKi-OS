@@ -1,5 +1,7 @@
 # v6.7.0 — Baseline Coherence Refresh
 
+> Superseded by [v6.8.0](RELEASE_v6.8.0.md). This release note is archival.
+
 - Tag: `v6.7.0`
 - Date: 2026-09-19
 
