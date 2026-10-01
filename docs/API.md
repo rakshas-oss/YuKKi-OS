@@ -233,3 +233,89 @@ Managed by `ModuleLifecycleManager`:
 - Handshake messages use type `"handshake_request"` and `"handshake_response"` with magic `"OVERHAULED_WASM_GPU"`.
 - When overhauled returns a rejection with `retryable: true`, YuKKi-OS client will retry with exponential backoff using the identical `task_id` for idempotency.
 
+## WSM1 & BRK1 Broker Lifecycle Protocol (`src/gpu_adapter.rs`)
+
+Additive, binary wire-level protocol support for overhauled broker WSM1 lifecycle and task operations (compatible with `rakshas-oss/overhauled` `include/wasm_sandbox.h` definitions).
+
+### Wire Formats
+
+#### 1. WSM1 Binary Protocol
+
+- **Magic**: `0x57534D31` (`"WSM1"` in ASCII, big-endian)
+- **Protocol Version**: `1`
+- **Header (8 bytes)**:
+  - `magic`: `uint32_be` (`0x57534D31`)
+  - `version`: `uint16_be` (`1`)
+  - `msg_type`: `uint8` (`1`: TaskRequest, `2`: TaskResponse, `3`: LifecycleRequest, `4`: LifecycleResponse)
+  - `action_or_flags`: `uint8` (Lifecycle action or task status)
+
+- **String Field Encoding**: `uint16_be` byte length + UTF-8 string data.
+- **Bytes Field Encoding**: `uint32_be` byte length + raw octets.
+
+- **Message Enums**:
+  - `WasmLifecycleAction`: `Prepare = 1`, `Drain = 2`, `Release = 3`, `Query = 4`.
+  - `WasmLifecycleState`: `Unknown = 0`, `Prepared = 1`, `Active = 2`, `Draining = 3`, `Stopped = 4`, `Released = 5`.
+  - `WasmLifecycleStatus`: `Ok = 0`, `Rejected = 1`, `Error = 2`, `Busy = 3`, `NotFound = 4`.
+  - `WasmTaskStatus`: `Ok = 0`, `Rejected = 1`, `Failed = 2`, `Timeout = 3`.
+
+#### 2. BRK1 Message Envelope
+
+- **Magic**: `0x42524B31` (`"BRK1"` in ASCII, big-endian)
+- **Protocol Version**: `1`
+- **Envelope Header & Fields**:
+  - `magic`: `uint32_be` (`0x42524B31`)
+  - `version`: `uint16_be` (`1`)
+  - `msg_type`: `uint8` (`1`: Request, `2`: Response, `3`: Event, `4`: Error)
+  - `reserved`: `uint8` (`0`)
+  - `task_id`: String (`uint16_be` length + UTF-8)
+  - `source`: String (`uint16_be` length + UTF-8)
+  - `destination`: String (`uint16_be` length + UTF-8)
+  - `kind`: String (`uint16_be` length + UTF-8)
+  - `priority`: `uint8`
+  - `timeout_ms`: `uint32_be`
+  - `payload`: Bytes (`uint32_be` length + payload bytes, e.g. embedded WSM1 frame)
+
+### `LifecycleClient`
+
+`LifecycleClient` wraps and extends `GpuBrokerClient` to manage remote GPU resources during module lifecycle events:
+
+- `LifecycleClient::new(config: GpuAdapterConfig) -> Result<Self, GpuAdapterError>`
+- `LifecycleClient::from_broker_client(broker_client: Arc<GpuBrokerClient>) -> Self`
+- `prepare(sandbox_id, module_id, version, target_gpu) -> Result<WasmLifecycleResponse, GpuAdapterError>`
+- `drain(sandbox_id, module_id, version, timeout_ms) -> Result<WasmLifecycleResponse, GpuAdapterError>`
+- `release(sandbox_id, module_id, version, lease_token) -> Result<WasmLifecycleResponse, GpuAdapterError>`
+- `query(sandbox_id, module_id, version) -> Result<WasmLifecycleResponse, GpuAdapterError>`
+- `submit_wsm1_task(request: &WasmTaskRequest) -> Result<WasmTaskResponse, GpuAdapterError>`
+
+Supported wire framing modes (`LifecycleWireMode`):
+- `Auto`: Encapsulates WSM1 requests inside `BRK1` frame envelopes over length-prefixed TCP, automatically parsing BRK1, raw WSM1, or JSON responses.
+- `Brk1`: Always use BRK1 frame envelope.
+- `RawWsm1`: Direct binary WSM1 framing without BRK1 envelope.
+- `Json`: JSON-encoded `BrokerMessage` over length-prefixed TCP.
+
+### Coordinated Hotswap Orchestration
+
+When a `LifecycleClient` is attached to `ModuleLifecycleManager` via `.with_lifecycle_client()` or `.set_lifecycle_client()`, `ModuleLifecycleManager::hotswap()` coordinates all remote broker and local host operations:
+
+1. **Broker Prepare**:
+   Calls `LifecycleClient::prepare()` to acquire a lease and pin the module to a broker GPU. Stores `lease_token` and `assigned_gpu` on the handle.
+2. **State Handoff**:
+   Invokes registered `StateHandoffHook` implementations to migrate structured application state from the current active version to the candidate version. If state handoff fails, `LifecycleClient::release()` is called to release the prepared broker lease and the candidate version is marked `RolledBack`.
+3. **Atomic Routing Switch**:
+   Updates the active module routing table atomically.
+4. **Broker Drain**:
+   Calls `LifecycleClient::drain()` to begin draining broker tasks destined for the old version.
+5. **Local Drain**:
+   Waits until all local in-flight executions on the old version reach zero or the quiesce timeout expires.
+6. **Broker Release**:
+   Calls `LifecycleClient::release()` with the old version's `lease_token` to free GPU resources on the broker.
+7. **Local Resource Cleanup**:
+   Deallocates remaining local resources and writes an entry to the release audit log.
+
+### Sandbox Task Submission & Negotiation
+
+In `RustasmSandbox::submit_gpu_task()`:
+- If a `LifecycleClient` is present, it constructs a `WasmTaskRequest` and transmits it using the binary WSM1 protocol in a BRK1 envelope.
+- If binary submission fails due to transport error or incompatibility, or if only a standard `GpuBrokerClient` is configured, it seamlessly falls back to JSON `BrokerMessage::TaskRequest` over TCP.
+- Existing methods and APIs remain 100% backward compatible.
+
