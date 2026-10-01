@@ -18,6 +18,23 @@ fn test_buffer_payload_acceptance() {
 }
 
 #[test]
+fn test_buffer_payload_limit_accepts_exact_capacity_and_rejects_overflow() {
+    let sandbox = RustasmSandbox::new();
+    let test_payload = [0xAB; 16];
+
+    for _ in 0..(64 * 1024 / test_payload.len()) {
+        sandbox.buffer_payload(&test_payload).unwrap();
+    }
+
+    assert_eq!(
+        sandbox.buffer_payload(&test_payload),
+        Err("sandbox payload buffer limit exceeded")
+    );
+    sandbox.flush_buffer();
+    assert!(sandbox.buffer_payload(&test_payload).is_ok());
+}
+
+#[test]
 fn test_buffer_flush() {
     let sandbox = RustasmSandbox::new();
     let test_payload = [0xFF; 16];
