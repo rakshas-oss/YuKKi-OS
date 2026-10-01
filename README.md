@@ -57,6 +57,25 @@ Broker boundary env vars:
 
 `authenticated-proxy` is documentary metadata for operations; it does not enable TLS by itself.
 
+## Geospatial and chunked media codecs
+
+The Rust library provides an interoperable GeoJSON avenue model
+(`ArcGisAvenue`) using validated WGS84 longitude/latitude coordinates and
+optional route/avenue properties. The legacy NXR1 codec remains available but
+its numeric fields are not geographic coordinates.
+
+Audio/video data is supported as codec-agnostic pass-through `MediaChunk`s.
+`LiveMediaStreams` provides bounded in-memory stream opening, ordered
+ingestion, sequence/range reads, acknowledgement, and finish/removal APIs.
+The default store retains at most 256 chunks (256 KiB maximum each); it does
+not transcode media or provide network transport. Encoded chunks and GeoJSON
+features can be wrapped in the existing broker JSON task boundary, subject to
+its configured frame-size limit. WASM guests remain host-mediated.
+
+See [docs/API.md](docs/API.md) for Rust examples, wire layouts, validation,
+and limits, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust and
+resource boundaries.
+
 ## GPU-backed WASM sandbox interoperability (rakshas-oss/overhauled)
 
 YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:

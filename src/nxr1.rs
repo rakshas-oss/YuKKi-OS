@@ -5,7 +5,10 @@
 //! a thin, dependency-free binary codec plus an adapter that lets a decoded
 //! frame travel over the existing [`crate::broker_client`] JSON transport —
 //! YuKKi-OS does not run a second, parallel TCP protocol for this message
-//! kind.
+//! kind. This is the legacy NXR1 numerical frame: its `x`, `y`, `z`, vector,
+//! and fluid-dynamics fields do not define geographic coordinates or ArcGIS
+//! attributes. New avenue/road-network geometry uses the explicit WGS84
+//! GeoJSON model in [`crate::arcgis`] instead.
 //!
 //! ## Wire format (NXR1)
 //!
