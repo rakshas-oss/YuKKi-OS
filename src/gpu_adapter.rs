@@ -306,9 +306,10 @@ impl GpuTaskRequest {
             ));
         }
         if self.timeout_ms < MIN_TASK_TIMEOUT_MS {
-            return Err(GpuAdapterError::InvalidRequest(
-                "timeout_ms must be greater than zero".to_string(),
-            ));
+            return Err(GpuAdapterError::InvalidRequest(format!(
+                "timeout_ms must be at least {MIN_TASK_TIMEOUT_MS}ms (got {})",
+                self.timeout_ms
+            )));
         }
         if self.timeout_ms > MAX_TASK_TIMEOUT_MS {
             return Err(GpuAdapterError::InvalidRequest(format!(
