@@ -2,8 +2,10 @@
 //! Exports core modules for testing and external use
 
 pub mod adi_auto_tune;
+pub mod arcgis;
 pub mod broker_client;
 pub mod gpu_adapter;
+pub mod media_codec;
 pub mod nxr1;
 pub mod wasm_sandbox;
 
@@ -34,6 +36,17 @@ pub use gpu_adapter::{
 pub use nxr1::{
     from_broker_task, to_broker_task, Nxr1Error, Nxr1Frame, GEOSPATIAL_FRAME_KIND, NXR1_HEADER_LEN,
     NXR1_MAGIC, NXR1_MAX_PAYLOAD_BYTES, NXR1_VERSION,
+};
+
+pub use arcgis::{
+    ArcGisAvenue, ArcGisError, Wgs84Coordinate, ARCGIS_AVENUE_BROKER_KEY, ARCGIS_AVENUE_KIND,
+    ARCGIS_AVENUE_MAX_BYTES, ARCGIS_AVENUE_MAX_COORDINATES,
+};
+
+pub use media_codec::{
+    LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig, MediaStreamMetadata, MediaType,
+    MEDIA_CHUNK_BROKER_KEY, MEDIA_CHUNK_HEADER_LEN, MEDIA_CHUNK_KIND, MEDIA_CHUNK_MAGIC,
+    MEDIA_CHUNK_VERSION, MEDIA_MAX_CHUNK_BYTES, MEDIA_MAX_CODEC_BYTES, MEDIA_MAX_STREAM_ID_BYTES,
 };
 
 use std::marker::PhantomData;

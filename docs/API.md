@@ -106,6 +106,118 @@ second, parallel binary transport is introduced.
 `NonFiniteValue`, `PayloadTooLarge`, `UnexpectedKind`,
 `MissingBrokerPayload`, `MalformedBrokerPayload`.
 
+NXR1 remains the legacy numeric frame format; its `x/y/z`, vector, and fluid
+fields are not mapped to geographic coordinates. New avenue and road-network
+data should use the explicit GeoJSON representation below.
+
+## ArcGIS-oriented avenue GeoJSON (`src/arcgis.rs`)
+
+Public symbols exported from the crate root:
+`ArcGisAvenue`, `Wgs84Coordinate`, `ArcGisError`, `ARCGIS_AVENUE_KIND`, and
+`ARCGIS_AVENUE_MAX_BYTES`, `ARCGIS_AVENUE_MAX_COORDINATES`.
+
+`ArcGisAvenue::encode` and `decode` use an interoperable RFC 7946 GeoJSON
+`Feature` containing a `LineString`, not a proprietary ArcGIS binary format.
+The encoded shape is:
+
+```json
+{
+  "type": "Feature",
+  "id": "avenue-42",
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [[-122.4194, 37.7749], [-122.418, 37.7755]]
+  },
+  "properties": { "route_id": "route-7", "avenue_name": "Main Avenue" }
+}
+```
+
+Each position is `[longitude, latitude]` in WGS84 (EPSG:4326); coordinates
+must be finite, longitude must be in `[-180, 180]`, and latitude in `[-90, 90]`.
+A LineString requires at least two positions. `feature_id` is required;
+`route_id` and `avenue_name` are optional, non-empty strings limited to 256
+UTF-8 bytes. Features are limited to 10,000 positions and 64 KiB. Elevation,
+measures, arbitrary ArcGIS attributes, and proprietary feature-service
+formats are not modeled.
+
+`ArcGisAvenue::to_broker_task` and `from_broker_task` use kind
+`geospatial.arcgis.avenue.v1`, placing the GeoJSON Feature under the
+`arcgis_avenue` key of the existing `BrokerTask.payload`. This is the
+repository's JSON broker envelope, not an ArcGIS service client. The broker's
+configured frame-size limit still applies to the complete JSON task.
+
+## Chunked audio/video (`src/media_codec.rs`)
+
+Public symbols exported from the crate root:
+`MediaType`, `MediaStreamMetadata`, `MediaChunk`, `MediaStreamConfig`,
+`LiveMediaStreams`, `MediaError`, `MEDIA_MAX_CHUNK_BYTES`,
+`MEDIA_MAX_STREAM_ID_BYTES`, `MEDIA_MAX_CODEC_BYTES`,
+`MEDIA_CHUNK_HEADER_LEN`, `MEDIA_CHUNK_KIND`, and `MEDIA_CHUNK_BROKER_KEY`.
+
+This is a codec-agnostic pass-through library. It does not encode or decode
+H.264, Opus, or other codec bitstreams. `MediaChunk::encode`/`decode` frame
+opaque payload bytes using YKMC v1. All integers are unsigned big-endian:
+
+| Field | Type | Bytes |
+|---|---:|---:|
+| magic (`YKMC`) | `u32` | 4 |
+| version | `u8` | 1 |
+| media type (`0` audio, `1` video) | `u8` | 1 |
+| flags (bit 0 is keyframe; other bits reserved) | `u8` | 1 |
+| stream ID UTF-8 byte length | `u16` | 2 |
+| codec label UTF-8 byte length | `u16` | 2 |
+| sequence number | `u64` | 8 |
+| timestamp in milliseconds | `u64` | 8 |
+| payload byte length | `u32` | 4 |
+| stream ID, codec label, payload | variable | declared lengths |
+
+The fixed header is 31 bytes. The stream ID is limited to 128 bytes, codec
+label to 64 bytes, and payload to 256 KiB. Decoding rejects invalid magic,
+version, media type, flags, UTF-8, lengths, truncation, and trailing bytes.
+`MediaChunk::to_broker_task`/`from_broker_task` use kind `media.chunk.v1`
+with an encoded byte array under `media_chunk`. JSON arrays expand binary
+data; the configured `BrokerClient` frame-size limit still applies.
+
+`LiveMediaStreams::new(config)` returns a synchronized in-memory collection:
+
+```rust,ignore
+let streams = LiveMediaStreams::new(MediaStreamConfig::default())?;
+streams.open_stream(MediaStreamMetadata {
+    stream_id: "camera-1".into(),
+    media_type: MediaType::Video,
+    codec: "example-codec".into(),
+})?;
+let chunk = MediaChunk {
+    stream_id: "camera-1".into(),
+    media_type: MediaType::Video,
+    codec: "example-codec".into(),
+    sequence_no: 0,
+    timestamp_ms: 0,
+    is_keyframe: true,
+    payload: vec![0x01, 0x02],
+};
+streams.ingest_chunk(&chunk.encode()?)?;
+let frame = streams.get_chunk("camera-1", 0)?;
+let frames = streams.get_range("camera-1", 0, 10)?;
+streams.close_stream("camera-1")?;
+```
+
+`append_chunk` and `ingest_chunk` require contiguous sequence numbers starting
+at zero; duplicates and gaps/out-of-order input return distinct
+`MediaError`s. Reads distinguish future/missing chunks from acknowledged and
+no-longer-retained chunks. Ranges are inclusive and may not exceed
+`max_chunks_per_stream`. `MediaStreamConfig` configures `max_streams`,
+`max_chunks_per_stream`, `max_total_chunks`, and `max_chunk_bytes`; defaults
+are 64 streams, 64 chunks per stream, 256 total retained chunks, and 256 KiB
+per chunk (at most 64 MiB of retained payloads). Full capacity returns
+`MediaError::Backpressure`; no chunks are silently evicted.
+`acknowledge_through` releases a prefix of retained chunks, `close_stream`
+prevents more appends but keeps chunks readable, `stream_metadata` retrieves
+the immutable stream metadata, and `remove_stream` deletes the stream and
+frees all its retained data. These APIs are in-process storage; they do not
+provide network transport, persistence, codec transcoding, or media-clock
+synchronization.
+
 ## C ABI (`src/ffi/laminar_api.h`)
 
 ### `SpatiotemporalFrame`
@@ -318,4 +430,3 @@ In `RustasmSandbox::submit_gpu_task()`:
 - If a `LifecycleClient` is present, it constructs a `WasmTaskRequest` and transmits it using the binary WSM1 protocol in a BRK1 envelope.
 - If binary submission fails due to transport error or incompatibility, or if only a standard `GpuBrokerClient` is configured, it seamlessly falls back to JSON `BrokerMessage::TaskRequest` over TCP.
 - Existing methods and APIs remain 100% backward compatible.
-

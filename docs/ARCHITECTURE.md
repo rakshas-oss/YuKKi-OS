@@ -60,6 +60,33 @@ These FFI APIs are currently library-side primitives; the node CLI path does not
 
 Security note: broker transport auth is outside YuKKi-OS today.
 
+## Geospatial and live media codecs
+
+`src/arcgis.rs` represents avenue/road-network line geometry as GeoJSON
+LineString Features with WGS84 longitude/latitude coordinates and optional
+`route_id`/`avenue_name` metadata. It does not reinterpret the legacy `NXR1`
+fluid/numeric fields and does not claim compatibility with proprietary
+ArcGIS feature-service formats. GeoJSON Features can cross the existing
+`BrokerTask` JSON boundary under `geospatial.arcgis.avenue.v1`.
+
+`src/media_codec.rs` frames opaque codec payloads in YKMC v1 chunks and offers
+the synchronized, in-process `LiveMediaStreams` collection. Audio/video
+codec bitstreams are pass-through only; no transcoding occurs. Stream
+appenders must supply contiguous sequence numbers beginning at zero. The
+default store limits are 64 streams, 64 chunks per stream, 256 chunks total,
+and 256 KiB per chunk; exhausted capacity reports backpressure instead of
+discarding data. Consumers reclaim storage with `acknowledge_through` or
+`remove_stream`. A chunk can be wrapped in the existing BrokerTask JSON
+envelope, but its JSON byte-array expansion remains subject to the broker
+client's configured frame-size limit.
+
+These library APIs do not add a network listener or bypass the broker/client
+boundary. WASM guests must continue to request host-mediated operations; no
+raw pointers, guest-owned native buffers, or direct media-store access are
+exposed. Applications are responsible for enforcing authorization and
+protecting raw broker TCP links with an authenticated proxy or equivalent
+deployment boundary.
+
 ## WebAssembly sandbox and GPU interop
 
 `src/wasm_sandbox.rs` provides a Wasmtime-based execution sandbox:
