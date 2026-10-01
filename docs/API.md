@@ -1,4 +1,4 @@
-# YuKKi OS v6.7.0 — API and ABI Reference
+# YuKKi OS v6.8.0 — API and ABI Reference
 
 ## CLI API (`src/main.rs`)
 

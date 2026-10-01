@@ -10,8 +10,8 @@ INSTALL_PATH="$INSTALL_DIR/yukki_core_node"
 show_usage() {
   cat <<USAGE
 Usage:
-  deploy_yukki_6_7_0_inet3.zsh --build-only
-  deploy_yukki_6_7_0_inet3.zsh --install
+  deploy_yukki_6_8_0_inet3.zsh --build-only
+  deploy_yukki_6_8_0_inet3.zsh --install
 
 Options:
   --build-only   Build release binary only
@@ -40,7 +40,7 @@ if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! comm
   exit 1
 fi
 
-echo "[info] building YuKKi OS v6.7.0 from $REPO_ROOT"
+echo "[info] building YuKKi OS v6.8.0 from $REPO_ROOT"
 cd "$REPO_ROOT"
 cargo build --release --locked
 

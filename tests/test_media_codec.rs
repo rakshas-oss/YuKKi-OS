@@ -1,4 +1,4 @@
-use yukkios_6_7_0_inet3::{
+use yukkios_6_8_0_inet3::{
     ArcGisAvenue, ArcGisError, LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig,
     MediaStreamMetadata, MediaType, Wgs84Coordinate, ARCGIS_AVENUE_KIND,
     ARCGIS_AVENUE_MAX_COORDINATES, MEDIA_CHUNK_HEADER_LEN, MEDIA_CHUNK_MAGIC, MEDIA_CHUNK_VERSION,

@@ -21,7 +21,15 @@
   non-finite numbers.
 - Documented the wire contract and adapter usage in `docs/API.md`.
 
-## v6.7.0 (current)
+## v6.8.0 (current)
+
+### Version baseline refresh
+
+- Bumped the Cargo package and active release baseline to `v6.8.0`
+- Updated versioned crate and deployment helper identifiers
+- Refreshed active documentation, examples, and version metadata references
+
+## v6.7.0 (archived)
 
 ### Baseline cleanup and coherence refresh
 

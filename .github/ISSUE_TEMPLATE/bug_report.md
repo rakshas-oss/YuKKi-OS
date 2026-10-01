@@ -12,7 +12,7 @@ A clear and concise description of what the bug is.
 
 ## Version
 
-Which version of YuKKi OS are you using? (e.g., v6.7.0)
+Which version of YuKKi OS are you using? (e.g., v6.8.0)
 
 ```
 cargo pkgid && echo "binary: yukki_core_node"
