@@ -149,15 +149,12 @@ impl RustasmSandbox {
                     }
                 },
                 Err(err) => {
-                    // If WSM1 submission failed with transport/protocol error,
-                    // fall back to JSON if a GpuBrokerClient is available.
-                    let fallback_client = self
-                        .gpu_client
-                        .as_ref()
-                        .or_else(|| self.lifecycle_client.as_ref().map(|l| l.broker_client()));
-                    if fallback_client.is_none() {
+                    // If the adapter is disabled, fail fast without attempting fallback.
+                    if matches!(err, GpuAdapterError::Disabled) {
                         return Err(err);
                     }
+                    // For protocol mismatches or legacy brokers that fail binary WSM1,
+                    // proceed to the JSON fallback below.
                 }
             }
         }

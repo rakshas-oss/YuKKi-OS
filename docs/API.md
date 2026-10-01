@@ -253,10 +253,10 @@ Additive, binary wire-level protocol support for overhauled broker WSM1 lifecycl
 - **Bytes Field Encoding**: `uint32_be` byte length + raw octets.
 
 - **Message Enums**:
-  - `WasmLifecycleAction`: `Prepare = 1`, `Activate = 2`, `Drain = 3`, `Release = 4`, `Query = 5`.
+  - `WasmLifecycleAction`: `Prepare = 1`, `Drain = 2`, `Release = 3`, `Query = 4`.
   - `WasmLifecycleState`: `Unknown = 0`, `Prepared = 1`, `Active = 2`, `Draining = 3`, `Stopped = 4`, `Released = 5`.
   - `WasmLifecycleStatus`: `Ok = 0`, `Rejected = 1`, `Error = 2`, `Busy = 3`, `NotFound = 4`.
-  - `WasmTaskStatus`: `Pending = 0`, `Running = 1`, `Completed = 2`, `Failed = 3`, `Cancelled = 4`, `TimedOut = 5`.
+  - `WasmTaskStatus`: `Ok = 0`, `Rejected = 1`, `Failed = 2`, `Timeout = 3`.
 
 #### 2. BRK1 Message Envelope
 
@@ -282,11 +282,10 @@ Additive, binary wire-level protocol support for overhauled broker WSM1 lifecycl
 - `LifecycleClient::new(config: GpuAdapterConfig) -> Result<Self, GpuAdapterError>`
 - `LifecycleClient::from_broker_client(broker_client: Arc<GpuBrokerClient>) -> Self`
 - `prepare(sandbox_id, module_id, version, target_gpu) -> Result<WasmLifecycleResponse, GpuAdapterError>`
-- `activate(sandbox_id, module_id, version, lease_token) -> Result<WasmLifecycleResponse, GpuAdapterError>`
 - `drain(sandbox_id, module_id, version, timeout_ms) -> Result<WasmLifecycleResponse, GpuAdapterError>`
 - `release(sandbox_id, module_id, version, lease_token) -> Result<WasmLifecycleResponse, GpuAdapterError>`
 - `query(sandbox_id, module_id, version) -> Result<WasmLifecycleResponse, GpuAdapterError>`
-- `send_task_request(request: &WasmTaskRequest) -> Result<WasmTaskResponse, GpuAdapterError>`
+- `submit_wsm1_task(request: &WasmTaskRequest) -> Result<WasmTaskResponse, GpuAdapterError>`
 
 Supported wire framing modes (`LifecycleWireMode`):
 - `Auto`: Encapsulates WSM1 requests inside `BRK1` frame envelopes over length-prefixed TCP, automatically parsing BRK1, raw WSM1, or JSON responses.
