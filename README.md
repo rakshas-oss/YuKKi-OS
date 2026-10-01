@@ -50,12 +50,18 @@ Default broker endpoint: `127.0.0.1:9000`
 Broker boundary env vars:
 
 - `YUKKI_BROKER_ENDPOINT`
-- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
-- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS` (must be `1..=600000` ms)
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS` (must be `1..=600000` ms)
 - `YUKKI_BROKER_MAX_FRAME_BYTES`
 - `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` or `authenticated-proxy`)
 
 `authenticated-proxy` is documentary metadata for operations; it does not enable TLS by itself.
+
+Per-task `timeout_ms` (on `BrokerTask`/`GpuTaskRequest`) must be `1..=300000`
+ms (5 minutes); zero or oversized values are rejected by request validation.
+`effective_timeout_ms()` is available on both types to heuristically derive a
+safe, payload-size-based timeout instead of trusting an out-of-range raw
+value.
 
 ## Geospatial and chunked media codecs
 
@@ -88,9 +94,9 @@ YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) fo
 Environment variables:
 - `YUKKI_GPU_ADAPTER_ENABLED` (`true` / `false`, default `false`)
 - `YUKKI_GPU_BROKER_ENDPOINT` (default `127.0.0.1:9000`)
-- `YUKKI_GPU_CONNECT_TIMEOUT_MS` (default `2000`)
-- `YUKKI_GPU_REQUEST_TIMEOUT_MS` (default `5000`)
-- `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (default `5000`)
+- `YUKKI_GPU_CONNECT_TIMEOUT_MS` (default `2000`, must be `1..=600000` ms)
+- `YUKKI_GPU_REQUEST_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
+- `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
 - `YUKKI_GPU_MAX_FRAME_BYTES` (default `1048576` / 1 MiB)
 - `YUKKI_GPU_MAX_RETRIES` (default `3`)
 

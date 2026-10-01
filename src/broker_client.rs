@@ -12,6 +12,20 @@ pub const DEFAULT_BROKER_MAX_FRAME_BYTES: usize = 64 * 1024;
 pub const DEFAULT_BROKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const DEFAULT_BROKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Lower bound for a `BrokerTask`'s `timeout_ms`. Zero is never meaningful,
+/// since it would never allow a task to complete.
+pub const MIN_TASK_TIMEOUT_MS: u32 = 1;
+/// Upper bound for a `BrokerTask`'s `timeout_ms` (5 minutes). Raw caller-supplied
+/// values are no longer trusted blindly beyond this ceiling, which prevents a
+/// single task from tying up broker resources indefinitely (e.g. `u32::MAX`
+/// ms, ~49 days).
+pub const MAX_TASK_TIMEOUT_MS: u32 = 300_000;
+/// Upper bound accepted for `connect_timeout`/`request_timeout` configuration
+/// durations (10 minutes), whether set programmatically or via environment
+/// variables. Guards against misconfigured env vars causing accidental
+/// multi-hour hangs.
+pub const MAX_CONFIG_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Broker transport authentication lives outside YuKKi-OS today.
 ///
 /// Use this setting to record the expected deployment boundary and document
@@ -106,10 +120,22 @@ impl BrokerClientConfig {
                 "connect timeout must be greater than zero".to_string(),
             ));
         }
+        if self.connect_timeout > MAX_CONFIG_TIMEOUT {
+            return Err(BrokerClientError::InvalidConfig(format!(
+                "connect timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
+                self.connect_timeout
+            )));
+        }
         if self.request_timeout.is_zero() {
             return Err(BrokerClientError::InvalidConfig(
                 "request timeout must be greater than zero".to_string(),
             ));
+        }
+        if self.request_timeout > MAX_CONFIG_TIMEOUT {
+            return Err(BrokerClientError::InvalidConfig(format!(
+                "request timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
+                self.request_timeout
+            )));
         }
         if self.max_frame_size == 0 || self.max_frame_size > u32::MAX as usize {
             return Err(BrokerClientError::InvalidConfig(format!(
@@ -154,10 +180,17 @@ impl BrokerTask {
                 "kind must not be empty".to_string(),
             ));
         }
-        if self.timeout_ms == 0 {
-            return Err(BrokerClientError::InvalidRequest(
-                "timeout_ms must be greater than zero".to_string(),
-            ));
+        if self.timeout_ms < MIN_TASK_TIMEOUT_MS {
+            return Err(BrokerClientError::InvalidRequest(format!(
+                "timeout_ms must be at least {MIN_TASK_TIMEOUT_MS}ms (got {})",
+                self.timeout_ms
+            )));
+        }
+        if self.timeout_ms > MAX_TASK_TIMEOUT_MS {
+            return Err(BrokerClientError::InvalidRequest(format!(
+                "timeout_ms must not exceed {MAX_TASK_TIMEOUT_MS}ms (got {})",
+                self.timeout_ms
+            )));
         }
         if self.payload.is_null() {
             return Err(BrokerClientError::InvalidRequest(
@@ -165,6 +198,34 @@ impl BrokerTask {
             ));
         }
         Ok(())
+    }
+
+    /// Heuristically derive a safe `timeout_ms` for this task rather than
+    /// trusting a raw, potentially unset or out-of-range value. Scales a base
+    /// allowance by the serialized payload size and clamps the result to
+    /// `[MIN_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS]`.
+    pub fn heuristic_timeout_ms(&self) -> u32 {
+        const BASE_TIMEOUT_MS: u64 = 1_000;
+        const PER_KIB_MS: u64 = 2;
+
+        let payload_bytes = serde_json::to_vec(&self.payload)
+            .map(|bytes| bytes.len() as u64)
+            .unwrap_or(0);
+        let payload_allowance_ms = (payload_bytes / 1024).saturating_mul(PER_KIB_MS);
+
+        BASE_TIMEOUT_MS
+            .saturating_add(payload_allowance_ms)
+            .clamp(MIN_TASK_TIMEOUT_MS as u64, MAX_TASK_TIMEOUT_MS as u64) as u32
+    }
+
+    /// Returns `timeout_ms` if it is within the acceptable bounds, otherwise
+    /// falls back to a heuristically derived timeout based on payload size.
+    pub fn effective_timeout_ms(&self) -> u32 {
+        if (MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&self.timeout_ms) {
+            self.timeout_ms
+        } else {
+            self.heuristic_timeout_ms()
+        }
     }
 }
 

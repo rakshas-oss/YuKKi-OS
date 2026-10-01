@@ -88,6 +88,21 @@ pub const DEFAULT_GPU_MAX_RETRIES: usize = 3;
 pub const DEFAULT_GPU_RETRY_BACKOFF: Duration = Duration::from_millis(50);
 pub const DEFAULT_GPU_QUIESCE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Lower bound for an individual GPU task's `timeout_ms`. Values of zero are
+/// never meaningful (they would never allow the task to complete), so this is
+/// effectively the floor above zero.
+pub const MIN_TASK_TIMEOUT_MS: u32 = 1;
+/// Upper bound for an individual GPU task's `timeout_ms` (5 minutes). This
+/// guards against misconfigured or malicious callers requesting absurdly long
+/// timeouts (e.g. `u32::MAX` ms, ~49 days) that would tie up broker resources
+/// and connection slots indefinitely.
+pub const MAX_TASK_TIMEOUT_MS: u32 = 300_000;
+/// Upper bound accepted for `connect_timeout`/`request_timeout`/`quiesce_timeout`
+/// style configuration durations (10 minutes). Env-configured values beyond
+/// this are rejected rather than silently trusted, to avoid accidental
+/// multi-hour hangs from misconfiguration.
+pub const MAX_CONFIG_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Magic byte constant for WSM1 binary messages ("WSM1" in big-endian: 0x57534D31).
 pub const WSM1_MAGIC: u32 = 0x57534D31;
 /// Protocol version for WSM1 messages.
@@ -290,10 +305,17 @@ impl GpuTaskRequest {
                 "module_version must not be empty".to_string(),
             ));
         }
-        if self.timeout_ms == 0 {
-            return Err(GpuAdapterError::InvalidRequest(
-                "timeout_ms must be greater than zero".to_string(),
-            ));
+        if self.timeout_ms < MIN_TASK_TIMEOUT_MS {
+            return Err(GpuAdapterError::InvalidRequest(format!(
+                "timeout_ms must be at least {MIN_TASK_TIMEOUT_MS}ms (got {})",
+                self.timeout_ms
+            )));
+        }
+        if self.timeout_ms > MAX_TASK_TIMEOUT_MS {
+            return Err(GpuAdapterError::InvalidRequest(format!(
+                "timeout_ms must not exceed {MAX_TASK_TIMEOUT_MS}ms (got {})",
+                self.timeout_ms
+            )));
         }
         for buffer in &self.buffers {
             buffer.validate()?;
@@ -304,6 +326,37 @@ impl GpuTaskRequest {
     /// Effective idempotency key for deduplication on retry.
     pub fn effective_idempotency_key(&self) -> &str {
         self.idempotency_key.as_deref().unwrap_or(&self.task_id)
+    }
+
+    /// Heuristically derive a safe `timeout_ms` for this request rather than
+    /// trusting a raw, potentially unset or out-of-range value.
+    ///
+    /// The heuristic scales a small base allowance by the total buffer payload
+    /// size (to account for larger transfers taking proportionally longer),
+    /// then clamps the result to `[MIN_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS]`.
+    /// This is used as a fallback/default when `timeout_ms` is zero or absent
+    /// from the caller's perspective; it does not override an explicit,
+    /// in-range value supplied by the caller.
+    pub fn heuristic_timeout_ms(&self) -> u32 {
+        const BASE_TIMEOUT_MS: u64 = 1_000;
+        const PER_KIB_MS: u64 = 2;
+
+        let total_bytes: u64 = self.buffers.iter().map(|b| b.size_bytes as u64).sum();
+        let payload_allowance_ms = (total_bytes / 1024).saturating_mul(PER_KIB_MS);
+
+        BASE_TIMEOUT_MS
+            .saturating_add(payload_allowance_ms)
+            .clamp(MIN_TASK_TIMEOUT_MS as u64, MAX_TASK_TIMEOUT_MS as u64) as u32
+    }
+
+    /// Returns `timeout_ms` if it is within the acceptable bounds, otherwise
+    /// falls back to a heuristically derived timeout based on payload size.
+    pub fn effective_timeout_ms(&self) -> u32 {
+        if (MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&self.timeout_ms) {
+            self.timeout_ms
+        } else {
+            self.heuristic_timeout_ms()
+        }
     }
 }
 
@@ -823,10 +876,33 @@ impl GpuAdapterConfig {
                 "connect_timeout must be greater than zero".to_string(),
             ));
         }
+        if self.connect_timeout > MAX_CONFIG_TIMEOUT {
+            return Err(GpuAdapterError::InvalidConfig(format!(
+                "connect_timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
+                self.connect_timeout
+            )));
+        }
         if self.request_timeout.is_zero() {
             return Err(GpuAdapterError::InvalidConfig(
                 "request_timeout must be greater than zero".to_string(),
             ));
+        }
+        if self.request_timeout > MAX_CONFIG_TIMEOUT {
+            return Err(GpuAdapterError::InvalidConfig(format!(
+                "request_timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
+                self.request_timeout
+            )));
+        }
+        if self.quiesce_timeout.is_zero() {
+            return Err(GpuAdapterError::InvalidConfig(
+                "quiesce_timeout must be greater than zero".to_string(),
+            ));
+        }
+        if self.quiesce_timeout > MAX_CONFIG_TIMEOUT {
+            return Err(GpuAdapterError::InvalidConfig(format!(
+                "quiesce_timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
+                self.quiesce_timeout
+            )));
         }
         if self.max_frame_size == 0 || self.max_frame_size > u32::MAX as usize {
             return Err(GpuAdapterError::InvalidConfig(format!(
