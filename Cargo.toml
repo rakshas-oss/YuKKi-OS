@@ -12,6 +12,7 @@ name = "yukki_core_node"
 path = "src/main.rs"
 
 [dependencies]
+byteorder = "1.5"
 tokio = { version = "1", features = ["full", "process"] }
 futures-util = "0.3"
 serde = { version = "1.0", features = ["derive"] }

@@ -126,6 +126,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2400,6 +2406,7 @@ dependencies = [
 name = "yukkios_6_7_0_inet3"
 version = "6.7.0"
 dependencies = [
+ "byteorder",
  "cc",
  "chacha20poly1305",
  "criterion",

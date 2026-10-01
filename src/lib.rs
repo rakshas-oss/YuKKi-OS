@@ -14,14 +14,21 @@ pub use broker_client::{
 };
 
 pub use gpu_adapter::{
-    BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
-    CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
-    GpuTaskResponse, GpuTaskStatus, ModuleLifecycleManager, ModuleLifecycleState,
-    ModuleVersionHandle, ModuleVersionResources, ProtocolHandshakeRequest,
-    ProtocolHandshakeResponse, StateHandoffHook, CURRENT_PROTOCOL_VERSION,
-    DEFAULT_GPU_BROKER_ENDPOINT, DEFAULT_GPU_CONNECT_TIMEOUT, DEFAULT_GPU_MAX_FRAME_BYTES,
-    DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT, DEFAULT_GPU_REQUEST_TIMEOUT,
-    DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS,
+    decode_brk1_frame, decode_wsm1_message, encode_brk1_frame,
+    encode_wsm1_lifecycle_request, encode_wsm1_lifecycle_response,
+    encode_wsm1_task_request, encode_wsm1_task_response,
+    Brk1Frame, BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind,
+    CancelTaskRequest, CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient,
+    GpuTaskRequest, GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
+    ModuleLifecycleManager, ModuleLifecycleState, ModuleVersionHandle, ModuleVersionResources,
+    ProtocolHandshakeRequest, ProtocolHandshakeResponse, StateHandoffHook,
+    WasmBufferDescriptor, WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse,
+    WasmLifecycleState, WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus,
+    Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, BRK1_PROTOCOL_VERSION,
+    CURRENT_PROTOCOL_VERSION, DEFAULT_GPU_BROKER_ENDPOINT, DEFAULT_GPU_CONNECT_TIMEOUT,
+    DEFAULT_GPU_MAX_FRAME_BYTES, DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT,
+    DEFAULT_GPU_REQUEST_TIMEOUT, DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS,
+    WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
 
 pub use nxr1::{

@@ -7,6 +7,7 @@ use zeroize::Zeroize;
 
 use crate::gpu_adapter::{
     BufferAccess, BufferDescriptor, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
+    LifecycleClient, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
     CURRENT_PROTOCOL_VERSION,
 };
 
@@ -15,6 +16,7 @@ pub struct RustasmSandbox {
     execution_buffer: Mutex<Vec<u8>>,
     max_fuel: u64,
     gpu_client: Option<Arc<GpuBrokerClient>>,
+    lifecycle_client: Option<Arc<LifecycleClient>>,
 }
 
 struct SandboxState {
@@ -57,11 +59,20 @@ impl RustasmSandbox {
             execution_buffer: Mutex::new(Vec::with_capacity(960)),
             max_fuel,
             gpu_client: None,
+            lifecycle_client: None,
         })
     }
 
     pub fn with_gpu_client(mut self, client: Arc<GpuBrokerClient>) -> Self {
+        if client.config().use_wsm1 && self.lifecycle_client.is_none() {
+            self.lifecycle_client = Some(Arc::new(LifecycleClient::from_broker_client(client.clone())));
+        }
         self.gpu_client = Some(client);
+        self
+    }
+
+    pub fn with_lifecycle_client(mut self, client: Arc<LifecycleClient>) -> Self {
+        self.lifecycle_client = Some(client);
         self
     }
 
@@ -69,11 +80,18 @@ impl RustasmSandbox {
         self.gpu_client.as_ref()
     }
 
+    pub fn lifecycle_client(&self) -> Option<&Arc<LifecycleClient>> {
+        self.lifecycle_client.as_ref()
+    }
+
     /// Submit a GPU compute task to the overhauled broker on behalf of the sandbox.
     ///
     /// Preserves sandbox isolation: Sandboxes cannot issue raw CUDA or GPU memory
     /// commands directly. Instead, payloads are bound to `MAX_BUFFER_BYTES`, validated,
     /// and wrapped in high-level descriptors mediated by the host adapter.
+    ///
+    /// When `LifecycleClient` or WSM1 support is available, encodes the task using the
+    /// WSM1 binary wire format, falling back to JSON framing if WSM1 is rejected or unsupported.
     pub async fn submit_gpu_task(
         &self,
         module_id: &str,
@@ -83,7 +101,6 @@ impl RustasmSandbox {
         priority: u8,
         timeout_ms: u32,
     ) -> Result<Vec<u8>, GpuAdapterError> {
-        let client = self.gpu_client.as_ref().ok_or(GpuAdapterError::Disabled)?;
         if payload.len() > Self::MAX_BUFFER_BYTES {
             return Err(GpuAdapterError::SandboxLimitExceeded(format!(
                 "payload size {} exceeds maximum allowable buffer bytes {}",
@@ -91,6 +108,66 @@ impl RustasmSandbox {
                 Self::MAX_BUFFER_BYTES
             )));
         }
+
+        // 1. Try WSM1 encoding if LifecycleClient is available
+        if let Some(lc) = self.lifecycle_client.as_ref() {
+            let wsm_req = WasmTaskRequest {
+                task_id: task_id.to_string(),
+                sandbox_id: "rustasm_sandbox".to_string(),
+                module_id: module_id.to_string(),
+                module_version: module_version.to_string(),
+                task_kind: "compute".to_string(),
+                priority,
+                deadline_ms: 0,
+                buffers: vec![WasmBufferDescriptor {
+                    buffer_id: 1,
+                    flags: 1, // ReadOnly
+                    offset: 0,
+                    length: payload.len() as u64,
+                    name: "input_buf".to_string(),
+                }],
+                payload: payload.to_vec(),
+            };
+
+            match lc.submit_wsm1_task(&wsm_req).await {
+                Ok(resp) => match resp.status {
+                    WasmTaskStatus::Ok => return Ok(resp.result),
+                    WasmTaskStatus::Rejected => {
+                        return Err(GpuAdapterError::BrokerRejected {
+                            task_id: resp.task_id,
+                            code: "REJECTED".to_string(),
+                            message: resp.error,
+                            retryable: false,
+                        });
+                    }
+                    WasmTaskStatus::Failed | WasmTaskStatus::Timeout => {
+                        return Err(GpuAdapterError::TaskExecutionFailed {
+                            task_id: resp.task_id,
+                            code: format!("{:?}", resp.status),
+                            message: resp.error,
+                        });
+                    }
+                },
+                Err(err) => {
+                    // If WSM1 submission failed with transport/protocol error,
+                    // fall back to JSON if a GpuBrokerClient is available.
+                    let fallback_client = self
+                        .gpu_client
+                        .as_ref()
+                        .or_else(|| self.lifecycle_client.as_ref().map(|l| l.broker_client()));
+                    if fallback_client.is_none() {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback to JSON via GpuBrokerClient
+        let client = self
+            .gpu_client
+            .as_ref()
+            .or_else(|| self.lifecycle_client.as_ref().map(|l| l.broker_client()))
+            .ok_or(GpuAdapterError::Disabled)?;
 
         let request = GpuTaskRequest {
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
