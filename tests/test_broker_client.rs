@@ -8,7 +8,8 @@ use tokio::{
 };
 use yukkios_6_8_0_inet3::{
     BrokerClient, BrokerClientConfig, BrokerClientError, BrokerResult, BrokerTask,
-    BrokerTransportSecurity, DEFAULT_BROKER_MAX_FRAME_BYTES,
+    BrokerTransportSecurity, DEFAULT_BROKER_MAX_FRAME_BYTES, MAX_CONFIG_TIMEOUT,
+    MAX_TASK_TIMEOUT_MS, MIN_TASK_TIMEOUT_MS,
 };
 
 fn sample_task() -> BrokerTask {
@@ -224,4 +225,51 @@ fn broker_task_validation_rejects_empty_fields() {
 
     let error = invalid_task.validate().expect_err("invalid task");
     assert!(matches!(error, BrokerClientError::InvalidRequest(_)));
+}
+
+#[test]
+fn broker_task_validation_rejects_oversized_timeout() {
+    let mut task = sample_task();
+    task.timeout_ms = MAX_TASK_TIMEOUT_MS + 1;
+    assert!(task.validate().is_err());
+
+    task.timeout_ms = u32::MAX;
+    assert!(task.validate().is_err());
+
+    task.timeout_ms = MAX_TASK_TIMEOUT_MS;
+    assert!(task.validate().is_ok());
+}
+
+#[test]
+fn broker_task_effective_timeout_ms_heuristic_fallback() {
+    let mut task = sample_task();
+
+    task.timeout_ms = 3_000;
+    assert_eq!(task.effective_timeout_ms(), 3_000);
+
+    task.timeout_ms = 0;
+    let heuristic = task.effective_timeout_ms();
+    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
+    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
+
+    task.timeout_ms = u32::MAX;
+    let heuristic = task.effective_timeout_ms();
+    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
+    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
+}
+
+#[test]
+fn broker_client_config_rejects_oversized_timeouts() {
+    let mut config = BrokerClientConfig::default();
+    assert!(config.validate().is_ok());
+
+    config.connect_timeout = MAX_CONFIG_TIMEOUT + Duration::from_secs(1);
+    assert!(config.validate().is_err());
+    config.connect_timeout = MAX_CONFIG_TIMEOUT;
+    assert!(config.validate().is_ok());
+
+    config.request_timeout = MAX_CONFIG_TIMEOUT + Duration::from_secs(1);
+    assert!(config.validate().is_err());
+    config.request_timeout = MAX_CONFIG_TIMEOUT;
+    assert!(config.validate().is_ok());
 }

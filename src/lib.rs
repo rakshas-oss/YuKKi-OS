@@ -12,7 +12,8 @@ pub mod wasm_sandbox;
 pub use broker_client::{
     BrokerClient, BrokerClientConfig, BrokerClientError, BrokerResult, BrokerTask,
     BrokerTransportSecurity, DEFAULT_BROKER_CONNECT_TIMEOUT, DEFAULT_BROKER_ENDPOINT,
-    DEFAULT_BROKER_MAX_FRAME_BYTES, DEFAULT_BROKER_REQUEST_TIMEOUT,
+    DEFAULT_BROKER_MAX_FRAME_BYTES, DEFAULT_BROKER_REQUEST_TIMEOUT, MAX_CONFIG_TIMEOUT,
+    MAX_TASK_TIMEOUT_MS, MIN_TASK_TIMEOUT_MS,
 };
 
 pub use gpu_adapter::{

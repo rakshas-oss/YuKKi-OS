@@ -38,8 +38,8 @@ Messages are JSON encoded and encrypted after session establishment.
 ### Environment variables
 
 - `YUKKI_BROKER_ENDPOINT`
-- `YUKKI_BROKER_CONNECT_TIMEOUT_MS`
-- `YUKKI_BROKER_REQUEST_TIMEOUT_MS`
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS` (must be > 0 and <= 600000 / 10 minutes)
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS` (must be > 0 and <= 600000 / 10 minutes)
 - `YUKKI_BROKER_MAX_FRAME_BYTES`
 - `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` | `authenticated-proxy`)
 
@@ -50,7 +50,11 @@ Messages are JSON encoded and encrypted after session establishment.
 - `destination: String` (required, non-empty)
 - `kind: String` (required, non-empty)
 - `priority: u8`
-- `timeout_ms: u32` (required, > 0)
+- `timeout_ms: u32` (required, `1..=300000` i.e. up to 5 minutes; zero or
+  oversized values are rejected by `validate()`. Callers that cannot guarantee
+  an in-range value can use `BrokerTask::effective_timeout_ms()`, which falls
+  back to a heuristic timeout derived from the payload size instead of
+  trusting a raw out-of-range value.)
 - `payload: serde_json::Value` (required, non-null)
 
 ### Response schema (`BrokerResult`)
@@ -287,7 +291,10 @@ Tagged union with `"type"` and `"payload"`:
    - `module_version: String`
    - `priority: u8` (0-255, higher = higher scheduling priority)
    - `deadline_ms: Option<u64>` (epoch millisecond deadline)
-   - `timeout_ms: u32` (> 0)
+   - `timeout_ms: u32` (`1..=300000`, i.e. up to 5 minutes; zero or oversized
+     values are rejected by `validate()`. `GpuTaskRequest::effective_timeout_ms()`
+     returns a heuristic, payload-size-derived timeout as a safe fallback when
+     the raw value is out of range instead of trusting it blindly.)
    - `buffers: Vec<BufferDescriptor>` (input and output descriptors)
    - `metadata: Option<Value>`
 4. **`task_response` (`GpuTaskResponse`)**:
@@ -333,9 +340,9 @@ Managed by `ModuleLifecycleManager`:
 
 - `YUKKI_GPU_ADAPTER_ENABLED`: `"true"` | `"false"` (default `false`)
 - `YUKKI_GPU_BROKER_ENDPOINT`: endpoint address (default `127.0.0.1:9000`)
-- `YUKKI_GPU_CONNECT_TIMEOUT_MS`: connect timeout in ms (default `3000`)
-- `YUKKI_GPU_REQUEST_TIMEOUT_MS`: request timeout in ms (default `5000`)
-- `YUKKI_GPU_QUIESCE_TIMEOUT_MS`: quiesce timeout in ms (default `5000`)
+- `YUKKI_GPU_CONNECT_TIMEOUT_MS`: connect timeout in ms (default `3000`; must be > 0 and <= 600000 / 10 minutes)
+- `YUKKI_GPU_REQUEST_TIMEOUT_MS`: request timeout in ms (default `5000`; must be > 0 and <= 600000 / 10 minutes)
+- `YUKKI_GPU_QUIESCE_TIMEOUT_MS`: quiesce timeout in ms (default `5000`; must be > 0 and <= 600000 / 10 minutes)
 - `YUKKI_GPU_MAX_RETRIES`: maximum retry attempts for retryable errors (default `3`)
 - `YUKKI_GPU_MAX_FRAME_BYTES`: maximum message frame size in bytes (default `65536`)
 

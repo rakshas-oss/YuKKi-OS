@@ -52,6 +52,11 @@ export YUKKI_BROKER_MAX_FRAME_BYTES=65536
 export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
 ```
 
+`YUKKI_BROKER_CONNECT_TIMEOUT_MS` and `YUKKI_BROKER_REQUEST_TIMEOUT_MS` must
+each be greater than `0` and no more than `600000` (10 minutes); values
+outside this range fail config validation at startup rather than being
+silently accepted.
+
 ## Ports and network
 
 - Bootstrap listen port: operator-defined (examples use `7660/tcp`)

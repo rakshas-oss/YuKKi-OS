@@ -23,7 +23,8 @@ use yukkios_6_8_0_inet3::{
         ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor,
         WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState,
         WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message,
-        BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION, WSM1_MAGIC,
+        BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION,
+        MAX_CONFIG_TIMEOUT, MAX_TASK_TIMEOUT_MS, MIN_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
 };
@@ -200,6 +201,77 @@ fn test_request_validation() {
     req.task_id = "t".to_string();
     req.timeout_ms = 0;
     assert!(req.validate().is_err());
+}
+
+#[test]
+fn test_request_validation_rejects_oversized_timeout() {
+    let mut req = sample_task_request("oversized-timeout");
+    req.timeout_ms = MAX_TASK_TIMEOUT_MS + 1;
+    assert!(req.validate().is_err());
+
+    req.timeout_ms = u32::MAX;
+    assert!(req.validate().is_err());
+
+    req.timeout_ms = MAX_TASK_TIMEOUT_MS;
+    assert!(req.validate().is_ok());
+}
+
+#[test]
+fn test_effective_timeout_ms_heuristic_fallback() {
+    let mut req = sample_task_request("heuristic-timeout");
+
+    // In-range value is trusted as-is.
+    req.timeout_ms = 3000;
+    assert_eq!(req.effective_timeout_ms(), 3000);
+
+    // Zero falls back to a heuristic, non-zero, in-bounds timeout.
+    req.timeout_ms = 0;
+    let heuristic = req.effective_timeout_ms();
+    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
+    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
+
+    // Oversized values also fall back to the heuristic rather than being trusted.
+    req.timeout_ms = u32::MAX;
+    let heuristic = req.effective_timeout_ms();
+    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
+    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
+}
+
+#[test]
+fn test_adapter_config_rejects_oversized_timeouts() {
+    let mut config = GpuAdapterConfig::new("127.0.0.1:9000");
+    assert!(config.validate().is_ok());
+
+    config.connect_timeout = MAX_CONFIG_TIMEOUT + Duration::from_secs(1);
+    assert!(config.validate().is_err());
+    config.connect_timeout = MAX_CONFIG_TIMEOUT;
+    assert!(config.validate().is_ok());
+
+    config.request_timeout = MAX_CONFIG_TIMEOUT + Duration::from_secs(1);
+    assert!(config.validate().is_err());
+    config.request_timeout = MAX_CONFIG_TIMEOUT;
+    assert!(config.validate().is_ok());
+
+    config.quiesce_timeout = MAX_CONFIG_TIMEOUT + Duration::from_secs(1);
+    assert!(config.validate().is_err());
+    config.quiesce_timeout = MAX_CONFIG_TIMEOUT;
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_adapter_config_rejects_zero_timeouts() {
+    let mut config = GpuAdapterConfig::new("127.0.0.1:9000");
+
+    config.connect_timeout = Duration::ZERO;
+    assert!(config.validate().is_err());
+    config = GpuAdapterConfig::new("127.0.0.1:9000");
+
+    config.request_timeout = Duration::ZERO;
+    assert!(config.validate().is_err());
+    config = GpuAdapterConfig::new("127.0.0.1:9000");
+
+    config.quiesce_timeout = Duration::ZERO;
+    assert!(config.validate().is_err());
 }
 
 // ============================================================================
@@ -523,6 +595,51 @@ async fn test_sandbox_submit_gpu_task_success() {
         .await
         .expect("gpu task success");
     assert_eq!(result, vec![5, 6, 7, 8]);
+}
+
+#[tokio::test]
+async fn test_sandbox_submit_gpu_task_heuristic_timeout_for_invalid_input() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let msg = read_prefixed_msg(&mut stream).await;
+            if let BrokerMessage::TaskRequest(req) = msg {
+                // A zero timeout from the caller must be heuristically
+                // normalized to an in-bounds, non-zero value before reaching
+                // the broker, rather than being forwarded as-is or rejected.
+                assert!(req.timeout_ms >= MIN_TASK_TIMEOUT_MS);
+                assert!(req.timeout_ms <= MAX_TASK_TIMEOUT_MS);
+                let resp = BrokerMessage::TaskResponse(GpuTaskResponse {
+                    protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
+                    task_id: req.task_id,
+                    status: GpuTaskStatus::Completed,
+                    gpu_id: Some(1),
+                    execution_ms: Some(5),
+                    output_buffers: vec![BufferDescriptor::inline(
+                        "out",
+                        vec![9],
+                        BufferAccess::WriteOnly,
+                    )],
+                    error: None,
+                });
+                write_prefixed_msg(&mut stream, &resp).await;
+            }
+        }
+    });
+
+    let config = GpuAdapterConfig::new(addr.to_string());
+    let client = Arc::new(GpuBrokerClient::new(config).unwrap());
+    let sandbox = RustasmSandbox::new().with_gpu_client(client);
+
+    let result = sandbox
+        .submit_gpu_task("mod-geo", "1.0.0", "task-sb-heuristic", &[1, 2, 3, 4], 5, 0)
+        .await
+        .expect("gpu task success despite zero timeout_ms");
+    assert_eq!(result, vec![9]);
 }
 
 // ============================================================================
