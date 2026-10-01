@@ -61,6 +61,51 @@ Messages are JSON encoded and encrypted after session establishment.
 - `execution_ms: Option<u64>`
 - `result: Option<serde_json::Value>`
 
+## NXR1 geospatial frame interop (`src/nxr1.rs`)
+
+Wire-compatible `geospatial.frame.v1` codec shared with `rakshas-oss/overhauled`.
+See the module-level docs in `src/nxr1.rs` for the full rationale; summary:
+
+### NXR1 wire format
+
+Fixed 81-byte big-endian header followed by an opaque, length-prefixed
+payload:
+
+| Field        | Type      | Bytes |
+|--------------|-----------|-------|
+| magic        | `u32`     | 4     |
+| version      | `u8`      | 1     |
+| seq_id       | `u64`     | 8     |
+| x, y, z      | `f64` ×3  | 24    |
+| u, v, w      | `f64` ×3  | 24    |
+| fluidity     | `f32`     | 4     |
+| drag         | `f32`     | 4     |
+| divergence   | `f64`     | 8     |
+| payload_len  | `u32`     | 4     |
+| payload      | `[u8; N]` | N     |
+
+- `magic` must equal `0x4E58_5231` (ASCII `"NXR1"`).
+- `version` must equal `1`.
+- All float fields must be finite (`NaN`/`±Infinity` rejected).
+- `payload_len` is bounded by `NXR1_MAX_PAYLOAD_BYTES` (currently equal to
+  `DEFAULT_BROKER_MAX_FRAME_BYTES`, 64 KiB).
+- Decoding requires the input to be exactly `81 + payload_len` bytes: both
+  truncated input and trailing bytes are rejected.
+
+### Broker adapter
+
+`to_broker_task`/`from_broker_task` convert an `Nxr1Frame` to/from the
+existing `BrokerTask` envelope (kind `"geospatial.frame.v1"`, encoded NXR1
+bytes carried as a JSON byte array under the `"nxr1"` payload key). This
+reuses `BrokerClient`'s existing 4-byte length-prefixed JSON transport — no
+second, parallel binary transport is introduced.
+
+### Errors (`Nxr1Error`)
+
+`Truncated`, `TrailingBytes`, `InvalidMagic`, `UnsupportedVersion`,
+`NonFiniteValue`, `PayloadTooLarge`, `UnexpectedKind`,
+`MissingBrokerPayload`, `MalformedBrokerPayload`.
+
 ## C ABI (`src/ffi/laminar_api.h`)
 
 ### `SpatiotemporalFrame`
@@ -91,5 +136,6 @@ Packed/aligned C-compatible struct, 88 bytes:
 
 - `adi_auto_tune`
 - `broker_client`
+- `nxr1`
 - `wasm_sandbox`
 - `SpatiotemporalFrame`
