@@ -57,6 +57,26 @@ Broker boundary env vars:
 
 `authenticated-proxy` is documentary metadata for operations; it does not enable TLS by itself.
 
+## GPU-backed WASM sandbox interoperability (rakshas-oss/overhauled)
+
+YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
+
+- Communicates over raw TCP via version-negotiated length-prefixed JSON (`overhauled.wasm.gpu.v1`).
+- Preserves sandbox isolation with host-mediated execution and bounded buffer descriptors.
+- Provides module lifecycle management with atomic routing switches, quiescing/draining, drain-before-release ordering, and rollback on activation failure.
+- Optional / configurable: disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`) so existing deployments run without GPU hardware or external brokers.
+
+Environment variables:
+- `YUKKI_GPU_ADAPTER_ENABLED` (`true` / `false`, default `false`)
+- `YUKKI_GPU_BROKER_ENDPOINT` (default `127.0.0.1:9000`)
+- `YUKKI_GPU_CONNECT_TIMEOUT_MS` (default `2000`)
+- `YUKKI_GPU_REQUEST_TIMEOUT_MS` (default `5000`)
+- `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (default `5000`)
+- `YUKKI_GPU_MAX_FRAME_BYTES` (default `1048576` / 1 MiB)
+- `YUKKI_GPU_MAX_RETRIES` (default `3`)
+
+See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
+
 ## Documentation
 
 - [docs/RELEASE_v6.7.0.md](docs/RELEASE_v6.7.0.md)
