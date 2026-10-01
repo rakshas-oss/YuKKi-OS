@@ -64,7 +64,7 @@ use std::{
     env,
     ops::Deref,
     sync::{
-        atomic::{AtomicI32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -985,22 +985,138 @@ async fn read_prefixed_message(
 }
 
 // ============================================================================
+// Cooperative Cancellation
+// ============================================================================
+
+/// A cooperative cancellation signal shared between a caller awaiting a broker
+/// response and the broader shutdown/disconnect lifecycle of this process.
+///
+/// **This is not, and cannot be, hard preemption.** The actual GPU kernel work
+/// requested by [`GpuBrokerClient::submit_task`] / [`LifecycleClient::submit_wsm1_task`]
+/// executes inside the separate `overhauled` C++/CUDA broker process, which this
+/// client has no ability to forcibly interrupt mid-kernel. `CancellationToken`
+/// therefore provides the strongest safe behavior available from this side of the
+/// wire:
+///   1. Local code (e.g. [`ModuleLifecycleManager::execute_task_with_deadline`]) can
+///      poll [`CancellationToken::is_cancelled`] at safe checkpoints (loop
+///      iterations, await points) and bail out early instead of running to completion.
+///   2. When a request's deadline elapses, the client disconnects, or the process is
+///      shutting down, a best-effort [`CancelTaskRequest`] is sent to the broker so it
+///      may *cooperatively* stop the remote computation if it supports cancellation.
+///      Because that request travels over the network and the broker may be busy,
+///      ignore it, or not support it, delivery and honoring of the cancellation are
+///      not guaranteed.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken(Arc<AtomicBool>);
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Requests cancellation. Idempotent and safe to call from any thread/task,
+    /// including concurrently with readers of `is_cancelled`.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Returns `true` if cancellation has been requested. Compute loops should
+    /// check this at safe interruption points.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+// ============================================================================
 // Client Transport & Version Negotiation
 // ============================================================================
 
 /// Asynchronous client communicating with the `overhauled` broker over TCP.
 pub struct GpuBrokerClient {
     config: GpuAdapterConfig,
+    /// Tasks currently awaiting a broker response, keyed by task_id, so that
+    /// timeout/disconnect/shutdown paths can issue best-effort cancellation.
+    in_flight_tasks: Mutex<HashMap<String, CancellationToken>>,
 }
 
 impl GpuBrokerClient {
     pub fn new(config: GpuAdapterConfig) -> Result<Self, GpuAdapterError> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            in_flight_tasks: Mutex::new(HashMap::new()),
+        })
     }
 
     pub fn config(&self) -> &GpuAdapterConfig {
         &self.config
+    }
+
+    /// Registers a task as in-flight and returns its cancellation token. The
+    /// caller must call [`GpuBrokerClient::untrack_task`] once the task completes
+    /// (success, failure, or timeout) to avoid leaking the registry entry.
+    fn track_task(&self, task_id: &str) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.in_flight_tasks
+            .lock()
+            .unwrap()
+            .insert(task_id.to_string(), token.clone());
+        token
+    }
+
+    /// Removes a task from the in-flight registry.
+    fn untrack_task(&self, task_id: &str) {
+        self.in_flight_tasks.lock().unwrap().remove(task_id);
+    }
+
+    /// Best-effort, fire-and-forget cancellation request sent to the broker for a
+    /// single task. Any I/O error is swallowed: this is a cooperative hint, not a
+    /// guaranteed operation, and callers (timeout/disconnect/shutdown paths) must
+    /// not block indefinitely on its outcome.
+    async fn request_broker_cancel(&self, task_id: &str, sandbox_id: &str, reason: &str) {
+        let req = BrokerMessage::CancelRequest(CancelTaskRequest {
+            protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
+            task_id: task_id.to_string(),
+            sandbox_id: sandbox_id.to_string(),
+            reason: reason.to_string(),
+        });
+        let attempt = async {
+            let mut stream = timeout(
+                self.config.connect_timeout,
+                TcpStream::connect(&self.config.endpoint),
+            )
+            .await
+            .map_err(|_| GpuAdapterError::ConnectTimeout(self.config.connect_timeout))??;
+            write_prefixed_message(&mut stream, &req, self.config.max_frame_size).await
+        };
+        if let Err(error) = attempt.await {
+            tracing::warn!(
+                %task_id,
+                %error,
+                "best-effort broker cancellation request failed; GPU computation may continue \
+                 running on the broker until it completes on its own"
+            );
+        }
+    }
+
+    /// Requests cooperative cancellation of every task currently tracked as
+    /// in-flight on this client (e.g. during process shutdown). Local
+    /// [`CancellationToken`]s are flipped synchronously; broker-side cancellation
+    /// requests are best-effort and this method does not wait for them to be
+    /// acknowledged.
+    pub async fn shutdown(&self) {
+        let tasks: Vec<(String, CancellationToken)> = self
+            .in_flight_tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, token)| (id.clone(), token.clone()))
+            .collect();
+        for (task_id, token) in tasks {
+            token.cancel();
+            self.request_broker_cancel(&task_id, "rustasm_sandbox", "client shutdown")
+                .await;
+        }
     }
 
     /// Negotiate protocol version with the overhauled broker.
@@ -1113,12 +1229,32 @@ impl GpuBrokerClient {
         let msg = BrokerMessage::TaskRequest(task.clone());
         write_prefixed_message(&mut stream, &msg, self.config.max_frame_size).await?;
 
-        let response = timeout(
+        // Track as in-flight so a local timeout, a dropped connection, or process
+        // shutdown can request cooperative cancellation of this task on the broker.
+        self.track_task(&task.task_id);
+        let outcome = timeout(
             self.config.request_timeout,
             read_prefixed_message(&mut stream, self.config.max_frame_size),
         )
-        .await
-        .map_err(|_| GpuAdapterError::RequestTimeout(self.config.request_timeout))??;
+        .await;
+        self.untrack_task(&task.task_id);
+
+        let response = match outcome {
+            Ok(result) => result?,
+            Err(_) => {
+                // The broker's GPU kernel cannot be forcibly interrupted from here;
+                // ask it to cooperatively stop the task on a best-effort basis
+                // without blocking the caller any further than the request_timeout
+                // already incurred.
+                self.request_broker_cancel(
+                    &task.task_id,
+                    &task.sandbox_id,
+                    "client request timeout",
+                )
+                .await;
+                return Err(GpuAdapterError::RequestTimeout(self.config.request_timeout));
+            }
+        };
 
         match response {
             BrokerMessage::TaskResponse(resp) => {
@@ -1607,7 +1743,12 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
         )));
     }
     let msg_type = r.read_u8()?;
-    let _reserved = r.read_u8()?;
+    let reserved = r.read_u8()?;
+    if reserved != 0 {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 reserved byte: expected 0, got 0x{reserved:02X}"
+        )));
+    }
     let task_id = r.read_str()?;
     let source = r.read_str()?;
     let destination = r.read_str()?;
@@ -2023,12 +2164,29 @@ impl LifecycleClient {
 
         write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
 
-        let response_bytes = timeout(
+        // Track as in-flight so a local timeout, a dropped connection, or process
+        // shutdown can request cooperative cancellation of this task on the broker.
+        self.broker_client.track_task(&task.task_id);
+        let outcome = timeout(
             config.request_timeout,
             read_raw_frame(&mut stream, config.max_frame_size),
         )
-        .await
-        .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
+        .await;
+        self.broker_client.untrack_task(&task.task_id);
+
+        let response_bytes = match outcome {
+            Ok(result) => result?,
+            Err(_) => {
+                // The broker's GPU kernel cannot be forcibly interrupted from here;
+                // ask it to cooperatively stop the task on a best-effort basis
+                // without blocking the caller any further than request_timeout
+                // already incurred.
+                self.broker_client
+                    .request_broker_cancel(&task.task_id, &task.sandbox_id, "client request timeout")
+                    .await;
+                return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
+            }
+        };
 
         parse_task_response(&response_bytes)
     }
@@ -2086,6 +2244,12 @@ pub struct ModuleVersionHandle {
     pub handoff_hook: Option<Arc<dyn StateHandoffHook>>,
     pub lease_token: Mutex<Option<String>>,
     pub assigned_gpu: AtomicI32,
+    /// Cooperative cancellation signal shared by all tasks currently executing
+    /// against this module version. Flipped by timeout handling in
+    /// [`ModuleLifecycleManager::execute_task_with_deadline`], by explicit
+    /// disconnect/shutdown notifications via [`ModuleLifecycleManager::cancel_in_flight`],
+    /// and when quiescing a version times out while tasks are still in-flight.
+    pub cancellation: CancellationToken,
 }
 
 impl std::fmt::Debug for ModuleVersionHandle {
@@ -2130,6 +2294,25 @@ impl ModuleVersionHandle {
 
     pub fn set_target_gpu(&self, gpu: i32) {
         self.assigned_gpu.store(gpu, Ordering::SeqCst);
+    }
+
+    /// Returns the shared cooperative cancellation token for this version. Compute
+    /// closures passed to [`ModuleLifecycleManager::execute_task`] receive this
+    /// handle and should poll [`CancellationToken::is_cancelled`] at safe
+    /// checkpoints to honor timeout/disconnect/shutdown requests.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancellation.clone()
+    }
+
+    /// Returns `true` if cancellation has been requested for in-flight tasks on
+    /// this version (via timeout, disconnect, or shutdown).
+    pub fn is_cancellation_requested(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    /// Requests cooperative cancellation of all in-flight tasks on this version.
+    pub fn request_cancellation(&self) {
+        self.cancellation.cancel();
     }
 }
 
