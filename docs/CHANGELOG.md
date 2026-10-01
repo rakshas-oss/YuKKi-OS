@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### NXR1 geospatial frame interoperability
+
+- Added `src/nxr1.rs`: a dependency-free NXR1 binary codec for
+  `geospatial.frame.v1` messages, matching the `rakshas-oss/overhauled`
+  wire contract (magic `0x4E585231`, version `1`, big-endian fixed
+  geospatial/velocity/fluidity/drag/divergence fields, `u32` BE
+  length-prefixed opaque payload).
+- Added `to_broker_task`/`from_broker_task` adapters that carry an
+  `Nxr1Frame` inside the existing `BrokerTask` JSON envelope (kind
+  `geospatial.frame.v1`) over the existing `BrokerClient` TCP transport,
+  rather than introducing a second, conflicting binary protocol.
+- Re-exported the new types from `src/lib.rs` alongside the existing
+  `broker_client` exports.
+- Added unit tests (in `src/nxr1.rs`) and an integration test
+  (`tests/test_nxr1.rs`) covering round trips plus malformed input:
+  truncation, bad magic/version, trailing bytes, oversized payload, and
+  non-finite numbers.
+- Documented the wire contract and adapter usage in `docs/API.md`.
+
 ## v6.7.0 (current)
 
 ### Baseline cleanup and coherence refresh

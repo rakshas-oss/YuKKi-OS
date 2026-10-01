@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -95,9 +98,26 @@ jobs:
       - name: Run ADI calibration tests
         run: cargo test --test test_adi_auto_tune -- --nocapture
 
+  gpu-wasm-adapter:
+    name: GPU WASM Adapter & Lifecycle Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run GPU WASM adapter tests
+        run: cargo test --test test_gpu_adapter -- --nocapture
+
   all-integration:
     name: All Integration Tests
     runs-on: ubuntu-latest
-    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration]
+    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter]
     steps:
       - run: echo "All integration tests passed"
