@@ -59,9 +59,8 @@ Broker boundary env vars:
 
 Per-task `timeout_ms` (on `BrokerTask`/`GpuTaskRequest`) must be `1..=300000`
 ms (5 minutes); zero or oversized values are rejected by request validation.
-`effective_timeout_ms()` is available on both types to heuristically derive a
-safe, payload-size-based timeout instead of trusting an out-of-range raw
-value.
+Callers must supply an in-range timeout explicitly; payload size is not used to
+derive task deadlines.
 
 ## Geospatial and chunked media codecs
 

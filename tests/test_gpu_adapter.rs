@@ -24,7 +24,7 @@ use yukkios_6_8_0_inet3::{
         WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState,
         WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message,
         BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION,
-        MAX_CONFIG_TIMEOUT, MAX_TASK_TIMEOUT_MS, MIN_TASK_TIMEOUT_MS, WSM1_MAGIC,
+        MAX_CONFIG_TIMEOUT, MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
 };
@@ -214,27 +214,6 @@ fn test_request_validation_rejects_oversized_timeout() {
 
     req.timeout_ms = MAX_TASK_TIMEOUT_MS;
     assert!(req.validate().is_ok());
-}
-
-#[test]
-fn test_effective_timeout_ms_heuristic_fallback() {
-    let mut req = sample_task_request("heuristic-timeout");
-
-    // In-range value is trusted as-is.
-    req.timeout_ms = 3000;
-    assert_eq!(req.effective_timeout_ms(), 3000);
-
-    // Zero falls back to a heuristic, non-zero, in-bounds timeout.
-    req.timeout_ms = 0;
-    let heuristic = req.effective_timeout_ms();
-    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
-    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
-
-    // Oversized values also fall back to the heuristic rather than being trusted.
-    req.timeout_ms = u32::MAX;
-    let heuristic = req.effective_timeout_ms();
-    assert!(heuristic >= MIN_TASK_TIMEOUT_MS);
-    assert!(heuristic <= MAX_TASK_TIMEOUT_MS);
 }
 
 #[test]
@@ -598,48 +577,16 @@ async fn test_sandbox_submit_gpu_task_success() {
 }
 
 #[tokio::test]
-async fn test_sandbox_submit_gpu_task_heuristic_timeout_for_invalid_input() {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind listener");
-    let addr = listener.local_addr().expect("local addr");
-
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let msg = read_prefixed_msg(&mut stream).await;
-            if let BrokerMessage::TaskRequest(req) = msg {
-                // A zero timeout from the caller must be heuristically
-                // normalized to an in-bounds, non-zero value before reaching
-                // the broker, rather than being forwarded as-is or rejected.
-                assert!(req.timeout_ms >= MIN_TASK_TIMEOUT_MS);
-                assert!(req.timeout_ms <= MAX_TASK_TIMEOUT_MS);
-                let resp = BrokerMessage::TaskResponse(GpuTaskResponse {
-                    protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
-                    task_id: req.task_id,
-                    status: GpuTaskStatus::Completed,
-                    gpu_id: Some(1),
-                    execution_ms: Some(5),
-                    output_buffers: vec![BufferDescriptor::inline(
-                        "out",
-                        vec![9],
-                        BufferAccess::WriteOnly,
-                    )],
-                    error: None,
-                });
-                write_prefixed_msg(&mut stream, &resp).await;
-            }
-        }
-    });
-
-    let config = GpuAdapterConfig::new(addr.to_string());
+async fn test_sandbox_rejects_invalid_task_timeout_without_payload_heuristic() {
+    let config = GpuAdapterConfig::new("127.0.0.1:0");
     let client = Arc::new(GpuBrokerClient::new(config).unwrap());
     let sandbox = RustasmSandbox::new().with_gpu_client(client);
 
-    let result = sandbox
-        .submit_gpu_task("mod-geo", "1.0.0", "task-sb-heuristic", &[1, 2, 3, 4], 5, 0)
+    let error = sandbox
+        .submit_gpu_task("mod-geo", "1.0.0", "task-sb-invalid-timeout", &[1, 2, 3, 4], 5, 0)
         .await
-        .expect("gpu task success despite zero timeout_ms");
-    assert_eq!(result, vec![9]);
+        .expect_err("zero task timeout must be rejected");
+    assert!(matches!(error, GpuAdapterError::InvalidRequest(_)));
 }
 
 // ============================================================================
@@ -1000,7 +947,7 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         payload: vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
     };
 
-    let encoded_req = encode_wsm1_lifecycle_request(&prep_req);
+    let encoded_req = encode_wsm1_lifecycle_request(&prep_req).expect("encode prepare request");
     let decoded_msg = decode_wsm1_message(&encoded_req).expect("decode prepare request");
     match decoded_msg {
         Wsm1Message::LifecycleRequest(req) => {
@@ -1029,7 +976,8 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         lease_token: "lease-vision-xyz".to_string(),
         error: String::new(),
     };
-    let encoded_resp = encode_wsm1_lifecycle_response(&prep_resp);
+    let encoded_resp =
+        encode_wsm1_lifecycle_response(&prep_resp).expect("encode prepare response");
     let decoded_resp = decode_wsm1_message(&encoded_resp).expect("decode prepare response");
     match decoded_resp {
         Wsm1Message::LifecycleResponse(resp) => {
@@ -1055,7 +1003,7 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         ack_token: "lease-vision-xyz".to_string(),
         payload: vec![],
     };
-    let encoded_drain = encode_wsm1_lifecycle_request(&drain_req);
+    let encoded_drain = encode_wsm1_lifecycle_request(&drain_req).expect("encode drain request");
     match decode_wsm1_message(&encoded_drain).expect("decode drain request") {
         Wsm1Message::LifecycleRequest(req) => {
             assert_eq!(req.action, WasmLifecycleAction::Drain);
@@ -1076,7 +1024,7 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         ack_token: "lease-vision-xyz".to_string(),
         payload: vec![],
     };
-    let encoded_rel = encode_wsm1_lifecycle_request(&rel_req);
+    let encoded_rel = encode_wsm1_lifecycle_request(&rel_req).expect("encode release request");
     match decode_wsm1_message(&encoded_rel).expect("decode release request") {
         Wsm1Message::LifecycleRequest(req) => {
             assert_eq!(req.action, WasmLifecycleAction::Release);
@@ -1097,7 +1045,7 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         ack_token: String::new(),
         payload: vec![],
     };
-    let encoded_query = encode_wsm1_lifecycle_request(&query_req);
+    let encoded_query = encode_wsm1_lifecycle_request(&query_req).expect("encode query request");
     match decode_wsm1_message(&encoded_query).expect("decode query request") {
         Wsm1Message::LifecycleRequest(req) => {
             assert_eq!(req.action, WasmLifecycleAction::Query);
@@ -1119,7 +1067,8 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         lease_token: String::new(),
         error: String::new(),
     };
-    let encoded_q_resp = encode_wsm1_lifecycle_response(&query_resp);
+    let encoded_q_resp =
+        encode_wsm1_lifecycle_response(&query_resp).expect("encode query response");
     match decode_wsm1_message(&encoded_q_resp).expect("decode query response") {
         Wsm1Message::LifecycleResponse(resp) => {
             assert_eq!(resp.status, WasmLifecycleStatus::Ok);
@@ -1153,7 +1102,7 @@ fn test_wsm1_task_codecs_roundtrip() {
         payload: vec![10, 20, 30, 40],
     };
 
-    let encoded_task = encode_wsm1_task_request(&task_req);
+    let encoded_task = encode_wsm1_task_request(&task_req).expect("encode task request");
     match decode_wsm1_message(&encoded_task).expect("decode task request") {
         Wsm1Message::TaskRequest(req) => {
             assert_eq!(req.task_id, "task-infer-99");
@@ -1182,7 +1131,7 @@ fn test_wsm1_task_codecs_roundtrip() {
         result: vec![42, 43, 44, 45],
     };
 
-    let encoded_resp = encode_wsm1_task_response(&task_resp);
+    let encoded_resp = encode_wsm1_task_response(&task_resp).expect("encode task response");
     match decode_wsm1_message(&encoded_resp).expect("decode task response") {
         Wsm1Message::TaskResponse(resp) => {
             assert_eq!(resp.task_id, "task-infer-99");
@@ -1210,7 +1159,7 @@ fn test_brk1_frame_envelope_roundtrip() {
         payload: payload.clone(),
     };
 
-    let encoded = encode_brk1_frame(&frame);
+    let encoded = encode_brk1_frame(&frame).expect("encode BRK1 frame");
     let decoded = decode_brk1_frame(&encoded).expect("decode BRK1 frame");
 
     assert_eq!(decoded.msg_type, BRK1_MSG_REQUEST);
@@ -1246,6 +1195,66 @@ fn test_wsm1_and_brk1_malformed_rejection() {
     // Truncated BRK1 header
     let truncated_brk = vec![0x42, 0x52, 0x4B, 0x31, 0x00];
     let err = decode_brk1_frame(&truncated_brk).unwrap_err();
+    assert!(matches!(err, GpuAdapterError::Wsm1Codec(_)));
+
+    let mut trailing_brk = encode_brk1_frame(&Brk1Frame {
+        msg_type: BRK1_MSG_RESPONSE,
+        task_id: "task-1".to_string(),
+        source: "broker".to_string(),
+        destination: "client".to_string(),
+        kind: "wasm.task".to_string(),
+        priority: 0,
+        timeout_ms: 1,
+        payload: vec![],
+    })
+    .expect("encode BRK1 frame");
+    trailing_brk.push(0);
+    assert!(decode_brk1_frame(&trailing_brk).is_err());
+
+    let mut trailing_wsm = encode_wsm1_lifecycle_request(&WasmLifecycleRequest {
+        action: WasmLifecycleAction::Query,
+        request_id: "req-1".to_string(),
+        sandbox_id: "sb-1".to_string(),
+        module_id: "module-1".to_string(),
+        module_version: "1.0".to_string(),
+        target_gpu: -1,
+        grace_period_ms: 0,
+        ack_token: String::new(),
+        payload: vec![],
+    })
+    .expect("encode WSM1 request");
+    trailing_wsm.push(0);
+    assert!(decode_wsm1_message(&trailing_wsm).is_err());
+}
+
+#[test]
+fn test_binary_encoders_reject_overlong_strings() {
+    let overlong = "x".repeat(u16::MAX as usize + 1);
+    let err = encode_brk1_frame(&Brk1Frame {
+        msg_type: BRK1_MSG_REQUEST,
+        task_id: overlong.clone(),
+        source: "client".to_string(),
+        destination: "broker".to_string(),
+        kind: "task".to_string(),
+        priority: 0,
+        timeout_ms: 1,
+        payload: vec![],
+    })
+    .unwrap_err();
+    assert!(matches!(err, GpuAdapterError::Wsm1Codec(_)));
+
+    let err = encode_wsm1_lifecycle_request(&WasmLifecycleRequest {
+        action: WasmLifecycleAction::Query,
+        request_id: overlong,
+        sandbox_id: "sb-1".to_string(),
+        module_id: "module-1".to_string(),
+        module_version: "1.0".to_string(),
+        target_gpu: -1,
+        grace_period_ms: 0,
+        ack_token: String::new(),
+        payload: vec![],
+    })
+    .unwrap_err();
     assert!(matches!(err, GpuAdapterError::Wsm1Codec(_)));
 }
 
@@ -1328,7 +1337,8 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
                             },
                         };
 
-                        let wsm_resp_bytes = encode_wsm1_lifecycle_response(&resp);
+                        let wsm_resp_bytes =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1339,7 +1349,8 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
                             timeout_ms: brk_frame.timeout_ms,
                             payload: wsm_resp_bytes,
                         };
-                        let encoded_resp_frame = encode_brk1_frame(&resp_brk);
+                        let encoded_resp_frame =
+                            encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
                         write_raw_prefixed(&mut stream, &encoded_resp_frame).await;
                     } else {
                         panic!("expected LifecycleRequest in test");
@@ -1476,7 +1487,8 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp);
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1487,7 +1499,7 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
                             timeout_ms: brk_frame.timeout_ms,
                             payload: wsm_resp,
                         };
-                        let enc = encode_brk1_frame(&resp_brk);
+                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -1606,7 +1618,8 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
                             }
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp);
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1617,7 +1630,7 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
                             timeout_ms: brk_frame.timeout_ms,
                             payload: wsm_resp,
                         };
-                        let enc = encode_brk1_frame(&resp_brk);
+                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -1717,7 +1730,8 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp);
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1728,7 +1742,7 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
                             timeout_ms: brk_frame.timeout_ms,
                             payload: wsm_resp,
                         };
-                        let enc = encode_brk1_frame(&resp_brk);
+                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -1804,7 +1818,7 @@ async fn test_sandbox_submit_gpu_task_wsm1_success() {
                     buffers: vec![],
                     result: vec![99, 100, 101],
                 };
-                let wsm_resp = encode_wsm1_task_response(&task_resp);
+                let wsm_resp = encode_wsm1_task_response(&task_resp).expect("encode task response");
                 let resp_brk = Brk1Frame {
                     msg_type: BRK1_MSG_RESPONSE,
                     task_id: brk_frame.task_id,
@@ -1815,7 +1829,7 @@ async fn test_sandbox_submit_gpu_task_wsm1_success() {
                     timeout_ms: brk_frame.timeout_ms,
                     payload: wsm_resp,
                 };
-                let enc = encode_brk1_frame(&resp_brk);
+                let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
                 write_raw_prefixed(&mut stream, &enc).await;
             }
         }
