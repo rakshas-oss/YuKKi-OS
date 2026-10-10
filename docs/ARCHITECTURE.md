@@ -1,4 +1,4 @@
-# YuKKi OS v6.8.0 — Architecture
+# YuKKi OS v6.9.0 — Architecture
 
 ## Scope
 

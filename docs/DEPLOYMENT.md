@@ -1,4 +1,4 @@
-# YuKKi OS v6.8.0 — Deployment Guide
+# YuKKi OS v6.9.0 — Deployment Guide
 
 ## Supported runtime shape
 
@@ -94,13 +94,13 @@ See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for hardened service examples, env fi
 Build image:
 
 ```bash
-docker build -t yukkios:6.8.0 .
+docker build -t yukkios:6.9.0 .
 ```
 
 Run bootstrap:
 
 ```bash
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.8.0 bootstrap 0.0.0.0:7660
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.9.0 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: container image does not add TLS/mTLS termination; deploy with external network controls.

@@ -1,4 +1,4 @@
-// YuKKi-OS v6.8.0 Async Ethos-U85 Driver Extension
+// YuKKi-OS v6.9.0 Async Ethos-U85 Driver Extension
 use core::sync::atomic::{AtomicBool, Ordering};
 use crate::arch::cache::{clean_dcache_range, invalidate_dcache_range};
 

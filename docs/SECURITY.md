@@ -1,4 +1,4 @@
-# YuKKi OS v6.8.0 — Security Notes
+# YuKKi OS v6.9.0 — Security Notes
 
 > Research/demo software. Do not expose directly to untrusted networks.
 

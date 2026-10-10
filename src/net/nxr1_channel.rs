@@ -1,4 +1,4 @@
-// YuKKi-OS v6.8.0 16-byte Aligned NXR1 State Channel Buffer
+// YuKKi-OS v6.9.0 16-byte Aligned NXR1 State Channel Buffer
 #[repr(C, align(16))]
 pub struct Nxr1StateChannel {
     pub channel_id: u64,
