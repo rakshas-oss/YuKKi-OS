@@ -1905,3 +1905,56 @@ async fn test_sandbox_submit_gpu_task_fallback_to_json() {
         .expect("json task submission succeeds");
     assert_eq!(result, vec![77, 88, 99]);
 }
+
+#[tokio::test]
+async fn test_execute_task_with_deadline_timeout_requests_cancellation() {
+    let manager = ModuleLifecycleManager::new(Duration::from_secs(2));
+    let handle = manager
+        .prepare_version("cancel_mod", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare");
+    manager.hotswap("cancel_mod", "1.0.0").await.expect("activate");
+
+    let result = manager
+        .execute_task_with_deadline("cancel_mod", Duration::from_millis(30), |_h| async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        })
+        .await;
+    assert!(matches!(result, Err(GpuAdapterError::RequestTimeout(_))));
+    assert!(handle.is_cancellation_requested());
+    assert_eq!(handle.current_in_flight(), 0);
+}
+
+#[tokio::test]
+async fn test_cancel_in_flight_interrupts_deadline_task() {
+    let manager = Arc::new(ModuleLifecycleManager::new(Duration::from_secs(2)));
+    let handle = manager
+        .prepare_version("cancel_mod2", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare");
+    manager.hotswap("cancel_mod2", "1.0.0").await.expect("activate");
+
+    let m = manager.clone();
+    let task = tokio::spawn(async move {
+        m.execute_task_with_deadline("cancel_mod2", Duration::from_secs(30), |_h| async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(())
+        })
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    manager.cancel_in_flight(&handle);
+    let result = task.await.unwrap();
+    assert!(matches!(result, Err(GpuAdapterError::TaskCancelled { .. })));
+    assert_eq!(handle.current_in_flight(), 0);
+}
+
+#[tokio::test]
+async fn test_shutdown_cancels_all_versions() {
+    let manager = ModuleLifecycleManager::new(Duration::from_secs(2));
+    let h = manager
+        .prepare_version("cancel_mod3", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare");
+    assert!(!h.is_cancellation_requested());
+    manager.shutdown();
+    assert!(h.is_cancellation_requested());
+}
