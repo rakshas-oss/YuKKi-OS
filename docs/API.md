@@ -51,10 +51,8 @@ Messages are JSON encoded and encrypted after session establishment.
 - `kind: String` (required, non-empty)
 - `priority: u8`
 - `timeout_ms: u32` (required, `1..=300000` i.e. up to 5 minutes; zero or
-  oversized values are rejected by `validate()`. Callers that cannot guarantee
-  an in-range value can use `BrokerTask::effective_timeout_ms()`, which falls
-  back to a heuristic timeout derived from the payload size instead of
-  trusting a raw out-of-range value.)
+  oversized values are rejected by `validate()`. The timeout must be supplied
+  explicitly and is not derived from payload size.)
 - `payload: serde_json::Value` (required, non-null)
 
 ### Response schema (`BrokerResult`)
@@ -292,9 +290,8 @@ Tagged union with `"type"` and `"payload"`:
    - `priority: u8` (0-255, higher = higher scheduling priority)
    - `deadline_ms: Option<u64>` (epoch millisecond deadline)
    - `timeout_ms: u32` (`1..=300000`, i.e. up to 5 minutes; zero or oversized
-     values are rejected by `validate()`. `GpuTaskRequest::effective_timeout_ms()`
-     returns a heuristic, payload-size-derived timeout as a safe fallback when
-     the raw value is out of range instead of trusting it blindly.)
+     values are rejected by `validate()`. The timeout must be supplied
+     explicitly and is not derived from payload or buffer sizes.)
    - `buffers: Vec<BufferDescriptor>` (input and output descriptors)
    - `metadata: Option<Value>`
 4. **`task_response` (`GpuTaskResponse`)**:

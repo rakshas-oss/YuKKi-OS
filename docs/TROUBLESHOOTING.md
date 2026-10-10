@@ -43,9 +43,8 @@ export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
   startup instead of silently clamped)
 - ensure `YUKKI_BROKER_MAX_FRAME_BYTES` matches both sides
 - a `GpuTaskRequest`/`BrokerTask` `timeout_ms` of `0` or greater than
-  `300000` (5 minutes) is rejected by request validation; use
-  `effective_timeout_ms()` to derive a heuristic, payload-size-based
-  fallback instead of sending an out-of-range raw value
+  `300000` (5 minutes) is rejected by request validation; supply an explicit
+  timeout within that range
 
 ### Wasm fuel exhaustion
 

@@ -97,6 +97,35 @@ pub const MIN_TASK_TIMEOUT_MS: u32 = 1;
 /// timeouts (e.g. `u32::MAX` ms, ~49 days) that would tie up broker resources
 /// and connection slots indefinitely.
 pub const MAX_TASK_TIMEOUT_MS: u32 = 300_000;
+
+fn broker_deadline_ms(timeout: Duration) -> u32 {
+    let ms = timeout.as_millis();
+    if ms == 0 {
+        return MIN_TASK_TIMEOUT_MS;
+    }
+    ms.min(u128::from(MAX_TASK_TIMEOUT_MS)) as u32
+}
+
+#[cfg(test)]
+mod broker_deadline_tests {
+    use super::{broker_deadline_ms, MAX_TASK_TIMEOUT_MS, MIN_TASK_TIMEOUT_MS};
+    use std::time::Duration;
+
+    #[test]
+    fn broker_deadline_is_clamped_without_affecting_submillisecond_floor() {
+        assert_eq!(broker_deadline_ms(Duration::ZERO), MIN_TASK_TIMEOUT_MS);
+        assert_eq!(
+            broker_deadline_ms(Duration::from_micros(999)),
+            MIN_TASK_TIMEOUT_MS
+        );
+        assert_eq!(broker_deadline_ms(Duration::from_millis(125)), 125);
+        assert_eq!(
+            broker_deadline_ms(Duration::from_secs(600)),
+            MAX_TASK_TIMEOUT_MS
+        );
+    }
+}
+
 /// Upper bound accepted for `connect_timeout`/`request_timeout`/`quiesce_timeout`
 /// style configuration durations (10 minutes). Env-configured values beyond
 /// this are rejected rather than silently trusted, to avoid accidental
@@ -328,36 +357,6 @@ impl GpuTaskRequest {
         self.idempotency_key.as_deref().unwrap_or(&self.task_id)
     }
 
-    /// Heuristically derive a safe `timeout_ms` for this request rather than
-    /// trusting a raw, potentially unset or out-of-range value.
-    ///
-    /// The heuristic scales a small base allowance by the total buffer payload
-    /// size (to account for larger transfers taking proportionally longer),
-    /// then clamps the result to `[MIN_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS]`.
-    /// This is used as a fallback/default when `timeout_ms` is zero or absent
-    /// from the caller's perspective; it does not override an explicit,
-    /// in-range value supplied by the caller.
-    pub fn heuristic_timeout_ms(&self) -> u32 {
-        const BASE_TIMEOUT_MS: u64 = 1_000;
-        const PER_KIB_MS: u64 = 2;
-
-        let total_bytes: u64 = self.buffers.iter().map(|b| b.size_bytes as u64).sum();
-        let payload_allowance_ms = (total_bytes / 1024).saturating_mul(PER_KIB_MS);
-
-        BASE_TIMEOUT_MS
-            .saturating_add(payload_allowance_ms)
-            .clamp(MIN_TASK_TIMEOUT_MS as u64, MAX_TASK_TIMEOUT_MS as u64) as u32
-    }
-
-    /// Returns `timeout_ms` if it is within the acceptable bounds, otherwise
-    /// falls back to a heuristically derived timeout based on payload size.
-    pub fn effective_timeout_ms(&self) -> u32 {
-        if (MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&self.timeout_ms) {
-            self.timeout_ms
-        } else {
-            self.heuristic_timeout_ms()
-        }
-    }
 }
 
 /// Execution status of a GPU task.
@@ -1368,11 +1367,17 @@ fn write_u64(buf: &mut Vec<u8>, val: u64) {
     buf.extend_from_slice(&val.to_be_bytes());
 }
 
-fn write_str(buf: &mut Vec<u8>, s: &str) {
+fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     let bytes = s.as_bytes();
-    let len = bytes.len().min(u16::MAX as usize) as u16;
-    write_u16(buf, len);
-    buf.extend_from_slice(&bytes[..len as usize]);
+    if bytes.len() > u16::MAX as usize {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "string is {} bytes; length prefix is uint16",
+            bytes.len()
+        )));
+    }
+    write_u16(buf, bytes.len() as u16);
+    buf.extend_from_slice(bytes);
+    Ok(())
 }
 
 fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
@@ -1389,6 +1394,15 @@ struct ByteReader<'a> {
 impl<'a> ByteReader<'a> {
     fn new(data: &'a [u8]) -> Self {
         Self { data, offset: 0 }
+    }
+
+    fn ensure_exhausted(&self) -> Result<(), GpuAdapterError> {
+        if self.offset != self.data.len() {
+            return Err(GpuAdapterError::Wsm1Codec(
+                "frame contains trailing bytes".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn read_u8(&mut self) -> Result<u8, GpuAdapterError> {
@@ -1464,25 +1478,29 @@ impl<'a> ByteReader<'a> {
 }
 
 /// Encode a `WasmLifecycleRequest` into WSM1 binary format.
-pub fn encode_wsm1_lifecycle_request(req: &WasmLifecycleRequest) -> Vec<u8> {
+pub fn encode_wsm1_lifecycle_request(
+    req: &WasmLifecycleRequest,
+) -> Result<Vec<u8>, GpuAdapterError> {
     let mut buf = Vec::with_capacity(128 + req.payload.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, WSM1_PROTOCOL_VERSION);
     write_u8(&mut buf, 3); // 3 = LifecycleRequest
     write_u8(&mut buf, req.action as u8);
-    write_str(&mut buf, &req.request_id);
-    write_str(&mut buf, &req.sandbox_id);
-    write_str(&mut buf, &req.module_id);
-    write_str(&mut buf, &req.module_version);
+    write_str(&mut buf, &req.request_id)?;
+    write_str(&mut buf, &req.sandbox_id)?;
+    write_str(&mut buf, &req.module_id)?;
+    write_str(&mut buf, &req.module_version)?;
     write_i32(&mut buf, req.target_gpu);
     write_u32(&mut buf, req.grace_period_ms);
-    write_str(&mut buf, &req.ack_token);
+    write_str(&mut buf, &req.ack_token)?;
     write_bytes(&mut buf, &req.payload);
-    buf
+    Ok(buf)
 }
 
 /// Encode a `WasmLifecycleResponse` into WSM1 binary format.
-pub fn encode_wsm1_lifecycle_response(resp: &WasmLifecycleResponse) -> Vec<u8> {
+pub fn encode_wsm1_lifecycle_response(
+    resp: &WasmLifecycleResponse,
+) -> Result<Vec<u8>, GpuAdapterError> {
     let mut buf = Vec::with_capacity(128);
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, resp.protocol_version);
@@ -1491,29 +1509,29 @@ pub fn encode_wsm1_lifecycle_response(resp: &WasmLifecycleResponse) -> Vec<u8> {
     write_u8(&mut buf, resp.status as u8);
     write_u16(&mut buf, resp.protocol_version);
     write_u8(&mut buf, resp.state as u8);
-    write_str(&mut buf, &resp.request_id);
-    write_str(&mut buf, &resp.sandbox_id);
-    write_str(&mut buf, &resp.module_id);
-    write_str(&mut buf, &resp.module_version);
+    write_str(&mut buf, &resp.request_id)?;
+    write_str(&mut buf, &resp.sandbox_id)?;
+    write_str(&mut buf, &resp.module_id)?;
+    write_str(&mut buf, &resp.module_version)?;
     write_i32(&mut buf, resp.assigned_gpu);
     write_u32(&mut buf, resp.active_tasks);
-    write_str(&mut buf, &resp.lease_token);
-    write_str(&mut buf, &resp.error);
-    buf
+    write_str(&mut buf, &resp.lease_token)?;
+    write_str(&mut buf, &resp.error)?;
+    Ok(buf)
 }
 
 /// Encode a `WasmTaskRequest` into WSM1 binary format.
-pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Vec<u8> {
+pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAdapterError> {
     let mut buf = Vec::with_capacity(128 + req.payload.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, WSM1_PROTOCOL_VERSION);
     write_u8(&mut buf, 1); // 1 = TaskRequest
     write_u8(&mut buf, 0); // flags
-    write_str(&mut buf, &req.task_id);
-    write_str(&mut buf, &req.sandbox_id);
-    write_str(&mut buf, &req.module_id);
-    write_str(&mut buf, &req.module_version);
-    write_str(&mut buf, &req.task_kind);
+    write_str(&mut buf, &req.task_id)?;
+    write_str(&mut buf, &req.sandbox_id)?;
+    write_str(&mut buf, &req.module_id)?;
+    write_str(&mut buf, &req.module_version)?;
+    write_str(&mut buf, &req.task_kind)?;
     write_u8(&mut buf, req.priority);
     write_u64(&mut buf, req.deadline_ms);
     let buf_count = req.buffers.len().min(u16::MAX as usize) as u16;
@@ -1523,24 +1541,24 @@ pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Vec<u8> {
         write_u32(&mut buf, b.flags);
         write_u64(&mut buf, b.offset);
         write_u64(&mut buf, b.length);
-        write_str(&mut buf, &b.name);
+        write_str(&mut buf, &b.name)?;
     }
     write_bytes(&mut buf, &req.payload);
-    buf
+    Ok(buf)
 }
 
 /// Encode a `WasmTaskResponse` into WSM1 binary format.
-pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Vec<u8> {
+pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, GpuAdapterError> {
     let mut buf = Vec::with_capacity(128 + resp.result.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, resp.protocol_version);
     write_u8(&mut buf, 2); // 2 = TaskResponse
     write_u8(&mut buf, resp.status as u8);
     write_u16(&mut buf, resp.protocol_version);
-    write_str(&mut buf, &resp.task_id);
+    write_str(&mut buf, &resp.task_id)?;
     write_i32(&mut buf, resp.selected_gpu);
     write_u64(&mut buf, resp.latency_ms);
-    write_str(&mut buf, &resp.error);
+    write_str(&mut buf, &resp.error)?;
     let buf_count = resp.buffers.len().min(u16::MAX as usize) as u16;
     write_u16(&mut buf, buf_count);
     for b in &resp.buffers[..buf_count as usize] {
@@ -1548,10 +1566,10 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Vec<u8> {
         write_u32(&mut buf, b.flags);
         write_u64(&mut buf, b.offset);
         write_u64(&mut buf, b.length);
-        write_str(&mut buf, &b.name);
+        write_str(&mut buf, &b.name)?;
     }
     write_bytes(&mut buf, &resp.result);
-    buf
+    Ok(buf)
 }
 
 /// Decode any WSM1 binary message from byte slice.
@@ -1578,7 +1596,7 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
     let msg_type = r.read_u8()?;
     let action_or_flags = r.read_u8()?;
 
-    match msg_type {
+    let message = match msg_type {
         1 => {
             let task_id = r.read_str()?;
             let sandbox_id = r.read_str()?;
@@ -1704,24 +1722,26 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
         other => Err(GpuAdapterError::Wsm1Codec(format!(
             "unknown WSM1 message type: {other}"
         ))),
-    }
+    }?;
+    r.ensure_exhausted()?;
+    Ok(message)
 }
 
 /// Encode a `Brk1Frame` into bytes.
-pub fn encode_brk1_frame(frame: &Brk1Frame) -> Vec<u8> {
+pub fn encode_brk1_frame(frame: &Brk1Frame) -> Result<Vec<u8>, GpuAdapterError> {
     let mut buf = Vec::with_capacity(128 + frame.payload.len());
     write_u32(&mut buf, BRK1_MAGIC);
     write_u16(&mut buf, BRK1_PROTOCOL_VERSION);
     write_u8(&mut buf, frame.msg_type);
     write_u8(&mut buf, 0); // reserved
-    write_str(&mut buf, &frame.task_id);
-    write_str(&mut buf, &frame.source);
-    write_str(&mut buf, &frame.destination);
-    write_str(&mut buf, &frame.kind);
+    write_str(&mut buf, &frame.task_id)?;
+    write_str(&mut buf, &frame.source)?;
+    write_str(&mut buf, &frame.destination)?;
+    write_str(&mut buf, &frame.kind)?;
     write_u8(&mut buf, frame.priority);
     write_u32(&mut buf, frame.timeout_ms);
     write_bytes(&mut buf, &frame.payload);
-    buf
+    Ok(buf)
 }
 
 /// Decode a `Brk1Frame` from bytes.
@@ -1756,6 +1776,7 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     let priority = r.read_u8()?;
     let timeout_ms = r.read_u32()?;
     let payload = r.read_bytes()?;
+    r.ensure_exhausted()?;
     Ok(Brk1Frame {
         msg_type,
         task_id,
@@ -1969,13 +1990,13 @@ impl LifecycleClient {
         .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
-            LifecycleWireMode::RawWsm1 => encode_wsm1_lifecycle_request(request),
+            LifecycleWireMode::RawWsm1 => encode_wsm1_lifecycle_request(request)?,
             LifecycleWireMode::Json => {
                 let msg = BrokerMessage::LifecycleRequest(request.clone());
                 serde_json::to_vec(&msg).map_err(GpuAdapterError::Serialization)?
             }
             LifecycleWireMode::Brk1 | LifecycleWireMode::Auto => {
-                let wsm1_bytes = encode_wsm1_lifecycle_request(request);
+                let wsm1_bytes = encode_wsm1_lifecycle_request(request)?;
                 encode_brk1_frame(&Brk1Frame {
                     msg_type: BRK1_MSG_REQUEST,
                     task_id: request.request_id.clone(),
@@ -1983,9 +2004,9 @@ impl LifecycleClient {
                     destination: "overhauled".to_string(),
                     kind: "wasm.lifecycle".to_string(),
                     priority: 1,
-                    timeout_ms: config.request_timeout.as_millis().min(u32::MAX as u128) as u32,
+                    timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
-                })
+                })?
             }
         };
 
@@ -2143,12 +2164,12 @@ impl LifecycleClient {
         .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
-            LifecycleWireMode::RawWsm1 => encode_wsm1_task_request(task),
+            LifecycleWireMode::RawWsm1 => encode_wsm1_task_request(task)?,
             LifecycleWireMode::Json => {
                 serde_json::to_vec(task).map_err(GpuAdapterError::Serialization)?
             }
             LifecycleWireMode::Brk1 | LifecycleWireMode::Auto => {
-                let wsm1_bytes = encode_wsm1_task_request(task);
+                let wsm1_bytes = encode_wsm1_task_request(task)?;
                 encode_brk1_frame(&Brk1Frame {
                     msg_type: BRK1_MSG_REQUEST,
                     task_id: task.task_id.clone(),
@@ -2156,9 +2177,9 @@ impl LifecycleClient {
                     destination: "overhauled".to_string(),
                     kind: "wasm.task".to_string(),
                     priority: task.priority,
-                    timeout_ms: config.request_timeout.as_millis().min(u32::MAX as u128) as u32,
+                    timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
-                })
+                })?
             }
         };
 
@@ -2416,6 +2437,7 @@ impl ModuleLifecycleManager {
             handoff_hook,
             lease_token: Mutex::new(None),
             assigned_gpu: AtomicI32::new(-1),
+            cancellation: CancellationToken::new(),
         });
 
         registry.insert(key, handle.clone());
