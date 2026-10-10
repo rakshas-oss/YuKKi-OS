@@ -21,7 +21,18 @@
   non-finite numbers.
 - Documented the wire contract and adapter usage in `docs/API.md`.
 
-## v6.8.0 (current)
+## v6.9.0 (current)
+
+### Streaming and documentation
+
+- Bumped the Cargo package and active release baseline to `v6.9.0`, keeping
+  the library crate name unchanged.
+- Refreshed the README for v6.9.0 and added a streaming binaries and data
+  section.
+- Added `docs/USER_HOWTO_STREAMING.md` with user guidance for bounded media
+  streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
+
+## v6.8.0
 
 ### Version baseline refresh
 

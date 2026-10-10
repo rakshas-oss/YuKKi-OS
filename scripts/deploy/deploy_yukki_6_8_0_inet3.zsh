@@ -40,7 +40,7 @@ if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1 && ! comm
   exit 1
 fi
 
-echo "[info] building YuKKi OS v6.8.0 from $REPO_ROOT"
+echo "[info] building YuKKi OS v6.9.0 from $REPO_ROOT"
 cd "$REPO_ROOT"
 cargo build --release --locked
 

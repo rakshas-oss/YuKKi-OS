@@ -2,7 +2,7 @@
 
 The scripts in this directory are archived legacy assets from older YuKKi-OS lines.
 
-Current baseline is **v6.8.0**. Do not use these legacy scripts for new deployments.
+Current baseline is **v6.9.0**. Do not use these legacy scripts for new deployments.
 
 | Script | Version line | Status |
 |--------|--------------|--------|

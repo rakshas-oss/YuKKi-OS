@@ -1,4 +1,4 @@
-# YuKKi OS v6.8.0
+# YuKKi OS v6.9.0
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
@@ -6,7 +6,7 @@ YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame eng
 
 ## Current baseline
 
-- Release line: **v6.8.0**
+- Release line: **v6.9.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
@@ -81,6 +81,11 @@ See [docs/API.md](docs/API.md) for Rust examples, wire layouts, validation,
 and limits, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust and
 resource boundaries.
 
+## Streaming binaries and data
+
+Use the [streaming user how-to](docs/USER_HOWTO_STREAMING.md) for chunked binary
+and media streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
+
 ## GPU-backed WASM sandbox interoperability (rakshas-oss/overhauled)
 
 YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
@@ -103,7 +108,8 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 
 ## Documentation
 
-- [docs/RELEASE_v6.8.0.md](docs/RELEASE_v6.8.0.md)
+- [docs/RELEASE_v6.9.0.md](docs/RELEASE_v6.9.0.md)
+- [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md)
 - [scripts/deploy/README.md](scripts/deploy/README.md)
@@ -119,8 +125,8 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.8.0 .
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> yukkios:6.8.0 bootstrap 0.0.0.0:7660
+docker build -t yukkios:6.9.0 .
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> yukkios:6.9.0 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
