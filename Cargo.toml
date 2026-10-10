@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
+wat = "1"
 
 [[bench]]
 name = "adi_benchmarks"

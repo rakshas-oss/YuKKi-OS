@@ -1,0 +1,19 @@
+[package]
+name = "yukki_guest_worker"
+version = "0.1.0"
+edition = "2021"
+description = "User-safe no_std Wasm guest worker for the YuKKi-OS sandbox"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+# Standalone workspace: keeps the wasm guest out of the host crate's build graph.
+[workspace]
+
+[profile.release]
+opt-level = 3
+panic = "abort"
+strip = "symbols"
+lto = true
+codegen-units = 1
