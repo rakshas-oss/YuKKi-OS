@@ -7,6 +7,7 @@ pub mod broker_client;
 pub mod gpu_adapter;
 pub mod media_codec;
 pub mod nxr1;
+pub mod wasm_ingest;
 pub mod wasm_sandbox;
 
 pub use broker_client::{

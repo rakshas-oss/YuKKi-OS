@@ -2395,6 +2395,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wasmtime",
+ "wat",
  "x25519-dalek",
  "zeroize",
 ]

@@ -1,0 +1,3 @@
+[target.wasm32-wasip1]
+# wasmtime_yield_xpu is a host import resolved at instantiation time.
+rustflags = ["-C", "link-arg=--allow-undefined", "-C", "link-arg=--no-entry"]
