@@ -1,5 +1,10 @@
 use std::sync::{Arc, Mutex};
-use yukkios_6_8_0_inet3::wasm_ingest::*;
+use yukkios_6_8_0_inet3::{
+    media_codec::{
+        LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType,
+    },
+    wasm_ingest::*,
+};
 
 const CH: u64 = 0x98F4_CA01_E5B2_3344;
 
@@ -111,6 +116,56 @@ fn bridge_rejects_wild_pointer() {
         STATUS_BAD_CHANNEL
     );
     assert!(log.lock().unwrap().is_empty());
+}
+
+#[test]
+fn wasm_guest_selects_bounded_binary_stream_chunks() {
+    let wasm = wat_bytes(
+        r#"(module
+          (import "env" "yukki_select_stream" (func $select (param i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 128) "camera-1")
+          (func (export "execute_inference_pipeline") (param i32 i32 i32) (result i32)
+            i32.const 128 i32.const 8 i32.const 256 i32.const 1024 call $select))"#,
+    );
+    let streams = Arc::new(LiveMediaStreams::new(MediaStreamConfig::default()).unwrap());
+    streams
+        .open_stream(MediaStreamMetadata {
+            stream_id: "camera-1".into(),
+            media_type: MediaType::Video,
+            codec: "raw".into(),
+        })
+        .unwrap();
+    streams
+        .append_chunk(
+            "camera-1",
+            MediaChunk {
+                stream_id: "camera-1".into(),
+                media_type: MediaType::Video,
+                codec: "raw".into(),
+                sequence_no: 0,
+                timestamp_ms: 0,
+                is_keyframe: false,
+                payload: vec![1, 2, 3],
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        run_guest_with_streams(
+            &wasm,
+            CH,
+            &[1],
+            handler(Default::default(), 0),
+            Some(streams.clone())
+        )
+        .unwrap(),
+        45
+    );
+    assert_eq!(
+        run_guest_with_streams(&wasm, CH, &[1], handler(Default::default(), 0), None).unwrap(),
+        STATUS_STREAMS_UNAVAILABLE
+    );
 }
 
 #[test]

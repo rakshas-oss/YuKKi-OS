@@ -13,17 +13,18 @@ use tokio::{
 };
 use yukkios_6_8_0_inet3::{
     gpu_adapter::{
-        decode_brk1_frame, decode_wsm1_message, encode_brk1_frame, encode_wsm1_lifecycle_request,
-        encode_wsm1_lifecycle_response, encode_wsm1_task_request, encode_wsm1_task_response,
-        Brk1Frame, BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind,
-        CancelTaskRequest, CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient,
-        GpuTaskRequest, GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
+        decode_brk1_frame, decode_wsm1_message, encode_brk1_frame,
+        encode_wsm1_lifecycle_request, encode_wsm1_lifecycle_response,
+        encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame, BrokerMessage,
+        BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
+        CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
+        GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
         ModuleLifecycleManager, ModuleLifecycleState, ProtocolHandshakeRequest,
-        ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor, WasmLifecycleAction,
-        WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
-        WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC,
-        BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION, MAX_CONFIG_TIMEOUT,
-        MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
+        ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor,
+        WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState,
+        WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message,
+        BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION,
+        MAX_CONFIG_TIMEOUT, MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
 };
@@ -582,14 +583,7 @@ async fn test_sandbox_rejects_invalid_task_timeout_without_payload_heuristic() {
     let sandbox = RustasmSandbox::new().with_gpu_client(client);
 
     let error = sandbox
-        .submit_gpu_task(
-            "mod-geo",
-            "1.0.0",
-            "task-sb-invalid-timeout",
-            &[1, 2, 3, 4],
-            5,
-            0,
-        )
+        .submit_gpu_task("mod-geo", "1.0.0", "task-sb-invalid-timeout", &[1, 2, 3, 4], 5, 0)
         .await
         .expect_err("zero task timeout must be rejected");
     assert!(matches!(error, GpuAdapterError::InvalidRequest(_)));
@@ -982,7 +976,8 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         lease_token: "lease-vision-xyz".to_string(),
         error: String::new(),
     };
-    let encoded_resp = encode_wsm1_lifecycle_response(&prep_resp).expect("encode prepare response");
+    let encoded_resp =
+        encode_wsm1_lifecycle_response(&prep_resp).expect("encode prepare response");
     let decoded_resp = decode_wsm1_message(&encoded_resp).expect("decode prepare response");
     match decoded_resp {
         Wsm1Message::LifecycleResponse(resp) => {
@@ -1095,13 +1090,15 @@ fn test_wsm1_task_codecs_roundtrip() {
         task_kind: "compute".to_string(),
         priority: 7,
         deadline_ms: 1700000010000,
-        buffers: vec![WasmBufferDescriptor {
-            buffer_id: 1,
-            flags: 0x01,
-            offset: 0,
-            length: 4,
-            name: "img_in".to_string(),
-        }],
+        buffers: vec![
+            WasmBufferDescriptor {
+                buffer_id: 1,
+                flags: 0x01,
+                offset: 0,
+                length: 4,
+                name: "img_in".to_string(),
+            },
+        ],
         payload: vec![10, 20, 30, 40],
     };
 
@@ -1278,8 +1275,7 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
             tokio::spawn(async move {
                 while let Some(frame_bytes) = read_raw_prefixed_opt(&mut stream).await {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1 frame");
-                    let wsm_msg =
-                        decode_wsm1_message(&brk_frame.payload).expect("decode wsm1 message");
+                    let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1 message");
 
                     if let Wsm1Message::LifecycleRequest(req) = wsm_msg {
                         let resp = match req.action {
@@ -1341,8 +1337,8 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
                             },
                         };
 
-                        let wsm_resp_bytes = encode_wsm1_lifecycle_response(&resp)
-                            .expect("encode lifecycle response");
+                        let wsm_resp_bytes =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1416,9 +1412,7 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
         .expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
 
-    let operations = Arc::new(Mutex::new(
-        Vec::<(String, String, WasmLifecycleAction)>::new(),
-    ));
+    let operations = Arc::new(Mutex::new(Vec::<(String, String, WasmLifecycleAction)>::new()));
     let ops_clone = operations.clone();
 
     tokio::spawn(async move {
@@ -1493,8 +1487,8 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
-                            .expect("encode lifecycle response");
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1555,35 +1549,19 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
     assert_eq!(recorded_ops.len(), 4);
     assert_eq!(
         recorded_ops[0],
-        (
-            "pipeline".to_string(),
-            "1.0.0".to_string(),
-            WasmLifecycleAction::Prepare
-        )
+        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Prepare)
     );
     assert_eq!(
         recorded_ops[1],
-        (
-            "pipeline".to_string(),
-            "2.0.0".to_string(),
-            WasmLifecycleAction::Prepare
-        )
+        ("pipeline".to_string(), "2.0.0".to_string(), WasmLifecycleAction::Prepare)
     );
     assert_eq!(
         recorded_ops[2],
-        (
-            "pipeline".to_string(),
-            "1.0.0".to_string(),
-            WasmLifecycleAction::Drain
-        )
+        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Drain)
     );
     assert_eq!(
         recorded_ops[3],
-        (
-            "pipeline".to_string(),
-            "1.0.0".to_string(),
-            WasmLifecycleAction::Release
-        )
+        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Release)
     );
 }
 
@@ -1597,9 +1575,11 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             tokio::spawn(async move {
-                while let Ok(Some(frame_bytes)) =
-                    tokio::time::timeout(Duration::from_secs(2), read_raw_prefixed_opt(&mut stream))
-                        .await
+                while let Ok(Some(frame_bytes)) = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    read_raw_prefixed_opt(&mut stream),
+                )
+                .await
                 {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1");
                     let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1");
@@ -1638,8 +1618,8 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
                             }
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
-                            .expect("encode lifecycle response");
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1675,12 +1655,12 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
         .prepare_version("ai_worker", "2.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare v2");
 
-    let err = manager.hotswap("ai_worker", "2.0.0").await.unwrap_err();
+    let err = manager
+        .hotswap("ai_worker", "2.0.0")
+        .await
+        .unwrap_err();
 
-    assert!(matches!(
-        err,
-        GpuAdapterError::LifecycleOperationFailed { .. }
-    ));
+    assert!(matches!(err, GpuAdapterError::LifecycleOperationFailed { .. }));
     // v1 remains active!
     assert_eq!(manager.get_active_version("ai_worker").unwrap(), "1.0.0");
     let v2_handle = manager.get_version_handle("ai_worker", "2.0.0").unwrap();
@@ -1704,9 +1684,11 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
         while let Ok((mut stream, _)) = listener.accept().await {
             let rel_inner = rel_clone.clone();
             tokio::spawn(async move {
-                while let Ok(Some(frame_bytes)) =
-                    tokio::time::timeout(Duration::from_secs(2), read_raw_prefixed_opt(&mut stream))
-                        .await
+                while let Ok(Some(frame_bytes)) = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    read_raw_prefixed_opt(&mut stream),
+                )
+                .await
                 {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1");
                     let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1");
@@ -1748,8 +1730,8 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
-                            .expect("encode lifecycle response");
+                        let wsm_resp =
+                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1775,7 +1757,8 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
     let failing_hook = Arc::new(MockAppHandoffHook::default());
     failing_hook.fail_on_import.store(true, Ordering::SeqCst);
 
-    let manager = ModuleLifecycleManager::default().with_lifecycle_client(lifecycle_client);
+    let manager = ModuleLifecycleManager::default()
+        .with_lifecycle_client(lifecycle_client);
 
     manager
         .prepare_version("faulty_mod", "1.0.0", MINIMAL_VALID_WASM, Some(hook_v1))
@@ -1786,15 +1769,13 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
         .expect("activate v1");
 
     manager
-        .prepare_version(
-            "faulty_mod",
-            "2.0.0",
-            MINIMAL_VALID_WASM,
-            Some(failing_hook),
-        )
+        .prepare_version("faulty_mod", "2.0.0", MINIMAL_VALID_WASM, Some(failing_hook))
         .expect("prepare v2");
 
-    let err = manager.hotswap("faulty_mod", "2.0.0").await.unwrap_err();
+    let err = manager
+        .hotswap("faulty_mod", "2.0.0")
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, GpuAdapterError::StateHandoffFailed(_)));
     // Broker release must have been sent to cancel the prepared lease!
@@ -1892,15 +1873,14 @@ async fn test_sandbox_submit_gpu_task_fallback_to_json() {
                     if let Ok(msg) = serde_json::from_slice::<BrokerMessage>(&body) {
                         match msg {
                             BrokerMessage::HandshakeRequest(_req) => {
-                                let resp =
-                                    BrokerMessage::HandshakeResponse(ProtocolHandshakeResponse {
+                                let resp = BrokerMessage::HandshakeResponse(
+                                    ProtocolHandshakeResponse {
                                         status: "ok".to_string(),
-                                        negotiated_version: Some(
-                                            CURRENT_PROTOCOL_VERSION.to_string(),
-                                        ),
+                                        negotiated_version: Some(CURRENT_PROTOCOL_VERSION.to_string()),
                                         capabilities: vec![],
                                         error_message: None,
-                                    });
+                                    },
+                                );
                                 write_prefixed_msg(&mut stream, &resp).await;
                             }
                             BrokerMessage::TaskRequest(req) => {
@@ -1946,10 +1926,7 @@ async fn test_execute_task_with_deadline_timeout_requests_cancellation() {
     let handle = manager
         .prepare_version("cancel_mod", "1.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare");
-    manager
-        .hotswap("cancel_mod", "1.0.0")
-        .await
-        .expect("activate");
+    manager.hotswap("cancel_mod", "1.0.0").await.expect("activate");
 
     let result = manager
         .execute_task_with_deadline("cancel_mod", Duration::from_millis(30), |_h| async {
@@ -1968,10 +1945,7 @@ async fn test_cancel_in_flight_interrupts_deadline_task() {
     let handle = manager
         .prepare_version("cancel_mod2", "1.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare");
-    manager
-        .hotswap("cancel_mod2", "1.0.0")
-        .await
-        .expect("activate");
+    manager.hotswap("cancel_mod2", "1.0.0").await.expect("activate");
 
     let m = manager.clone();
     let task = tokio::spawn(async move {
