@@ -64,7 +64,7 @@ use std::{
     env,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+        atomic::{AtomicI32, AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -75,6 +75,7 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    sync::watch,
     time::{sleep, timeout},
 };
 
@@ -1006,24 +1007,45 @@ async fn read_prefixed_message(
 ///      Because that request travels over the network and the broker may be busy,
 ///      ignore it, or not support it, delivery and honoring of the cancellation are
 ///      not guaranteed.
-#[derive(Clone, Debug, Default)]
-pub struct CancellationToken(Arc<AtomicBool>);
+#[derive(Clone, Debug)]
+pub struct CancellationToken(Arc<watch::Sender<bool>>);
 
 impl CancellationToken {
     pub fn new() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
+        let (sender, _) = watch::channel(false);
+        Self(Arc::new(sender))
     }
 
     /// Requests cancellation. Idempotent and safe to call from any thread/task,
     /// including concurrently with readers of `is_cancelled`.
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.send_replace(true);
     }
 
     /// Returns `true` if cancellation has been requested. Compute loops should
     /// check this at safe interruption points.
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        *self.0.borrow()
+    }
+
+    /// Waits until cancellation is requested.
+    pub async fn cancelled(&self) {
+        let mut receiver = self.0.subscribe();
+        while !*receiver.borrow_and_update() {
+            if receiver.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    fn reset(&self) {
+        self.0.send_replace(false);
+    }
+}
+
+impl Default for CancellationToken {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1116,6 +1138,12 @@ impl GpuBrokerClient {
             token.cancel();
             self.request_broker_cancel(&task_id, "rustasm_sandbox", "client shutdown")
                 .await;
+        }
+    }
+
+    fn cancel_tracked_task(&self, task_id: &str) {
+        if let Some(token) = self.in_flight_tasks.lock().unwrap().get(task_id) {
+            token.cancel();
         }
     }
 
@@ -1231,17 +1259,30 @@ impl GpuBrokerClient {
 
         // Track as in-flight so a local timeout, a dropped connection, or process
         // shutdown can request cooperative cancellation of this task on the broker.
-        self.track_task(&task.task_id);
-        let outcome = timeout(
-            self.config.request_timeout,
-            read_prefixed_message(&mut stream, self.config.max_frame_size),
-        )
-        .await;
+        let cancellation = self.track_task(&task.task_id);
+        let outcome = tokio::select! {
+            outcome = timeout(
+                self.config.request_timeout,
+                read_prefixed_message(&mut stream, self.config.max_frame_size),
+            ) => Some(outcome),
+            _ = cancellation.cancelled() => None,
+        };
         self.untrack_task(&task.task_id);
 
         let response = match outcome {
-            Ok(result) => result?,
-            Err(_) => {
+            Some(Ok(Ok(response))) => response,
+            Some(Ok(Err(error))) => {
+                cancellation.cancel();
+                self.request_broker_cancel(
+                    &task.task_id,
+                    &task.sandbox_id,
+                    "client disconnected while awaiting response",
+                )
+                .await;
+                return Err(error);
+            }
+            Some(Err(_)) => {
+                cancellation.cancel();
                 // The broker's GPU kernel cannot be forcibly interrupted from here;
                 // ask it to cooperatively stop the task on a best-effort basis
                 // without blocking the caller any further than the request_timeout
@@ -1253,6 +1294,12 @@ impl GpuBrokerClient {
                 )
                 .await;
                 return Err(GpuAdapterError::RequestTimeout(self.config.request_timeout));
+            }
+            None => {
+                return Err(GpuAdapterError::TaskCancelled {
+                    task_id: task.task_id.clone(),
+                    reason: "client shutdown or explicit cancellation".to_string(),
+                });
             }
         };
 
@@ -1311,6 +1358,7 @@ impl GpuBrokerClient {
         if !self.config.enabled {
             return Err(GpuAdapterError::Disabled);
         }
+        self.cancel_tracked_task(task_id);
 
         let mut stream = timeout(
             self.config.connect_timeout,
@@ -1393,7 +1441,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u8(&mut self) -> Result<u8, GpuAdapterError> {
         if self.offset + 1 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u8".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u8".to_string(),
+            ));
         }
         let val = self.data[self.offset];
         self.offset += 1;
@@ -1402,7 +1452,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u16(&mut self) -> Result<u16, GpuAdapterError> {
         if self.offset + 2 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u16".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u16".to_string(),
+            ));
         }
         let bytes: [u8; 2] = self.data[self.offset..self.offset + 2].try_into().unwrap();
         self.offset += 2;
@@ -1411,7 +1463,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u32(&mut self) -> Result<u32, GpuAdapterError> {
         if self.offset + 4 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u32".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u32".to_string(),
+            ));
         }
         let bytes: [u8; 4] = self.data[self.offset..self.offset + 4].try_into().unwrap();
         self.offset += 4;
@@ -1420,7 +1474,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_i32(&mut self) -> Result<i32, GpuAdapterError> {
         if self.offset + 4 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading i32".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading i32".to_string(),
+            ));
         }
         let bytes: [u8; 4] = self.data[self.offset..self.offset + 4].try_into().unwrap();
         self.offset += 4;
@@ -1429,7 +1485,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u64(&mut self) -> Result<u64, GpuAdapterError> {
         if self.offset + 8 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u64".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u64".to_string(),
+            ));
         }
         let bytes: [u8; 8] = self.data[self.offset..self.offset + 8].try_into().unwrap();
         self.offset += 8;
@@ -1727,7 +1785,9 @@ pub fn encode_brk1_frame(frame: &Brk1Frame) -> Vec<u8> {
 /// Decode a `Brk1Frame` from bytes.
 pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     if data.len() < 8 {
-        return Err(GpuAdapterError::Wsm1Codec("BRK1 frame too short".to_string()));
+        return Err(GpuAdapterError::Wsm1Codec(
+            "BRK1 frame too short".to_string(),
+        ));
     }
     let mut r = ByteReader::new(data);
     let magic = r.read_u32()?;
@@ -1779,9 +1839,7 @@ async fn write_raw_frame(
             max: max_frame_size,
         });
     }
-    stream
-        .write_all(&(data.len() as u32).to_be_bytes())
-        .await?;
+    stream.write_all(&(data.len() as u32).to_be_bytes()).await?;
     stream.write_all(data).await?;
     stream.flush().await?;
     Ok(())
@@ -1832,7 +1890,9 @@ fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAda
     if let Ok(resp) = serde_json::from_slice::<WasmLifecycleResponse>(body) {
         return Ok(resp);
     }
-    if let Ok(BrokerMessage::LifecycleResponse(resp)) = serde_json::from_slice::<BrokerMessage>(body) {
+    if let Ok(BrokerMessage::LifecycleResponse(resp)) =
+        serde_json::from_slice::<BrokerMessage>(body)
+    {
         return Ok(resp);
     }
     Err(GpuAdapterError::MalformedResponse(
@@ -1862,7 +1922,8 @@ fn parse_task_response(body: &[u8]) -> Result<WasmTaskResponse, GpuAdapterError>
     if let Ok(resp) = serde_json::from_slice::<WasmTaskResponse>(body) {
         return Ok(resp);
     }
-    if let Ok(BrokerMessage::TaskResponse(gpu_resp)) = serde_json::from_slice::<BrokerMessage>(body) {
+    if let Ok(BrokerMessage::TaskResponse(gpu_resp)) = serde_json::from_slice::<BrokerMessage>(body)
+    {
         let status = match gpu_resp.status {
             GpuTaskStatus::Completed => WasmTaskStatus::Ok,
             GpuTaskStatus::Cancelled => WasmTaskStatus::Rejected,
@@ -1951,6 +2012,11 @@ impl LifecycleClient {
         &self.broker_client
     }
 
+    /// Request cooperative cancellation of all tasks awaiting a broker response.
+    pub async fn shutdown(&self) {
+        self.broker_client.shutdown().await;
+    }
+
     /// Send a lifecycle operation request to the broker.
     pub async fn send_lifecycle_request(
         &self,
@@ -1961,12 +2027,9 @@ impl LifecycleClient {
             return Err(GpuAdapterError::Disabled);
         }
 
-        let mut stream = timeout(
-            config.connect_timeout,
-            TcpStream::connect(&config.endpoint),
-        )
-        .await
-        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
+            .await
+            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_lifecycle_request(request),
@@ -2135,12 +2198,9 @@ impl LifecycleClient {
         task: &WasmTaskRequest,
     ) -> Result<WasmTaskResponse, GpuAdapterError> {
         let config = self.broker_client.config();
-        let mut stream = timeout(
-            config.connect_timeout,
-            TcpStream::connect(&config.endpoint),
-        )
-        .await
-        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
+            .await
+            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_task_request(task),
@@ -2166,25 +2226,49 @@ impl LifecycleClient {
 
         // Track as in-flight so a local timeout, a dropped connection, or process
         // shutdown can request cooperative cancellation of this task on the broker.
-        self.broker_client.track_task(&task.task_id);
-        let outcome = timeout(
-            config.request_timeout,
-            read_raw_frame(&mut stream, config.max_frame_size),
-        )
-        .await;
+        let cancellation = self.broker_client.track_task(&task.task_id);
+        let outcome = tokio::select! {
+            outcome = timeout(
+                config.request_timeout,
+                read_raw_frame(&mut stream, config.max_frame_size),
+            ) => Some(outcome),
+            _ = cancellation.cancelled() => None,
+        };
         self.broker_client.untrack_task(&task.task_id);
 
         let response_bytes = match outcome {
-            Ok(result) => result?,
-            Err(_) => {
+            Some(Ok(Ok(response))) => response,
+            Some(Ok(Err(error))) => {
+                cancellation.cancel();
+                self.broker_client
+                    .request_broker_cancel(
+                        &task.task_id,
+                        &task.sandbox_id,
+                        "client disconnected while awaiting response",
+                    )
+                    .await;
+                return Err(error);
+            }
+            Some(Err(_)) => {
+                cancellation.cancel();
                 // The broker's GPU kernel cannot be forcibly interrupted from here;
                 // ask it to cooperatively stop the task on a best-effort basis
                 // without blocking the caller any further than request_timeout
                 // already incurred.
                 self.broker_client
-                    .request_broker_cancel(&task.task_id, &task.sandbox_id, "client request timeout")
+                    .request_broker_cancel(
+                        &task.task_id,
+                        &task.sandbox_id,
+                        "client request timeout",
+                    )
                     .await;
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
+            }
+            None => {
+                return Err(GpuAdapterError::TaskCancelled {
+                    task_id: task.task_id.clone(),
+                    reason: "client shutdown or explicit cancellation".to_string(),
+                });
             }
         };
 
@@ -2314,6 +2398,10 @@ impl ModuleVersionHandle {
     pub fn request_cancellation(&self) {
         self.cancellation.cancel();
     }
+
+    fn reset_cancellation(&self) {
+        self.cancellation.reset();
+    }
 }
 
 /// Coordinates module version registration, atomic routing switches, quiescing,
@@ -2416,6 +2504,7 @@ impl ModuleLifecycleManager {
             handoff_hook,
             lease_token: Mutex::new(None),
             assigned_gpu: AtomicI32::new(-1),
+            cancellation: CancellationToken::new(),
         });
 
         registry.insert(key, handle.clone());
@@ -2460,12 +2549,7 @@ impl ModuleLifecycleManager {
         if let Some(ref client) = lifecycle_client {
             let target_gpu = new_handle.assigned_gpu.load(Ordering::SeqCst);
             let resp = match client
-                .prepare(
-                    "rustasm_sandbox",
-                    module_id,
-                    new_version,
-                    target_gpu,
-                )
+                .prepare("rustasm_sandbox", module_id, new_version, target_gpu)
                 .await
             {
                 Ok(r) => r,
@@ -2584,6 +2668,7 @@ impl ModuleLifecycleManager {
         while handle.in_flight.load(Ordering::SeqCst) > 0 {
             if start.elapsed() > self.quiesce_timeout {
                 let remaining = handle.in_flight.load(Ordering::SeqCst);
+                handle.request_cancellation();
                 return Err(GpuAdapterError::QuiesceTimeout {
                     module_id: handle.module_id.clone(),
                     version: handle.version.clone(),
@@ -2612,30 +2697,88 @@ impl ModuleLifecycleManager {
         F: FnOnce(Arc<ModuleVersionHandle>) -> Fut,
         Fut: std::future::Future<Output = Result<R, GpuAdapterError>>,
     {
-        let (handle, _guard) = {
-            let routing = self.active_routing.read().unwrap();
-            let handle = routing
-                .get(module_id)
-                .cloned()
-                .ok_or_else(|| GpuAdapterError::NoActiveModule(module_id.to_string()))?;
+        let (handle, _guard) = self.acquire_active_handle(module_id)?;
+        let cancellation = handle.cancellation_token();
+        let task_id = format!("{}:{}", handle.module_id, handle.version);
+        tokio::select! {
+            result = f(handle) => result,
+            _ = cancellation.cancelled() => Err(GpuAdapterError::TaskCancelled {
+                task_id,
+                reason: "module version cancellation requested".to_string(),
+            }),
+        }
+    }
 
-            // Increment in_flight before checking is_active to avoid a race condition
-            // with a concurrent hotswap transitioning the module to Quiescing and draining.
-            handle.in_flight.fetch_add(1, Ordering::SeqCst);
-            let guard = InFlightGuard {
-                handle: Arc::clone(&handle),
-            };
+    /// Execute a task and cooperatively cancel it if the deadline expires.
+    pub async fn execute_task_with_deadline<F, Fut, R>(
+        &self,
+        module_id: &str,
+        deadline: Duration,
+        f: F,
+    ) -> Result<R, GpuAdapterError>
+    where
+        F: FnOnce(Arc<ModuleVersionHandle>) -> Fut,
+        Fut: std::future::Future<Output = Result<R, GpuAdapterError>>,
+    {
+        let (handle, _guard) = self.acquire_active_handle(module_id)?;
+        let cancellation = handle.cancellation_token();
+        let task_id = format!("{}:{}", handle.module_id, handle.version);
+        tokio::select! {
+            result = timeout(deadline, f(handle)) => match result {
+                Ok(result) => result,
+                Err(_) => {
+                    cancellation.cancel();
+                    Err(GpuAdapterError::RequestTimeout(deadline))
+                }
+            },
+            _ = cancellation.cancelled() => Err(GpuAdapterError::TaskCancelled {
+                task_id,
+                reason: "module version cancellation requested".to_string(),
+            }),
+        }
+    }
 
-            if !handle.is_active() {
-                return Err(GpuAdapterError::NoActiveModule(format!(
-                    "{module_id} is not in Active state"
-                )));
-            }
+    fn acquire_active_handle(
+        &self,
+        module_id: &str,
+    ) -> Result<(Arc<ModuleVersionHandle>, InFlightGuard), GpuAdapterError> {
+        let routing = self.active_routing.read().unwrap();
+        let handle = routing
+            .get(module_id)
+            .cloned()
+            .ok_or_else(|| GpuAdapterError::NoActiveModule(module_id.to_string()))?;
 
-            (handle, guard)
+        // Increment in_flight before checking is_active to avoid a race condition
+        // with a concurrent hotswap transitioning the module to Quiescing and draining.
+        handle.in_flight.fetch_add(1, Ordering::SeqCst);
+        let guard = InFlightGuard {
+            handle: Arc::clone(&handle),
         };
 
-        f(handle).await
+        if !handle.is_active() {
+            return Err(GpuAdapterError::NoActiveModule(format!(
+                "{module_id} is not in Active state"
+            )));
+        }
+
+        Ok((handle, guard))
+    }
+
+    /// Request cancellation of module tasks and broker tasks currently in flight.
+    pub async fn cancel_in_flight(&self) {
+        let handles: Vec<Arc<ModuleVersionHandle>> = self
+            .version_registry
+            .read()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        for handle in handles {
+            handle.request_cancellation();
+        }
+        if let Some(client) = self.lifecycle_client() {
+            client.shutdown().await;
+        }
     }
 
     /// Explicitly roll back active routing to a specified previous version.
@@ -2671,6 +2814,18 @@ impl ModuleLifecycleManager {
             let routing = self.active_routing.read().unwrap();
             routing.get(module_id).cloned()
         };
+
+        if target_handle.is_cancellation_requested() {
+            let remaining = target_handle.current_in_flight();
+            if remaining > 0 {
+                return Err(GpuAdapterError::QuiesceTimeout {
+                    module_id: module_id.to_string(),
+                    version: target_version.to_string(),
+                    remaining,
+                });
+            }
+            target_handle.reset_cancellation();
+        }
 
         // Atomically switch routing to target version
         {
