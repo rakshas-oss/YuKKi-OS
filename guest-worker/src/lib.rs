@@ -87,6 +87,8 @@ impl WorkerError {
 
 /// 128-bit FNV-1a style mix (two lanes with distinct bases/primes, length
 /// folded in). For integrity/telemetry only; NOT cryptographically secure.
+// FNV-1a and SplitMix/MurmurHash3 constants below are public-domain algorithm
+// constants used for integrity/telemetry, not cryptographic security.
 pub fn hash128(data: &[u8]) -> [u8; 16] {
     let mut a: u64 = 0xcbf2_9ce4_8422_2325;
     let mut b: u64 = 0x8422_2325_cbf2_9ce4;

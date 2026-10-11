@@ -164,4 +164,4 @@ Current limitation: no built-in TLS termination for peer or broker links.
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+GPL-3.0-only. See [LICENSE](LICENSE).

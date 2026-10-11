@@ -74,4 +74,4 @@ N/A
 - [ ] No new `unsafe` blocks, OR each new `unsafe` block has documented invariants
 - [ ] No secrets or credentials in changed files
 - [ ] `cargo audit` run with no high/critical findings
-- [ ] License of any new dependency is compatible (MIT / Apache-2.0)
+- [ ] New dependencies comply with the GPL-3.0-only project policy; strong copyleft dependencies require explicit approval

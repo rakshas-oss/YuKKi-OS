@@ -3,6 +3,7 @@ name = "yukki_guest_worker"
 version = "0.1.0"
 edition = "2021"
 description = "User-safe no_std Wasm guest worker for the YuKKi-OS sandbox"
+license = "GPL-3.0-only"
 publish = false
 
 [lib]

@@ -107,7 +107,7 @@ jobs:
         run: cargo license
       - name: Check for disallowed licenses
         run: |
-          DISALLOWED=$(cargo license --tsv | grep -iE "GPL-[23]|AGPL" || true)
+          DISALLOWED=$(cargo license --tsv | awk -F '\t' '$1 != "yukkios_6_8_0_inet3"' | grep -iE "GPL-[23]|AGPL" || true)
           if [ -n "$DISALLOWED" ]; then
             echo "ERROR: Disallowed licenses found:"
             echo "$DISALLOWED"
