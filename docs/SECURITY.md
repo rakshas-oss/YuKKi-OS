@@ -23,6 +23,23 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 - YuKKi-OS does not implement TLS/mTLS wrapping for broker traffic.
 - Deploy broker traffic behind authenticated infrastructure (mTLS sidecar/proxy/service mesh).
 
+## Stream gateway
+
+- `gateway` and node-embedded gateways require `YUKKI_GATEWAY_TOKEN`; the only
+  unauthenticated mode is the explicit `--insecure-dev` option.
+- The standalone gateway binds to `127.0.0.1:7670` by default. A node gateway
+  may use `YUKKI_GATEWAY_LISTEN`; bind to a non-loopback address only behind
+  appropriate network controls.
+- Bearer-token digests are compared without early exit. Keep the token secret
+  and transmit it only over a trusted local link.
+- The gateway has no built-in TLS. Terminate TLS in a trusted reverse proxy
+  before exposing it beyond loopback.
+- Active requests/WebSocket sessions, request bodies, frames, ranges, and idle
+  time are bounded. WebSocket clients must acknowledge each frame before the
+  next is sent.
+- Stream discovery metadata is relayed only over the authenticated encrypted
+  peer transport. Remote media chunk relay is not implemented.
+
 ## Memory safety controls
 
 - Session key material and plaintext buffers are zeroized in Rust where implemented.
@@ -35,6 +52,8 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 - Handshake timeout
 - Read timeout
 - Bootstrap connection semaphore cap (128)
+- Gateway active-request/WebSocket semaphore cap (128)
+- Stream registry, subscriber, announcement, range, and WebSocket frame limits
 
 ## Gaps and limitations
 

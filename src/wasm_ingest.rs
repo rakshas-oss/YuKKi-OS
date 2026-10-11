@@ -1,8 +1,7 @@
 //! Safe ingest and execution of guest Wasm workers (`POST /v1/sandbox/deploy`).
 //!
-//! The repository has no HTTP server or auth layer (transport and auth live
-//! outside YuKKi-OS), so [`handle_deploy`] is a pure request handler that a
-//! front end can call after authenticating the caller.
+//! [`handle_deploy`] is a pure request handler; an integrating front end must
+//! authenticate the caller before invoking it.
 
 use crate::media_codec::{LiveMediaStreams, MediaError, MEDIA_MAX_STREAM_ID_BYTES};
 use std::{collections::HashMap, sync::Arc, thread, time::Duration};
@@ -236,6 +235,9 @@ fn select_stream(
         .write(&mut caller, output_range.start, &encoded)
         .is_err()
     {
+        return STATUS_BAD_STREAM_ID;
+    }
+    if streams.acknowledge_through(&stream_id, sequence).is_err() {
         return STATUS_BAD_STREAM_ID;
     }
     let Some(next_sequence) = sequence.checked_add(1) else {

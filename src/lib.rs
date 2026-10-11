@@ -7,6 +7,7 @@ pub mod broker_client;
 pub mod gpu_adapter;
 pub mod media_codec;
 pub mod nxr1;
+pub mod stream_gateway;
 pub mod stream_registry;
 pub mod wasm_ingest;
 pub mod wasm_sandbox;

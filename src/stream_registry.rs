@@ -141,6 +141,9 @@ impl StreamRegistry {
     ) -> Result<Self, RegistryError> {
         let node_id = node_id.into();
         validate_text("node id", &node_id, STREAM_MAX_NODE_ID_BYTES)?;
+        if streams.stream_snapshots()?.len() > STREAM_REGISTRY_MAX_STREAMS {
+            return Err(RegistryError::RegistryFull);
+        }
         Ok(Self {
             shared: Arc::new(RegistryShared {
                 state: Mutex::new(RegistryState::default()),
@@ -152,13 +155,17 @@ impl StreamRegistry {
 
     pub fn list_streams(&self) -> Result<Vec<StreamDescriptor>, RegistryError> {
         self.expire_remote()?;
+        let snapshots = self.shared.streams.stream_snapshots()?;
         let state = self
             .shared
             .state
             .lock()
             .map_err(|_| RegistryError::Invalid("registry state"))?;
+        if snapshots.len() + state.remote.len() > STREAM_REGISTRY_MAX_STREAMS {
+            return Err(RegistryError::RegistryFull);
+        }
         let mut by_id = state.remote.clone();
-        for snapshot in self.shared.streams.stream_snapshots()? {
+        for snapshot in snapshots {
             let descriptor = local_descriptor(
                 &self.shared.node_id,
                 &snapshot,
@@ -209,12 +216,15 @@ impl StreamRegistry {
     pub fn set_local_name(&self, id: &str, name: &str) -> Result<(), RegistryError> {
         validate_text("stream name", name, STREAM_MAX_NAME_BYTES)?;
         self.shared.streams.stream_metadata(id)?;
-        self.shared
+        let mut state = self
+            .shared
             .state
             .lock()
-            .map_err(|_| RegistryError::Invalid("registry state"))?
-            .names
-            .insert(id.to_string(), name.to_string());
+            .map_err(|_| RegistryError::Invalid("registry state"))?;
+        if state.names.len() >= STREAM_REGISTRY_MAX_STREAMS && !state.names.contains_key(id) {
+            return Err(RegistryError::RegistryFull);
+        }
+        state.names.insert(id.to_string(), name.to_string());
         Ok(())
     }
 
@@ -308,6 +318,15 @@ impl StreamRegistry {
         {
             return Err(RegistryError::InvalidAnnouncement);
         }
+        self.expire_remote()?;
+        let local_snapshots = self.shared.streams.stream_snapshots()?;
+        let local_stream_count = local_snapshots.len();
+        if local_snapshots
+            .iter()
+            .any(|snapshot| snapshot.metadata.stream_id == announcement.descriptor.id)
+        {
+            return Err(RegistryError::InvalidAnnouncement);
+        }
         let mut state = self
             .shared
             .state
@@ -316,10 +335,24 @@ impl StreamRegistry {
         if state.seen.contains(&announcement.message_id) {
             return Ok(None);
         }
-        if state.remote.len() >= STREAM_REGISTRY_MAX_STREAMS
+        if state.remote.len() + local_stream_count >= STREAM_REGISTRY_MAX_STREAMS
             && !state.remote.contains_key(&announcement.descriptor.id)
         {
             return Err(RegistryError::RegistryFull);
+        }
+        if state
+            .remote
+            .get(&announcement.descriptor.id)
+            .is_some_and(|current| current.updated_at > announcement.descriptor.updated_at)
+        {
+            state.seen.insert(announcement.message_id.clone());
+            state.seen_order.push_back(announcement.message_id);
+            while state.seen_order.len() > SEEN_ANNOUNCEMENTS_MAX {
+                if let Some(oldest) = state.seen_order.pop_front() {
+                    state.seen.remove(&oldest);
+                }
+            }
+            return Ok(None);
         }
         state.seen.insert(announcement.message_id.clone());
         state.seen_order.push_back(announcement.message_id.clone());
@@ -354,6 +387,19 @@ impl StreamRegistry {
         remote_digest: &[StreamDigestEntry],
     ) -> Result<Vec<StreamDescriptor>, RegistryError> {
         if remote_digest.len() > STREAM_REGISTRY_MAX_STREAMS {
+            return Err(RegistryError::Invalid("stream digest"));
+        }
+        let mut ids = HashSet::with_capacity(remote_digest.len());
+        if remote_digest.iter().any(|entry| {
+            entry.id.trim().is_empty()
+                || entry.id.len() > crate::media_codec::MEDIA_MAX_STREAM_ID_BYTES
+                || entry.version_hash.len() != 64
+                || !entry
+                    .version_hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+                || !ids.insert(entry.id.as_str())
+        }) {
             return Err(RegistryError::Invalid("stream digest"));
         }
         let remote: HashMap<_, _> = remote_digest

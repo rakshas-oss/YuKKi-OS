@@ -9,6 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::broker_client::{BrokerClientError, BrokerTask};
@@ -31,7 +32,8 @@ pub const MEDIA_CHUNK_KIND: &str = "media.chunk.v1";
 pub const MEDIA_CHUNK_BROKER_KEY: &str = "media_chunk";
 
 /// Supported media type tags in the YKMC wire format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MediaType {
     Audio,
     Video,
@@ -80,7 +82,7 @@ impl MediaStreamMetadata {
 }
 
 /// One encoded or decoded pass-through media chunk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaChunk {
     pub stream_id: String,
     pub media_type: MediaType,

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Stream selection, gateway, discovery, and WASM access
+
+- Added `StreamRegistry` descriptors derived from live store lifecycle snapshots,
+  bounded per-subscriber cursors, aggregate acknowledgements, hop-limited
+  announcement deduplication, stale-entry expiry, and SHA-256 anti-entropy
+  digests.
+- Added authenticated HTTP list/describe/range endpoints and an ack-driven
+  WebSocket chunk endpoint. Added gateway and `streams list`/`streams tune`
+  CLI commands; gateway startup requires `YUKKI_GATEWAY_TOKEN` unless the
+  explicit `--insecure-dev` option is used.
+- Nodes relay bounded stream announcements and digest messages over the
+  existing authenticated encrypted bootstrap transport. Discovery does not
+  relay media chunks: remote tune-in and shared upstream pulls remain
+  unsupported.
+- Added the optional Wasmtime `env::yukki_select_stream` host import, which
+  copies one bounded encoded YKMC chunk from a host store into validated guest
+  memory without exposing native pointers.
+- Added registry, gateway HTTP/WebSocket/auth, subscriber backpressure, and
+  WASM selector tests; documented operational limits and TLS reverse-proxy
+  guidance.
+
 ### NXR1 geospatial frame interoperability
 
 - Added `src/nxr1.rs`: a dependency-free NXR1 binary codec for

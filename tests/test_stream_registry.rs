@@ -159,11 +159,17 @@ fn announcements_are_bounded_deduplicated_and_anti_entropy_is_hash_based() {
     assert_eq!(digest.len(), 1);
     assert!(registry.descriptors_for_digest(&digest).unwrap().is_empty());
     let mut stale_hash = digest;
-    stale_hash[0].version_hash = "stale".into();
+    stale_hash[0].version_hash = "f".repeat(64);
     assert_eq!(
         registry.descriptors_for_digest(&stale_hash).unwrap().len(),
         1
     );
+    assert!(registry
+        .descriptors_for_digest(&[yukkios_6_8_0_inet3::StreamDigestEntry {
+            id: String::new(),
+            version_hash: "0".repeat(64),
+        }])
+        .is_err());
 
     let expired = StreamAnnouncement {
         message_id: "expired".into(),

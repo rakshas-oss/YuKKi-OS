@@ -151,6 +151,26 @@ fn wasm_guest_selects_bounded_binary_stream_chunks() {
         )
         .unwrap();
 
+    let small_buffer = wat_bytes(
+        r#"(module
+          (import "env" "yukki_select_stream" (func $select (param i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 128) "camera-1")
+          (func (export "execute_inference_pipeline") (param i32 i32 i32) (result i32)
+            i32.const 128 i32.const 8 i32.const 256 i32.const 1 call $select))"#,
+    );
+    assert_eq!(
+        run_guest_with_streams(
+            &small_buffer,
+            CH,
+            &[1],
+            handler(Default::default(), 0),
+            Some(streams.clone())
+        )
+        .unwrap(),
+        STATUS_STREAM_BUFFER_TOO_SMALL
+    );
+    assert!(streams.get_chunk("camera-1", 0).is_ok());
     assert_eq!(
         run_guest_with_streams(
             &wasm,
@@ -162,6 +182,10 @@ fn wasm_guest_selects_bounded_binary_stream_chunks() {
         .unwrap(),
         45
     );
+    assert!(matches!(
+        streams.get_chunk("camera-1", 0),
+        Err(yukkios_6_8_0_inet3::MediaError::ChunkNotRetained { .. })
+    ));
     assert_eq!(
         run_guest_with_streams(&wasm, CH, &[1], handler(Default::default(), 0), None).unwrap(),
         STATUS_STREAMS_UNAVAILABLE
