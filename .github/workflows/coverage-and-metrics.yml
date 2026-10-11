@@ -103,14 +103,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-license
         run: cargo install cargo-license --locked
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
       - name: List licenses
         run: cargo license
-      - name: Check for disallowed licenses
-        run: |
-          DISALLOWED=$(cargo license --tsv | awk -F '\t' '$1 != "yukkios_6_8_0_inet3"' | grep -iE "GPL-[23]|AGPL" || true)
-          if [ -n "$DISALLOWED" ]; then
-            echo "ERROR: Disallowed licenses found:"
-            echo "$DISALLOWED"
-            exit 1
-          fi
-          echo "All licenses are compliant."
+      - name: Check license policy
+        run: cargo deny check licenses
