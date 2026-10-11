@@ -13,12 +13,11 @@ use tokio::{
 };
 use yukkios_6_8_0_inet3::{
     gpu_adapter::{
-        decode_brk1_frame, decode_wsm1_message, encode_brk1_frame,
-        encode_wsm1_lifecycle_request, encode_wsm1_lifecycle_response,
-        encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame, BrokerMessage,
-        BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
-        CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
-        GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
+        decode_brk1_frame, decode_wsm1_message, encode_brk1_frame, encode_wsm1_lifecycle_request,
+        encode_wsm1_lifecycle_response, encode_wsm1_task_request, encode_wsm1_task_response,
+        Brk1Frame, BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind,
+        CancelTaskRequest, CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient,
+        GpuTaskRequest, GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
         ModuleLifecycleManager, ModuleLifecycleState, ProtocolHandshakeRequest,
         ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor,
         WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState,
@@ -469,6 +468,147 @@ async fn test_non_retryable_rejection_fails_fast() {
 // ============================================================================
 // 4. Cancellation Tests
 // ============================================================================
+
+#[tokio::test]
+async fn test_client_shutdown_cancels_waiting_task() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let task_received = Arc::new(tokio::sync::Notify::new());
+    let task_received_server = task_received.clone();
+
+    let broker = tokio::spawn(async move {
+        let (mut task_stream, _) = listener.accept().await.expect("accept task");
+        assert!(matches!(
+            read_prefixed_msg(&mut task_stream).await,
+            BrokerMessage::TaskRequest(_)
+        ));
+        task_received_server.notify_one();
+
+        let (mut cancel_stream, _) = listener.accept().await.expect("accept cancel request");
+        match read_prefixed_msg(&mut cancel_stream).await {
+            BrokerMessage::CancelRequest(request) => {
+                assert_eq!(request.task_id, "shutdown-task");
+            }
+            other => panic!("expected cancellation request, got {other:?}"),
+        }
+    });
+
+    let mut config = GpuAdapterConfig::new(addr.to_string());
+    config.request_timeout = Duration::from_secs(5);
+    config.max_retries = 0;
+    let client = Arc::new(GpuBrokerClient::new(config).expect("create client"));
+    let task_client = client.clone();
+    let task = tokio::spawn(async move {
+        task_client
+            .submit_task(&sample_task_request("shutdown-task"))
+            .await
+    });
+
+    task_received.notified().await;
+    client.shutdown().await;
+    assert!(matches!(
+        task.await.expect("join task"),
+        Err(GpuAdapterError::TaskCancelled { .. })
+    ));
+    broker.await.expect("broker task");
+}
+
+#[tokio::test]
+async fn test_lifecycle_client_shutdown_cancels_wsm1_task() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let task_received = Arc::new(tokio::sync::Notify::new());
+    let task_received_server = task_received.clone();
+
+    let broker = tokio::spawn(async move {
+        let (mut task_stream, _) = listener.accept().await.expect("accept task");
+        let frame = read_raw_prefixed(&mut task_stream).await;
+        assert_eq!(
+            decode_brk1_frame(&frame)
+                .expect("decode task frame")
+                .task_id,
+            "wsm1-shutdown-task"
+        );
+        task_received_server.notify_one();
+
+        let (mut cancel_stream, _) = listener.accept().await.expect("accept cancel request");
+        match read_prefixed_msg(&mut cancel_stream).await {
+            BrokerMessage::CancelRequest(request) => {
+                assert_eq!(request.task_id, "wsm1-shutdown-task");
+            }
+            other => panic!("expected cancellation request, got {other:?}"),
+        }
+    });
+
+    let mut config = GpuAdapterConfig::new(addr.to_string());
+    config.request_timeout = Duration::from_secs(5);
+    config.max_retries = 0;
+    let client = Arc::new(LifecycleClient::new(config).expect("create lifecycle client"));
+    let task_client = client.clone();
+    let task = tokio::spawn(async move {
+        task_client
+            .submit_wsm1_task(&WasmTaskRequest {
+                task_id: "wsm1-shutdown-task".to_string(),
+                sandbox_id: "sb-1".to_string(),
+                module_id: "mod-1".to_string(),
+                module_version: "1.0.0".to_string(),
+                task_kind: "compute".to_string(),
+                priority: 1,
+                deadline_ms: 0,
+                buffers: Vec::new(),
+                payload: Vec::new(),
+            })
+            .await
+    });
+
+    task_received.notified().await;
+    client.shutdown().await;
+    assert!(matches!(
+        task.await.expect("join task"),
+        Err(GpuAdapterError::TaskCancelled { .. })
+    ));
+    broker.await.expect("broker task");
+}
+
+#[tokio::test]
+async fn test_disconnect_requests_broker_cancellation() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listener");
+    let addr = listener.local_addr().expect("local addr");
+    let broker = tokio::spawn(async move {
+        let (mut task_stream, _) = listener.accept().await.expect("accept task");
+        assert!(matches!(
+            read_prefixed_msg(&mut task_stream).await,
+            BrokerMessage::TaskRequest(_)
+        ));
+        drop(task_stream);
+
+        let (mut cancel_stream, _) = listener.accept().await.expect("accept cancel request");
+        match read_prefixed_msg(&mut cancel_stream).await {
+            BrokerMessage::CancelRequest(request) => {
+                assert_eq!(request.task_id, "disconnect-task");
+                assert!(request.reason.contains("disconnected"));
+            }
+            other => panic!("expected cancellation request, got {other:?}"),
+        }
+    });
+
+    let mut config = GpuAdapterConfig::new(addr.to_string());
+    config.max_retries = 0;
+    let client = GpuBrokerClient::new(config).expect("create client");
+    assert!(matches!(
+        client
+            .submit_task(&sample_task_request("disconnect-task"))
+            .await,
+        Err(GpuAdapterError::Io(_))
+    ));
+    broker.await.expect("broker task");
+}
 
 #[tokio::test]
 async fn test_task_cancellation() {
@@ -928,6 +1068,112 @@ async fn test_inflight_guard_decrements_on_future_cancellation() {
     );
 }
 
+#[tokio::test]
+async fn test_execute_task_deadline_cancels_and_releases_inflight_guard() {
+    let manager = ModuleLifecycleManager::default();
+    let handle = manager
+        .prepare_version("deadline_mod", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare module");
+    manager
+        .hotswap("deadline_mod", "1.0.0")
+        .await
+        .expect("activate module");
+
+    let result = manager
+        .execute_task_with_deadline(
+            "deadline_mod",
+            Duration::from_millis(20),
+            |_handle| async move {
+                sleep(Duration::from_secs(60)).await;
+                Ok(())
+            },
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(GpuAdapterError::RequestTimeout(duration)) if duration == Duration::from_millis(20)
+    ));
+    assert!(handle.is_cancellation_requested());
+    assert_eq!(handle.current_in_flight(), 0);
+}
+
+#[tokio::test]
+async fn test_manager_cancel_in_flight_cancels_running_task() {
+    let manager = Arc::new(ModuleLifecycleManager::default());
+    let handle = manager
+        .prepare_version("manager_cancel_mod", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare module");
+    manager
+        .hotswap("manager_cancel_mod", "1.0.0")
+        .await
+        .expect("activate module");
+    assert!(!handle.is_cancellation_requested());
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let started_task = started.clone();
+    let task_manager = manager.clone();
+    let task = tokio::spawn(async move {
+        task_manager
+            .execute_task("manager_cancel_mod", move |handle| async move {
+                started_task.notify_one();
+                handle.cancellation_token().cancelled().await;
+                sleep(Duration::from_secs(60)).await;
+                Ok(())
+            })
+            .await
+    });
+
+    started.notified().await;
+    manager.cancel_in_flight().await;
+    assert!(matches!(
+        task.await.expect("join task"),
+        Err(GpuAdapterError::TaskCancelled { .. })
+    ));
+    assert!(handle.is_cancellation_requested());
+    assert_eq!(handle.current_in_flight(), 0);
+}
+
+#[tokio::test]
+async fn test_quiesce_timeout_requests_cooperative_cancellation() {
+    let manager = Arc::new(ModuleLifecycleManager::new(Duration::from_millis(20)));
+    let old_handle = manager
+        .prepare_version("quiesce_cancel_mod", "1.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare old version");
+    manager
+        .hotswap("quiesce_cancel_mod", "1.0.0")
+        .await
+        .expect("activate old version");
+    manager
+        .prepare_version("quiesce_cancel_mod", "2.0.0", MINIMAL_VALID_WASM, None)
+        .expect("prepare new version");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let started_task = started.clone();
+    let task_manager = manager.clone();
+    let task = tokio::spawn(async move {
+        task_manager
+            .execute_task("quiesce_cancel_mod", move |_handle| async move {
+                started_task.notify_one();
+                sleep(Duration::from_secs(60)).await;
+                Ok(())
+            })
+            .await
+    });
+    started.notified().await;
+
+    assert!(matches!(
+        manager.hotswap("quiesce_cancel_mod", "2.0.0").await,
+        Err(GpuAdapterError::QuiesceTimeout { remaining: 1, .. })
+    ));
+    assert!(old_handle.is_cancellation_requested());
+    assert!(old_handle.is_resources_allocated());
+    assert!(matches!(
+        task.await.expect("join task"),
+        Err(GpuAdapterError::TaskCancelled { .. })
+    ));
+}
+
 // ============================================================================
 // 8. WSM1 & BRK1 Binary Protocol Serialization Tests
 // ============================================================================
@@ -1090,15 +1336,13 @@ fn test_wsm1_task_codecs_roundtrip() {
         task_kind: "compute".to_string(),
         priority: 7,
         deadline_ms: 1700000010000,
-        buffers: vec![
-            WasmBufferDescriptor {
-                buffer_id: 1,
-                flags: 0x01,
-                offset: 0,
-                length: 4,
-                name: "img_in".to_string(),
-            },
-        ],
+        buffers: vec![WasmBufferDescriptor {
+            buffer_id: 1,
+            flags: 0x01,
+            offset: 0,
+            length: 4,
+            name: "img_in".to_string(),
+        }],
         payload: vec![10, 20, 30, 40],
     };
 
@@ -1275,7 +1519,8 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
             tokio::spawn(async move {
                 while let Some(frame_bytes) = read_raw_prefixed_opt(&mut stream).await {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1 frame");
-                    let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1 message");
+                    let wsm_msg =
+                        decode_wsm1_message(&brk_frame.payload).expect("decode wsm1 message");
 
                     if let Wsm1Message::LifecycleRequest(req) = wsm_msg {
                         let resp = match req.action {
@@ -1412,7 +1657,9 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
         .expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
 
-    let operations = Arc::new(Mutex::new(Vec::<(String, String, WasmLifecycleAction)>::new()));
+    let operations = Arc::new(Mutex::new(
+        Vec::<(String, String, WasmLifecycleAction)>::new(),
+    ));
     let ops_clone = operations.clone();
 
     tokio::spawn(async move {
@@ -1549,19 +1796,35 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
     assert_eq!(recorded_ops.len(), 4);
     assert_eq!(
         recorded_ops[0],
-        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Prepare)
+        (
+            "pipeline".to_string(),
+            "1.0.0".to_string(),
+            WasmLifecycleAction::Prepare
+        )
     );
     assert_eq!(
         recorded_ops[1],
-        ("pipeline".to_string(), "2.0.0".to_string(), WasmLifecycleAction::Prepare)
+        (
+            "pipeline".to_string(),
+            "2.0.0".to_string(),
+            WasmLifecycleAction::Prepare
+        )
     );
     assert_eq!(
         recorded_ops[2],
-        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Drain)
+        (
+            "pipeline".to_string(),
+            "1.0.0".to_string(),
+            WasmLifecycleAction::Drain
+        )
     );
     assert_eq!(
         recorded_ops[3],
-        ("pipeline".to_string(), "1.0.0".to_string(), WasmLifecycleAction::Release)
+        (
+            "pipeline".to_string(),
+            "1.0.0".to_string(),
+            WasmLifecycleAction::Release
+        )
     );
 }
 
@@ -1575,11 +1838,9 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             tokio::spawn(async move {
-                while let Ok(Some(frame_bytes)) = tokio::time::timeout(
-                    Duration::from_secs(2),
-                    read_raw_prefixed_opt(&mut stream),
-                )
-                .await
+                while let Ok(Some(frame_bytes)) =
+                    tokio::time::timeout(Duration::from_secs(2), read_raw_prefixed_opt(&mut stream))
+                        .await
                 {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1");
                     let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1");
@@ -1655,12 +1916,12 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
         .prepare_version("ai_worker", "2.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare v2");
 
-    let err = manager
-        .hotswap("ai_worker", "2.0.0")
-        .await
-        .unwrap_err();
+    let err = manager.hotswap("ai_worker", "2.0.0").await.unwrap_err();
 
-    assert!(matches!(err, GpuAdapterError::LifecycleOperationFailed { .. }));
+    assert!(matches!(
+        err,
+        GpuAdapterError::LifecycleOperationFailed { .. }
+    ));
     // v1 remains active!
     assert_eq!(manager.get_active_version("ai_worker").unwrap(), "1.0.0");
     let v2_handle = manager.get_version_handle("ai_worker", "2.0.0").unwrap();
@@ -1684,11 +1945,9 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
         while let Ok((mut stream, _)) = listener.accept().await {
             let rel_inner = rel_clone.clone();
             tokio::spawn(async move {
-                while let Ok(Some(frame_bytes)) = tokio::time::timeout(
-                    Duration::from_secs(2),
-                    read_raw_prefixed_opt(&mut stream),
-                )
-                .await
+                while let Ok(Some(frame_bytes)) =
+                    tokio::time::timeout(Duration::from_secs(2), read_raw_prefixed_opt(&mut stream))
+                        .await
                 {
                     let brk_frame = decode_brk1_frame(&frame_bytes).expect("decode brk1");
                     let wsm_msg = decode_wsm1_message(&brk_frame.payload).expect("decode wsm1");
@@ -1757,8 +2016,7 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
     let failing_hook = Arc::new(MockAppHandoffHook::default());
     failing_hook.fail_on_import.store(true, Ordering::SeqCst);
 
-    let manager = ModuleLifecycleManager::default()
-        .with_lifecycle_client(lifecycle_client);
+    let manager = ModuleLifecycleManager::default().with_lifecycle_client(lifecycle_client);
 
     manager
         .prepare_version("faulty_mod", "1.0.0", MINIMAL_VALID_WASM, Some(hook_v1))
@@ -1769,13 +2027,15 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
         .expect("activate v1");
 
     manager
-        .prepare_version("faulty_mod", "2.0.0", MINIMAL_VALID_WASM, Some(failing_hook))
+        .prepare_version(
+            "faulty_mod",
+            "2.0.0",
+            MINIMAL_VALID_WASM,
+            Some(failing_hook),
+        )
         .expect("prepare v2");
 
-    let err = manager
-        .hotswap("faulty_mod", "2.0.0")
-        .await
-        .unwrap_err();
+    let err = manager.hotswap("faulty_mod", "2.0.0").await.unwrap_err();
 
     assert!(matches!(err, GpuAdapterError::StateHandoffFailed(_)));
     // Broker release must have been sent to cancel the prepared lease!
@@ -1873,14 +2133,15 @@ async fn test_sandbox_submit_gpu_task_fallback_to_json() {
                     if let Ok(msg) = serde_json::from_slice::<BrokerMessage>(&body) {
                         match msg {
                             BrokerMessage::HandshakeRequest(_req) => {
-                                let resp = BrokerMessage::HandshakeResponse(
-                                    ProtocolHandshakeResponse {
+                                let resp =
+                                    BrokerMessage::HandshakeResponse(ProtocolHandshakeResponse {
                                         status: "ok".to_string(),
-                                        negotiated_version: Some(CURRENT_PROTOCOL_VERSION.to_string()),
+                                        negotiated_version: Some(
+                                            CURRENT_PROTOCOL_VERSION.to_string(),
+                                        ),
                                         capabilities: vec![],
                                         error_message: None,
-                                    },
-                                );
+                                    });
                                 write_prefixed_msg(&mut stream, &resp).await;
                             }
                             BrokerMessage::TaskRequest(req) => {
