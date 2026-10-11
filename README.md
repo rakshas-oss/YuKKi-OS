@@ -124,6 +124,16 @@ Environment variables:
 - `YUKKI_GPU_MAX_FRAME_BYTES` (default `1048576` / 1 MiB)
 - `YUKKI_GPU_MAX_RETRIES` (default `3`)
 
+### CPU-first execution policy
+
+CPU is the always-available correctness baseline; accelerators are optional, best-effort tiers (`src/exec_policy.rs`). `RustasmSandbox::execute_with_policy` picks a backend from a `TaskProfile` (exact precision, inference, data-parallel, estimated size/compute, deadline, `cpu_retry_safe`) via `BackendPolicy`:
+
+1. **CPU** (default): used for small tasks, when no accelerator is available, or when `YUKKI_FORCE_CPU_FALLBACK=true`.
+2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
+3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
+
+Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the accelerator error is returned unchanged. The broker protocol is unchanged.
+
 See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
 
 ## Documentation

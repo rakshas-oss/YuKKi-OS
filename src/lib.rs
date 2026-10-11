@@ -4,6 +4,7 @@
 pub mod adi_auto_tune;
 pub mod arcgis;
 pub mod broker_client;
+pub mod exec_policy;
 pub mod gpu_adapter;
 pub mod media_codec;
 pub mod nxr1;

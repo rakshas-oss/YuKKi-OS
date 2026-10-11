@@ -2217,7 +2217,7 @@ async fn test_cancel_in_flight_interrupts_deadline_task() {
         .await
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
-    manager.cancel_in_flight(&handle);
+    manager.cancel_handle_in_flight(&handle);
     let result = task.await.unwrap();
     assert!(matches!(result, Err(GpuAdapterError::TaskCancelled { .. })));
     assert_eq!(handle.current_in_flight(), 0);
