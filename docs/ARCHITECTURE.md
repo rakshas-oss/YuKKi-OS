@@ -1,8 +1,8 @@
-# YuKKi OS v6.9.0 — Architecture
+# YuKKi OS v6.9.3 — Architecture
 
 ## Scope
 
-This document describes the architecture implemented in the current repository state.
+This document describes the architecture implemented in the current repository state, v6.9.3 stable release.
 
 ## Runtime topology
 
@@ -79,6 +79,12 @@ fluid/numeric fields and does not claim compatibility with proprietary
 ArcGIS feature-service formats. GeoJSON Features can cross the existing
 `BrokerTask` JSON boundary under `geospatial.arcgis.avenue.v1`.
 
+`src/nxr1.rs` provides a dependency-free NXR1 binary codec for geospatial frames,
+matching the `rakshas-oss/overhauled` wire contract (magic `0x4E585231`, version `1`,
+big-endian fixed geospatial/velocity/fluidity/drag/divergence fields, `u32` BE
+length-prefixed opaque payload). NXR1 frames can be wrapped in the existing
+`BrokerTask` JSON envelope under kind `geospatial.frame.v1`.
+
 `src/media_codec.rs` frames opaque codec payloads in YKMC v1 chunks and offers
 the synchronized, in-process `LiveMediaStreams` collection. Audio/video
 codec bitstreams are pass-through only; no transcoding occurs. Stream
@@ -122,7 +128,7 @@ or equivalent deployment boundary.
 
 `src/gpu_adapter.rs` provides the GPU task offloading adapter and module lifecycle manager targeting `rakshas-oss/overhauled`:
 
-- **Isolation Preservation**: Sandboxes communicate with GPU acceleration via host-mediated calls (`submit_gpu_task`). The host validates buffer sizes (capped at 64 KiB execution buffers) and generates high-level `BufferDescriptor`s. Sandboxes cannot bypass the runtime to touch CUDA APIs or device memory.
+- **Isolation Preservation**: Sandboxes communicate with GPU acceleration via host-mediated calls (`submit_gpu_task`). The host validates buffer sizes (capped at 64 KiB execution buffers) and gen[...]
 - **Protocol Version Negotiation**: Version exchange (`overhauled.wasm.gpu.v1`) ensures mutual compatibility prior to workload dispatch.
 - **Retry and Idempotency**: Network failures or transient broker rejections (`retryable: true`) are retried automatically with backoff, preserving `task_id` for deduplication.
 - **Safe Module Hotswapping**:
