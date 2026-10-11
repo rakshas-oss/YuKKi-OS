@@ -2,6 +2,7 @@
 name = "yukkios_6_8_0_inet3"
 version = "6.9.3"
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "yukkios_6_8_0_inet3"

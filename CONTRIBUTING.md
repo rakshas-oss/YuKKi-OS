@@ -45,10 +45,12 @@ fix: null-ptr guard in chaos_engine_init (#42)
 3. Fill in the [PR template](.github/pull_request_template.md).
 4. Request review from a maintainer.
 
+New source files should include an `SPDX-License-Identifier: GPL-3.0-only` header.
+
 ## Security Reporting
 
 Do **not** open a public issue for security vulnerabilities. Instead, see [docs/SECURITY.md](docs/SECURITY.md) for the responsible disclosure process.
 
 ## License
 
-By contributing you agree that your contributions will be licensed under the GPL-3.0 License as described in [LICENSE](LICENSE).
+By contributing you agree that your contributions will be licensed under the GPL-3.0-only terms described in [LICENSE](LICENSE).
