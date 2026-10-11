@@ -64,7 +64,7 @@ use std::{
     env,
     ops::Deref,
     sync::{
-        atomic::{AtomicI32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
     },
     time::Duration,
@@ -1008,29 +1008,38 @@ async fn read_prefixed_message(
 ///      ignore it, or not support it, delivery and honoring of the cancellation are
 ///      not guaranteed.
 #[derive(Clone, Debug)]
-pub struct CancellationToken(Arc<watch::Sender<bool>>);
+pub struct CancellationToken(Arc<CancellationState>);
+
+#[derive(Debug)]
+struct CancellationState {
+    changes: watch::Sender<bool>,
+    broker_cancel_sent: AtomicBool,
+}
 
 impl CancellationToken {
     pub fn new() -> Self {
-        let (sender, _) = watch::channel(false);
-        Self(Arc::new(sender))
+        let (changes, _) = watch::channel(false);
+        Self(Arc::new(CancellationState {
+            changes,
+            broker_cancel_sent: AtomicBool::new(false),
+        }))
     }
 
     /// Requests cancellation. Idempotent and safe to call from any thread/task,
     /// including concurrently with readers of `is_cancelled`.
     pub fn cancel(&self) {
-        self.0.send_replace(true);
+        self.0.changes.send_replace(true);
     }
 
     /// Returns `true` if cancellation has been requested. Compute loops should
     /// check this at safe interruption points.
     pub fn is_cancelled(&self) -> bool {
-        *self.0.borrow()
+        *self.0.changes.borrow()
     }
 
     /// Waits until cancellation is requested.
     pub async fn cancelled(&self) {
-        let mut receiver = self.0.subscribe();
+        let mut receiver = self.0.changes.subscribe();
         while !*receiver.borrow_and_update() {
             if receiver.changed().await.is_err() {
                 return;
@@ -1038,8 +1047,8 @@ impl CancellationToken {
         }
     }
 
-    fn reset(&self) {
-        self.0.send_replace(false);
+    fn claim_broker_cancel(&self) -> bool {
+        !self.0.broker_cancel_sent.swap(true, Ordering::SeqCst)
     }
 }
 
@@ -1095,6 +1104,19 @@ impl GpuBrokerClient {
     /// single task. Any I/O error is swallowed: this is a cooperative hint, not a
     /// guaranteed operation, and callers (timeout/disconnect/shutdown paths) must
     /// not block indefinitely on its outcome.
+    async fn request_broker_cancel_once(
+        &self,
+        cancellation: &CancellationToken,
+        task_id: &str,
+        sandbox_id: &str,
+        reason: &str,
+    ) {
+        if cancellation.claim_broker_cancel() {
+            self.request_broker_cancel(task_id, sandbox_id, reason)
+                .await;
+        }
+    }
+
     async fn request_broker_cancel(&self, task_id: &str, sandbox_id: &str, reason: &str) {
         let req = BrokerMessage::CancelRequest(CancelTaskRequest {
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
@@ -1136,7 +1158,7 @@ impl GpuBrokerClient {
             .collect();
         for (task_id, token) in tasks {
             token.cancel();
-            self.request_broker_cancel(&task_id, "rustasm_sandbox", "client shutdown")
+            self.request_broker_cancel_once(&token, &task_id, "rustasm_sandbox", "client shutdown")
                 .await;
         }
     }
@@ -1144,6 +1166,7 @@ impl GpuBrokerClient {
     fn cancel_tracked_task(&self, task_id: &str) {
         if let Some(token) = self.in_flight_tasks.lock().unwrap().get(task_id) {
             token.cancel();
+            token.claim_broker_cancel();
         }
     }
 
@@ -1273,7 +1296,8 @@ impl GpuBrokerClient {
             Some(Ok(Ok(response))) => response,
             Some(Ok(Err(error))) => {
                 cancellation.cancel();
-                self.request_broker_cancel(
+                self.request_broker_cancel_once(
+                    &cancellation,
                     &task.task_id,
                     &task.sandbox_id,
                     "client disconnected while awaiting response",
@@ -1287,7 +1311,8 @@ impl GpuBrokerClient {
                 // ask it to cooperatively stop the task on a best-effort basis
                 // without blocking the caller any further than the request_timeout
                 // already incurred.
-                self.request_broker_cancel(
+                self.request_broker_cancel_once(
+                    &cancellation,
                     &task.task_id,
                     &task.sandbox_id,
                     "client request timeout",
@@ -1296,6 +1321,13 @@ impl GpuBrokerClient {
                 return Err(GpuAdapterError::RequestTimeout(self.config.request_timeout));
             }
             None => {
+                self.request_broker_cancel_once(
+                    &cancellation,
+                    &task.task_id,
+                    &task.sandbox_id,
+                    "task cancellation requested",
+                )
+                .await;
                 return Err(GpuAdapterError::TaskCancelled {
                     task_id: task.task_id.clone(),
                     reason: "client shutdown or explicit cancellation".to_string(),
@@ -2241,7 +2273,8 @@ impl LifecycleClient {
             Some(Ok(Err(error))) => {
                 cancellation.cancel();
                 self.broker_client
-                    .request_broker_cancel(
+                    .request_broker_cancel_once(
+                        &cancellation,
                         &task.task_id,
                         &task.sandbox_id,
                         "client disconnected while awaiting response",
@@ -2256,7 +2289,8 @@ impl LifecycleClient {
                 // without blocking the caller any further than request_timeout
                 // already incurred.
                 self.broker_client
-                    .request_broker_cancel(
+                    .request_broker_cancel_once(
+                        &cancellation,
                         &task.task_id,
                         &task.sandbox_id,
                         "client request timeout",
@@ -2265,6 +2299,14 @@ impl LifecycleClient {
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
             }
             None => {
+                self.broker_client
+                    .request_broker_cancel_once(
+                        &cancellation,
+                        &task.task_id,
+                        &task.sandbox_id,
+                        "task cancellation requested",
+                    )
+                    .await;
                 return Err(GpuAdapterError::TaskCancelled {
                     task_id: task.task_id.clone(),
                     reason: "client shutdown or explicit cancellation".to_string(),
@@ -2397,10 +2439,6 @@ impl ModuleVersionHandle {
     /// Requests cooperative cancellation of all in-flight tasks on this version.
     pub fn request_cancellation(&self) {
         self.cancellation.cancel();
-    }
-
-    fn reset_cancellation(&self) {
-        self.cancellation.reset();
     }
 }
 
@@ -2798,6 +2836,13 @@ impl ModuleLifecycleManager {
                 })?
         };
 
+        if target_handle.is_cancellation_requested() {
+            return Err(GpuAdapterError::TaskCancelled {
+                task_id: format!("{}:{}", target_handle.module_id, target_handle.version),
+                reason: "cannot reactivate a cancelled module version".to_string(),
+            });
+        }
+
         // Reallocate resources if previously released
         {
             let mut res = target_handle.resources.lock().unwrap();
@@ -2814,18 +2859,6 @@ impl ModuleLifecycleManager {
             let routing = self.active_routing.read().unwrap();
             routing.get(module_id).cloned()
         };
-
-        if target_handle.is_cancellation_requested() {
-            let remaining = target_handle.current_in_flight();
-            if remaining > 0 {
-                return Err(GpuAdapterError::QuiesceTimeout {
-                    module_id: module_id.to_string(),
-                    version: target_version.to_string(),
-                    remaining,
-                });
-            }
-            target_handle.reset_cancellation();
-        }
 
         // Atomically switch routing to target version
         {
