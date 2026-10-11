@@ -11,18 +11,29 @@ YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame eng
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
 
-## What the current CLI supports
-
-`src/main.rs` implements only two commands:
+## CLI and stream gateway
 
 ```text
 yukki_core_node bootstrap <bind-address>
 yukki_core_node node <bootstrap-address> <advertised-address>
+yukki_core_node gateway [listen-address] [--insecure-dev]
+yukki_core_node streams list
+yukki_core_node streams tune <stream-id> [--from <seq>]
 ```
 
-Required environment variable:
+The gateway defaults to `127.0.0.1:7670`. Set `YUKKI_GATEWAY_TOKEN` before
+starting `gateway`; the explicit `--insecure-dev` option is for local
+development only. A node also starts its gateway when that token is set.
+`YUKKI_GATEWAY_LISTEN` configures the node's listener and
+`YUKKI_GATEWAY_ENDPOINT` configures the `streams` CLI target.
+
+Required for the peer mesh:
 
 - `YUKKI_PSK_HEX` (64 hex chars / 32 bytes)
+
+Required for an authenticated gateway:
+
+- `YUKKI_GATEWAY_TOKEN` (1–4096 visible bearer-token characters)
 
 Optional logging env var:
 
@@ -72,10 +83,19 @@ its numeric fields are not geographic coordinates.
 Audio/video data is supported as codec-agnostic pass-through `MediaChunk`s.
 `LiveMediaStreams` provides bounded in-memory stream opening, ordered
 ingestion, sequence/range reads, acknowledgement, and finish/removal APIs.
+`StreamRegistry` exposes local and discovered descriptors and bounded,
+per-subscriber cursors. The authenticated gateway provides stream listing,
+description, HTTP range reads, and WebSocket tune-in with sequence-prefixed
+binary frames and explicit acknowledgements.
 The default store retains at most 256 chunks (256 KiB maximum each); it does
-not transcode media or provide network transport. Encoded chunks and GeoJSON
-features can be wrapped in the existing broker JSON task boundary, subject to
-its configured frame-size limit. WASM guests remain host-mediated.
+not transcode media. Nodes exchange bounded stream announcements and
+low-frequency digest summaries over the existing authenticated mesh transport.
+Remote stream selection is discoverable, but remote chunk relay/upstream
+sharing is not implemented yet; remote WebSocket tune-in currently returns
+`501`. A standalone `gateway` has its own in-memory store; use the node's
+gateway or embed the library gateway with the producer's shared store.
+WASM guests can select bounded binary chunks through a checked host import;
+they never receive raw store pointers.
 
 See [docs/API.md](docs/API.md) for Rust examples, wire layouts, validation,
 and limits, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust and

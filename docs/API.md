@@ -7,15 +7,25 @@
 ```text
 yukki_core_node bootstrap <bind-address>
 yukki_core_node node <bootstrap-address> <advertised-address>
+yukki_core_node gateway [listen-address] [--insecure-dev]
+yukki_core_node streams list
+yukki_core_node streams tune <stream-id> [--from <seq>]
 ```
 
-### Required environment
+### Environment
 
-- `YUKKI_PSK_HEX`: 64-character hex string (32-byte PSK)
-
-### Optional environment
-
+- `YUKKI_PSK_HEX`: 64-character hex string (32-byte PSK), required by
+  `bootstrap` and `node`
+- `YUKKI_GATEWAY_TOKEN`: required by `gateway` and the node gateway unless
+  `--insecure-dev` is explicitly used
+- `YUKKI_GATEWAY_LISTEN`: optional node gateway address (default
+  `127.0.0.1:7670`)
+- `YUKKI_GATEWAY_ENDPOINT`: optional address for the `streams` CLI (same default)
 - `RUST_LOG`: tracing filter (default `info`)
+
+The standalone gateway defaults to loopback. It serves its own in-memory store;
+the gateway started by `node` shares that node's local registry. The CLI needs a
+gateway token and writes encoded YKMC chunks to stdout when tuning in.
 
 ## Peer mesh message schema
 
@@ -23,6 +33,8 @@ yukki_core_node node <bootstrap-address> <advertised-address>
 enum SovereignCommand {
     Register(PeerInfo),
     NodeFleet(Vec<PeerInfo>),
+    StreamAnnouncement(StreamAnnouncement),
+    StreamDigest(Vec<StreamDigestEntry>),
 }
 
 struct PeerInfo {
@@ -32,6 +44,8 @@ struct PeerInfo {
 ```
 
 Messages are JSON encoded and encrypted after session establishment.
+Announcements are hop-limited and deduplicated by bootstrap; digests contain
+descriptor IDs and SHA-256 version hashes.
 
 ## Broker client API (`src/broker_client.rs`)
 
@@ -220,6 +234,59 @@ frees all its retained data. These APIs are in-process storage; they do not
 provide network transport, persistence, codec transcoding, or media-clock
 synchronization.
 
+## Stream registry, subscriptions, and gateway
+
+`StreamRegistry::new(node_id, Arc<LiveMediaStreams>)` derives local descriptors
+from store snapshots, including latest sequence and finished state, and merges
+bounded remote announcements. Names default to the stream ID and may be changed
+for a local stream with `set_local_name`. Stream kinds are audio, video, binary,
+or geo. Descriptors are bounded to 128-byte IDs/origin IDs and 256-byte names.
+
+`tune_in(id, from_seq)` returns a `Subscription` with an independent cursor.
+`next_chunk` reports `Chunk`, `Waiting`, `Finished`, or `Lagged`; consumers call
+`acknowledge_through` after processing. Retained chunks are released only
+through the minimum acknowledged sequence of every active subscriber.
+Subscribers are capped at 128 per stream and 1024 per node; there is no
+per-subscriber chunk queue. A slow consumer is bounded by the existing store
+and receives an explicit lag result if its requested chunk has been reclaimed.
+
+Remote discovery uses `StreamAnnouncement` (maximum 16 KiB, eight mesh hops,
+120-second expiry, and a bounded 4096-message deduplication cache) and
+`StreamDigestEntry` SHA-256 summaries. Nodes send digests every 30 seconds while
+idle and send full descriptors only for digest mismatches. Bootstrap relays
+announcements to connected peers, with a fan-out ceiling of 128 peers. This
+metadata mechanism does not currently fetch or relay remote media chunks;
+remote tune-in is not yet available.
+
+The HTTP/WebSocket gateway requires an `Authorization` header with the
+configured bearer token unless explicit insecure development mode is selected:
+
+- `GET /v1/streams` and `GET /v1/streams/{id}` return JSON descriptors.
+- `GET /v1/streams/{id}/chunks?from=<seq>&limit=<n>` returns up to eight
+  retained chunks as JSON.
+- `GET /v1/streams/{id}/ws?from=<seq>` sends binary WebSocket messages: an
+  8-byte big-endian sequence prefix followed by one encoded YKMC frame. The
+  client acknowledges each frame with text JSON
+  `{"type":"ack","sequence":N}`. Only one unacknowledged frame is sent at a
+  time. Finished streams close cleanly; lagged subscribers receive a signal.
+
+The gateway caps accepted TCP connections at 128, request bodies at 1 KiB,
+HTTP request handling at 30 seconds, WebSocket frames to one maximum-size YKMC
+chunk plus its sequence prefix, and WebSocket idle time at 60 seconds with
+20-second pings. HTTP has no built-in TLS; terminate TLS in a trusted reverse
+proxy.
+
+## WASM binary stream selector
+
+`wasm_ingest::run_guest_with_streams` adds the optional
+`env::yukki_select_stream(id_ptr, id_len, out_ptr, out_capacity) -> i32` import.
+All pointers and lengths are validated against the guest's linear memory before
+the host reads an ID or copies a chunk. The import returns the encoded YKMC
+frame length or a negative `STATUS_STREAM_*` code for unavailable streams,
+invalid IDs, not-found streams, insufficient output buffer, not-yet-ingested
+chunks, finished streams, or lagged data. `run_guest` without a media store
+keeps the selector unavailable; no native pointers cross into Wasm.
+
 ## C ABI (`src/ffi/laminar_api.h`)
 
 ### `SpatiotemporalFrame`
@@ -252,6 +319,8 @@ Packed/aligned C-compatible struct, 88 bytes:
 - `broker_client`
 - `gpu_adapter`
 - `nxr1`
+- `stream_registry`
+- `stream_gateway`
 - `wasm_sandbox`
 - `SpatiotemporalFrame`
 

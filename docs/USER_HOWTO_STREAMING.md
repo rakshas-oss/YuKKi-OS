@@ -27,8 +27,41 @@ same `YUKKI_PSK_HEX` there):
 ./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
-The mesh CLI starts the peer nodes; it does not expose the media store as a
-network service.
+The peer mesh distributes stream descriptors. Set the same gateway token in
+each node's environment to start its loopback HTTP/WebSocket gateway alongside
+the node process:
+
+```sh
+export YUKKI_GATEWAY_TOKEN="$(openssl rand -hex 32)"
+./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
+```
+
+The node gateway defaults to `127.0.0.1:7670`. A standalone gateway can also be
+started with `yukki_core_node gateway [listen-address]`; it requires the same
+token and owns a separate in-memory store. For local development only,
+`yukki_core_node gateway 127.0.0.1:7670 --insecure-dev` explicitly disables
+gateway authentication.
+
+Use the CLI from another terminal with `YUKKI_GATEWAY_TOKEN` and the optional
+`YUKKI_GATEWAY_ENDPOINT` (default `127.0.0.1:7670`):
+
+```sh
+yukki_core_node streams list
+yukki_core_node streams tune camera-1 --from 0 > camera-1.ykmc
+```
+
+The HTTP API lists/describes local and discovered streams. HTTP range reads are
+available at `/v1/streams/{id}/chunks?from=<seq>&limit=<n>`. WebSocket tune-in
+uses `/v1/streams/{id}/ws?from=<seq>`; binary messages have an 8-byte
+big-endian sequence prefix followed by a YKMC frame. A client must acknowledge
+each sequence using `{"type":"ack","sequence":N}`. Finished streams close
+cleanly, and slow consumers receive an explicit lagged signal.
+
+Discovery descriptors are announced through the authenticated peer mesh and
+periodic digest summaries repair missed announcements. Remote chunk fetching
+and relay are not implemented yet: selecting a remotely discovered stream over
+WebSocket returns HTTP 501. There is no built-in TLS; use a trusted reverse
+proxy for any non-loopback deployment.
 
 ## Stream media and data chunks
 
@@ -169,16 +202,29 @@ The host exposes `wasm_ingest::handle_deploy`, a request handler for
 must authenticate the caller before passing the request content type,
 `X-YuKKi-Channel-Id` header, body, and its `XpuHandler` to `handle_deploy`.
 The body must be a valid WASM module of at most 4 MiB, with the allowed
-`env.wasmtime_yield_xpu` import and required exports. The handler validates
+`env.wasmtime_yield_xpu` import, optional `env.yukki_select_stream` import, and required exports. The handler validates
 the module and smoke-runs it with a small test tensor.
 
-The repository ships no HTTP server or authentication layer. Do not expose
-this handler on an unauthenticated endpoint.
+Applications that run a guest with a media store can use
+`wasm_ingest::run_guest_with_streams`. The optional selector import accepts a
+guest-memory stream ID and output buffer, copies one encoded YKMC chunk into
+that buffer, and advances a host-side cursor. A guest must check the returned
+frame length or negative `STATUS_STREAM_*` result. Out-of-bounds pointers,
+invalid UTF-8 IDs, missing streams, undersized buffers, waiting, finished, and
+lagged reads are reported without exposing host pointers. `handle_deploy` does
+not grant stream access.
+
+The stream gateway does not register the deploy handler. Do not expose
+`handle_deploy` on an unauthenticated endpoint.
 
 ## Limitations and security
 
-- `LiveMediaStreams` is in-process memory only; it has no built-in network
-  transport or persistence.
+- `LiveMediaStreams` is in-process memory only; the mesh shares bounded
+  discovery metadata, not media chunks or persistence.
+- Remotely discovered streams cannot yet be tuned in to; remote chunk relay and
+  shared upstream fetching are not implemented.
+- The standalone gateway owns an empty in-memory store unless an application
+  embeds it alongside its producer and shared stream store.
 - Media payloads are passed through unchanged; there is no transcoding.
 - Peer mesh and broker links do not provide built-in TLS. Broker
   `authenticated-proxy` configuration is documentary metadata, not TLS
