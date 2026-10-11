@@ -684,10 +684,7 @@ async fn run_streams_tune(
                     .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error))?;
             }
             Message::Text(text) if text.contains("\"lagged\"") => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "stream subscription was lagged",
-                ));
+                return Err(io::Error::other("stream subscription was lagged"));
             }
             Message::Ping(payload) => socket
                 .send(Message::Pong(payload))

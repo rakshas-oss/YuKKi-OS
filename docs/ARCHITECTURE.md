@@ -95,8 +95,9 @@ and merges remote descriptors. Subscriptions have independent sequence cursors
 and aggregate acknowledgements; per-stream and per-node subscriber ceilings
 avoid per-consumer unbounded buffering. `src/stream_gateway.rs` exposes
 authenticated HTTP list/describe/range endpoints and an ack-driven WebSocket
-binary stream. The gateway is capped at 128 active requests/WebSocket sessions
-and does not provide TLS.
+binary stream. The gateway caps accepted TCP connections at 128 and HTTP
+request handling at 30 seconds; WebSockets use 60-second idle timeouts with
+20-second pings. It does not provide TLS.
 
 The mesh currently distributes discovery metadata only. Remote chunk fetching,
 relay/fan-out trees, and shared upstream pulls are not implemented; the gateway

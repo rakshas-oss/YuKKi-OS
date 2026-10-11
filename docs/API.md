@@ -33,6 +33,8 @@ gateway token and writes encoded YKMC chunks to stdout when tuning in.
 enum SovereignCommand {
     Register(PeerInfo),
     NodeFleet(Vec<PeerInfo>),
+    StreamAnnouncement(StreamAnnouncement),
+    StreamDigest(Vec<StreamDigestEntry>),
 }
 
 struct PeerInfo {
@@ -42,6 +44,8 @@ struct PeerInfo {
 ```
 
 Messages are JSON encoded and encrypted after session establishment.
+Announcements are hop-limited and deduplicated by bootstrap; digests contain
+descriptor IDs and SHA-256 version hashes.
 
 ## Broker client API (`src/broker_client.rs`)
 
@@ -266,10 +270,11 @@ configured bearer token unless explicit insecure development mode is selected:
   `{"type":"ack","sequence":N}`. Only one unacknowledged frame is sent at a
   time. Finished streams close cleanly; lagged subscribers receive a signal.
 
-The gateway caps active requests/WebSocket sessions at 128, request bodies at
-1 KiB, WebSocket frames to one maximum-size YKMC chunk plus its sequence prefix,
-and WebSocket idle time at 60 seconds with 20-second pings. HTTP has no built-in
-TLS; terminate TLS in a trusted reverse proxy.
+The gateway caps accepted TCP connections at 128, request bodies at 1 KiB,
+HTTP request handling at 30 seconds, WebSocket frames to one maximum-size YKMC
+chunk plus its sequence prefix, and WebSocket idle time at 60 seconds with
+20-second pings. HTTP has no built-in TLS; terminate TLS in a trusted reverse
+proxy.
 
 ## WASM binary stream selector
 
@@ -314,6 +319,8 @@ Packed/aligned C-compatible struct, 88 bytes:
 - `broker_client`
 - `gpu_adapter`
 - `nxr1`
+- `stream_registry`
+- `stream_gateway`
 - `wasm_sandbox`
 - `SpatiotemporalFrame`
 

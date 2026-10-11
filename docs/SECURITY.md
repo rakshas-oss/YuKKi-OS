@@ -34,9 +34,9 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
   and transmit it only over a trusted local link.
 - The gateway has no built-in TLS. Terminate TLS in a trusted reverse proxy
   before exposing it beyond loopback.
-- Active requests/WebSocket sessions, request bodies, frames, ranges, and idle
-  time are bounded. WebSocket clients must acknowledge each frame before the
-  next is sent.
+- Accepted TCP connections, HTTP request handling, request bodies, frames,
+  ranges, and idle time are bounded. WebSocket clients must acknowledge each
+  frame before the next is sent.
 - Stream discovery metadata is relayed only over the authenticated encrypted
   peer transport. Remote media chunk relay is not implemented.
 
@@ -52,7 +52,7 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 - Handshake timeout
 - Read timeout
 - Bootstrap connection semaphore cap (128)
-- Gateway active-request/WebSocket semaphore cap (128)
+- Gateway accepted-connection semaphore cap (128)
 - Stream registry, subscriber, announcement, range, and WebSocket frame limits
 
 ## Gaps and limitations

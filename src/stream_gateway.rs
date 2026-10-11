@@ -6,8 +6,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use axum::serve::Listener;
 use axum::{
-    body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, Path, Query, State,
@@ -20,11 +20,18 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::{
-    net::TcpListener,
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    net::{TcpListener, TcpStream},
     sync::Semaphore,
     time::{interval, timeout, MissedTickBehavior},
 };
+use tracing::warn;
 
 use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
@@ -40,6 +47,7 @@ const MAX_WS_FRAME_BYTES: usize = crate::media_codec::MEDIA_CHUNK_HEADER_LEN
     + crate::media_codec::MEDIA_MAX_CHUNK_BYTES
     + 8;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -54,7 +62,6 @@ struct GatewayState {
     streams: Arc<LiveMediaStreams>,
     registry: StreamRegistry,
     auth: GatewayAuth,
-    connections: Arc<Semaphore>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +96,6 @@ pub async fn serve(
         streams,
         registry,
         auth,
-        connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
     };
     let app = Router::new()
         .route("/v1/streams", get(list_streams))
@@ -102,12 +108,92 @@ pub async fn serve(
             state,
             authenticate_and_limit,
         ));
-    axum::serve(listener, app).await
+    axum::serve(
+        CappedListener {
+            listener,
+            permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+        },
+        app,
+    )
+    .await
+}
+
+struct CappedListener {
+    listener: TcpListener,
+    permits: Arc<Semaphore>,
+}
+
+struct CappedStream {
+    stream: TcpStream,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl Listener for CappedListener {
+    type Io = CappedStream;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        let permit = self
+            .permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("gateway connection semaphore remains open");
+        loop {
+            match self.listener.accept().await {
+                Ok((stream, address)) => {
+                    return (
+                        CappedStream {
+                            stream,
+                            _permit: permit,
+                        },
+                        address,
+                    );
+                }
+                Err(error) => {
+                    warn!(%error, "gateway accept failed");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<Self::Addr> {
+        self.listener.local_addr()
+    }
+}
+
+impl AsyncRead for CappedStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for CappedStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.stream).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(context)
+    }
 }
 
 async fn authenticate_and_limit(
     State(state): State<GatewayState>,
-    request: Request<Body>,
+    request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     if !authorized(request.headers(), &state.auth) {
@@ -119,16 +205,10 @@ async fn authenticate_and_limit(
         )
             .into_response();
     }
-    let Ok(_permit) = state.connections.clone().try_acquire_owned() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorBody {
-                error: "connection limit reached",
-            }),
-        )
-            .into_response();
-    };
-    next.run(request).await
+    match timeout(HTTP_REQUEST_TIMEOUT, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => StatusCode::GATEWAY_TIMEOUT.into_response(),
+    }
 }
 
 fn authorized(headers: &HeaderMap, auth: &GatewayAuth) -> bool {
@@ -203,21 +283,16 @@ async fn websocket_tune_in(
         }
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
-    let Ok(permit) = state.connections.clone().try_acquire_owned() else {
-        let _ = state.registry.tune_out(&subscription);
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    };
     websocket
         .max_frame_size(MAX_WS_FRAME_BYTES)
         .max_message_size(MAX_WS_FRAME_BYTES)
-        .on_upgrade(move |socket| websocket_session(socket, subscription, state.registry, permit))
+        .on_upgrade(move |socket| websocket_session(socket, subscription, state.registry))
 }
 
 async fn websocket_session(
     socket: WebSocket,
     mut subscription: Subscription,
     registry: StreamRegistry,
-    _permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
     let mut ping = interval(PING_INTERVAL);
