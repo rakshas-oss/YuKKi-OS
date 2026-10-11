@@ -110,3 +110,84 @@ fn test_fuel_exhaustion_reports_clear_error() {
         "unexpected error for exhausted fuel: {error}"
     );
 }
+
+mod cpu_first_policy {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use yukkios_6_8_0_inet3::exec_policy::{BackendPolicy, ExecutionBackend, TaskProfile};
+    use yukkios_6_8_0_inet3::gpu_adapter::{GpuAdapterConfig, GpuBrokerClient};
+    use yukkios_6_8_0_inet3::wasm_sandbox::{PolicyExecError, RustasmSandbox};
+
+    fn gpu_sandbox() -> RustasmSandbox {
+        let mut cfg = GpuAdapterConfig::new("127.0.0.1:1");
+        cfg.enabled = true;
+        cfg.max_retries = 0;
+        cfg.connect_timeout = Duration::from_millis(200);
+        let client = Arc::new(GpuBrokerClient::new(cfg).unwrap());
+        RustasmSandbox::new().with_gpu_client(client)
+    }
+
+    fn big_parallel() -> TaskProfile {
+        TaskProfile {
+            is_data_parallel: true,
+            estimated_bytes: 1 << 20,
+            ..TaskProfile::default()
+        }
+    }
+
+    fn cpu(p: &[u8]) -> Result<Vec<u8>, String> {
+        Ok(p.iter().rev().copied().collect())
+    }
+
+    #[tokio::test]
+    async fn cpu_only_without_accelerator() {
+        let sb = RustasmSandbox::new();
+        let out = sb
+            .execute_with_policy(&BackendPolicy::default(), &big_parallel(), "m", "1", "t", &[1, 2], 0, 100, cpu)
+            .await
+            .unwrap();
+        assert_eq!(out.backend, ExecutionBackend::Cpu);
+        assert_eq!(out.output, vec![2, 1]);
+    }
+
+    #[tokio::test]
+    async fn force_cpu_policy_skips_broker() {
+        let out = gpu_sandbox()
+            .execute_with_policy(&BackendPolicy::cpu_only(), &big_parallel(), "m", "1", "t", &[1], 0, 100, cpu)
+            .await
+            .unwrap();
+        assert_eq!(out.backend, ExecutionBackend::Cpu);
+        assert!(out.fallback_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn accelerator_failure_falls_back_to_cpu() {
+        let out = gpu_sandbox()
+            .execute_with_policy(&BackendPolicy::default(), &big_parallel(), "m", "1", "t", &[1, 2], 0, 100, cpu)
+            .await
+            .unwrap();
+        assert_eq!(out.backend, ExecutionBackend::Cpu);
+        assert!(out.fallback_reason.is_some());
+    }
+
+    #[tokio::test]
+    async fn unsafe_retry_preserves_accelerator_error() {
+        let profile = TaskProfile { cpu_retry_safe: false, ..big_parallel() };
+        let err = gpu_sandbox()
+            .execute_with_policy(&BackendPolicy::default(), &profile, "m", "1", "t", &[1], 0, 100, cpu)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PolicyExecError::Accelerator(_)));
+    }
+
+    #[tokio::test]
+    async fn exact_precision_never_offloads() {
+        let profile = TaskProfile { requires_exact_precision: true, ..big_parallel() };
+        let out = gpu_sandbox()
+            .execute_with_policy(&BackendPolicy::default(), &profile, "m", "1", "t", &[1], 0, 100, cpu)
+            .await
+            .unwrap();
+        assert_eq!(out.backend, ExecutionBackend::Cpu);
+        assert!(out.fallback_reason.is_none());
+    }
+}

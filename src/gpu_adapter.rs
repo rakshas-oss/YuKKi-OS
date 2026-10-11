@@ -2840,56 +2840,13 @@ impl ModuleLifecycleManager {
         }
     }
 
-    /// Execute a task against the active module version with a deadline. The task
-    /// receives the version handle so it can poll its cooperative cancellation
-    /// token. If the deadline elapses, cancellation is requested on the version
-    /// and `RequestTimeout` is returned. If cancellation is requested externally
-    /// (shutdown/disconnect), the task future is dropped and `TaskCancelled` returned.
-    pub async fn execute_task_with_deadline<F, Fut, R>(
-        &self,
-        module_id: &str,
-        deadline: Duration,
-        f: F,
-    ) -> Result<R, GpuAdapterError>
-    where
-        F: FnOnce(Arc<ModuleVersionHandle>) -> Fut,
-        Fut: std::future::Future<Output = Result<R, GpuAdapterError>>,
-    {
-        let handle = self
-            .get_active_handle(module_id)
-            .ok_or_else(|| GpuAdapterError::NoActiveModule(module_id.to_string()))?;
-        let token = handle.cancellation_token();
-        let task = self.execute_task(module_id, f);
-        tokio::pin!(task);
-        let timer = sleep(deadline);
-        tokio::pin!(timer);
-        let mut poll = tokio::time::interval(Duration::from_millis(5));
-        loop {
-            tokio::select! {
-                res = &mut task => return res,
-                _ = &mut timer => {
-                    handle.request_cancellation();
-                    return Err(GpuAdapterError::RequestTimeout(deadline));
-                }
-                _ = poll.tick() => {
-                    if token.is_cancelled() {
-                        return Err(GpuAdapterError::TaskCancelled {
-                            task_id: format!("{}:{}", handle.module_id, handle.version),
-                            reason: "cancellation requested".to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
     fn get_active_handle(&self, module_id: &str) -> Option<Arc<ModuleVersionHandle>> {
         self.active_routing.read().unwrap().get(module_id).cloned()
     }
 
     /// Requests cooperative cancellation of in-flight tasks on a version
     /// (e.g. on client disconnect).
-    pub fn cancel_in_flight(&self, handle: &ModuleVersionHandle) {
+    pub fn cancel_handle_in_flight(&self, handle: &ModuleVersionHandle) {
         handle.request_cancellation();
     }
 

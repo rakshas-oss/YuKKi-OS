@@ -5,11 +5,27 @@ use std::{
 use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder};
 use zeroize::Zeroize;
 
+use crate::exec_policy::{BackendAvailability, BackendPolicy, ExecutionBackend, TaskProfile};
 use crate::gpu_adapter::{
     BufferAccess, BufferDescriptor, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
     LifecycleClient, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
     CURRENT_PROTOCOL_VERSION,
 };
+
+/// Result of a policy-driven execution: output, backend that produced it, and
+/// the accelerator error (if any) that triggered a CPU fallback.
+#[derive(Debug)]
+pub struct PolicyOutcome {
+    pub output: Vec<u8>,
+    pub backend: ExecutionBackend,
+    pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum PolicyExecError {
+    Cpu(String),
+    Accelerator(GpuAdapterError),
+}
 
 pub struct RustasmSandbox {
     engine: Engine,
@@ -190,6 +206,67 @@ impl RustasmSandbox {
             }
         }
         Ok(Vec::new())
+    }
+
+    /// True when a GPU broker client is configured and the adapter is enabled.
+    pub fn gpu_available(&self) -> bool {
+        self.gpu_client
+            .as_ref()
+            .or_else(|| self.lifecycle_client.as_ref().map(|l| l.broker_client()))
+            .map(|c| c.config().enabled)
+            .unwrap_or(false)
+    }
+
+    /// CPU-first execution: `cpu` is the correctness baseline and is used unless
+    /// `policy` selects an accelerator for `profile`. Accelerator failures fall back
+    /// to `cpu` only when `profile.cpu_retry_safe`; otherwise the accelerator error
+    /// is returned unchanged.
+    pub async fn execute_with_policy<F>(
+        &self,
+        policy: &BackendPolicy,
+        profile: &TaskProfile,
+        module_id: &str,
+        module_version: &str,
+        task_id: &str,
+        payload: &[u8],
+        priority: u8,
+        timeout_ms: u32,
+        cpu: F,
+    ) -> Result<PolicyOutcome, PolicyExecError>
+    where
+        F: FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+    {
+        // Only the GPU tier has an executor here; NPU/Remote are never advertised.
+        let avail = BackendAvailability {
+            gpu: self.gpu_available(),
+            ..BackendAvailability::default()
+        };
+        let mut fallback_reason = None;
+        for backend in policy.chain(profile, avail) {
+            match backend {
+                ExecutionBackend::Gpu => match self
+                    .submit_gpu_task(module_id, module_version, task_id, payload, priority, timeout_ms)
+                    .await
+                {
+                    Ok(output) => {
+                        return Ok(PolicyOutcome { output, backend, fallback_reason });
+                    }
+                    Err(err) if profile.cpu_retry_safe => {
+                        fallback_reason = Some(err.to_string());
+                    }
+                    Err(err) => return Err(PolicyExecError::Accelerator(err)),
+                },
+                _ => {
+                    let output = cpu(payload).map_err(PolicyExecError::Cpu)?;
+                    return Ok(PolicyOutcome {
+                        output,
+                        backend: ExecutionBackend::Cpu,
+                        fallback_reason,
+                    });
+                }
+            }
+        }
+        unreachable!("policy chain always ends with a terminal attempt")
     }
 
     pub fn max_fuel(&self) -> u64 {
