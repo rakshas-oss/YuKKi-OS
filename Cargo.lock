@@ -2745,7 +2745,7 @@ dependencies = [
 
 [[package]]
 name = "yukkios_6_8_0_inet3"
-version = "6.9.0"
+version = "6.9.3"
 dependencies = [
  "axum",
  "byteorder",
