@@ -42,7 +42,18 @@
   non-finite numbers.
 - Documented the wire contract and adapter usage in `docs/API.md`.
 
-## v6.9.0 (current)
+## v6.9.3 (current)
+
+### Version bump and documentation refresh
+
+- Bumped the Cargo package and active release baseline to `v6.9.3`, keeping
+  the library crate name unchanged.
+- Refreshed the README, version metadata, and deployment docs for the 6.9.3
+  release line.
+- Updated Docker image metadata and release references to match the active
+  baseline.
+
+## v6.9.0
 
 ### Streaming and documentation
 
