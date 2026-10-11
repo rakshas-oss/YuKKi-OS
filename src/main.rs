@@ -1,9 +1,16 @@
-use std::{collections::HashMap, env, io, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    env, io,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305, Key, Nonce,
 };
+use futures_util::{SinkExt, StreamExt};
 use hkdf::Hkdf;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -15,15 +22,25 @@ use tokio::{
     sync::{mpsc, Mutex, Semaphore},
     time::timeout,
 };
+use tokio_tungstenite::tungstenite::{
+    client::IntoClientRequest,
+    http::{header::AUTHORIZATION, HeaderValue},
+    Message,
+};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 use x25519_dalek::{PublicKey, StaticSecret};
+use yukkios_6_8_0_inet3::{
+    stream_gateway::{self, GatewayAuth},
+    LiveMediaStreams, MediaStreamConfig, StreamAnnouncement, StreamDigestEntry, StreamRegistry,
+};
 use zeroize::Zeroize;
 
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
+const ANTI_ENTROPY_INTERVAL: Duration = Duration::from_secs(30);
 const PROTOCOL_CONTEXT: &[u8] = b"YuKKi-OS/control/v1";
 const AUTH_CONFIRMATION: &[u8] = b"YuKKi-OS authenticated peer";
 
@@ -37,6 +54,8 @@ struct PeerInfo {
 enum SovereignCommand {
     Register(PeerInfo),
     NodeFleet(Vec<PeerInfo>),
+    StreamAnnouncement(StreamAnnouncement),
+    StreamDigest(Vec<StreamDigestEntry>),
 }
 
 struct Session {
@@ -224,6 +243,20 @@ async fn secured_session(
 
 type Fleet = Arc<Mutex<HashMap<Uuid, PeerInfo>>>;
 type Clients = Arc<Mutex<HashMap<Uuid, mpsc::Sender<Vec<u8>>>>>;
+type SeenAnnouncements = Arc<Mutex<(HashSet<String>, VecDeque<String>)>>;
+
+async fn relay_to_peers(message: Vec<u8>, except: Uuid, clients: &Clients) {
+    let senders: Vec<_> = clients
+        .lock()
+        .await
+        .iter()
+        .filter(|(id, _)| **id != except)
+        .map(|(_, sender)| sender.clone())
+        .collect();
+    for sender in senders {
+        let _ = sender.send(message.clone()).await;
+    }
+}
 
 async fn broadcast_fleet(fleet: &Fleet, clients: &Clients) {
     let message = match serde_json::to_vec(&SovereignCommand::NodeFleet(
@@ -247,6 +280,7 @@ async fn handle_peer(
     psk: Arc<[u8; 32]>,
     fleet: Fleet,
     clients: Clients,
+    seen_announcements: SeenAnnouncements,
 ) {
     let mut session = match secured_session(&mut stream, &psk, true).await {
         Ok(session) => session,
@@ -282,7 +316,44 @@ async fn handle_peer(
             }
             result = timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)) => {
                 match result {
-                    Ok(Ok(mut message)) => message.zeroize(),
+                    Ok(Ok(mut message)) => {
+                        match serde_json::from_slice::<SovereignCommand>(&message) {
+                            Ok(SovereignCommand::StreamAnnouncement(mut announcement))
+                                if announcement.remaining_hops > 1
+                                    && announcement.remaining_hops <= yukkios_6_8_0_inet3::STREAM_ANNOUNCEMENT_MAX_HOPS =>
+                            {
+                                let should_forward = {
+                                    let mut seen = seen_announcements.lock().await;
+                                    if seen.0.insert(announcement.message_id.clone()) {
+                                        seen.1.push_back(announcement.message_id.clone());
+                                        while seen.1.len() > 4096 {
+                                            if let Some(oldest) = seen.1.pop_front() {
+                                                seen.0.remove(&oldest);
+                                            }
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                };
+                                if should_forward {
+                                    announcement.remaining_hops -= 1;
+                                    if let Ok(encoded) = serde_json::to_vec(
+                                        &SovereignCommand::StreamAnnouncement(announcement),
+                                    ) {
+                                        relay_to_peers(encoded, id, &clients).await;
+                                    }
+                                }
+                            }
+                            Ok(SovereignCommand::StreamDigest(digest))
+                                if digest.len() <= yukkios_6_8_0_inet3::STREAM_REGISTRY_MAX_STREAMS =>
+                            {
+                                relay_to_peers(message.clone(), id, &clients).await;
+                            }
+                            _ => {}
+                        }
+                        message.zeroize();
+                    },
                     _ => break,
                 }
             }
@@ -298,6 +369,7 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
     let listener = TcpListener::bind(address).await?;
     let fleet = Arc::new(Mutex::new(HashMap::new()));
     let clients = Arc::new(Mutex::new(HashMap::new()));
+    let seen_announcements = Arc::new(Mutex::new((HashSet::new(), VecDeque::new())));
     let permits = Arc::new(Semaphore::new(128));
     let psk = Arc::new(psk);
     info!(%address, "bootstrap listening");
@@ -313,9 +385,10 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
                 let peer_psk = psk.clone();
                 let peer_fleet = fleet.clone();
                 let peer_clients = clients.clone();
+                let peer_seen = seen_announcements.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients).await;
+                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients, peer_seen).await;
                 });
             }
             result = signal::ctrl_c() => {
@@ -332,22 +405,86 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "bootstrap connection timed out"))??;
     let mut session = secured_session(&mut stream, &psk, false).await?;
+    let node_id = Uuid::new_v4();
+    let streams = Arc::new(
+        LiveMediaStreams::new(MediaStreamConfig::default())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
+    );
+    let registry = StreamRegistry::new(node_id.to_string(), streams.clone())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let registration = serde_json::to_vec(&SovereignCommand::Register(PeerInfo {
-        uuid: Uuid::new_v4(),
+        uuid: node_id,
         addr: advertised.to_string(),
     }))
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     send_frame(&mut stream, &mut session, &registration).await?;
+    send_gossip_digest(&mut stream, &mut session, &registry).await?;
+    if env::var_os("YUKKI_GATEWAY_TOKEN").is_some() {
+        let auth = gateway_auth(false)?;
+        let address: SocketAddr = env::var("YUKKI_GATEWAY_LISTEN")
+            .unwrap_or_else(|_| DEFAULT_GATEWAY_ADDRESS.to_string())
+            .parse()
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid YUKKI_GATEWAY_LISTEN")
+            })?;
+        let listener = TcpListener::bind(address).await?;
+        info!(%address, "node stream gateway listening");
+        let gateway_streams = streams.clone();
+        let gateway_registry = registry.clone();
+        tokio::spawn(async move {
+            if let Err(error) =
+                stream_gateway::serve(listener, gateway_streams, gateway_registry, auth).await
+            {
+                warn!(%error, "node stream gateway stopped");
+            }
+        });
+    }
     info!(%bootstrap, %advertised, "node registered; press Ctrl-C to stop");
+    let mut last_digest = Instant::now();
     tokio::select! {
         result = async {
             loop {
-                let mut message = timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)).await
-                    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "bootstrap idle timeout"))??;
-                if let Ok(SovereignCommand::NodeFleet(fleet)) = serde_json::from_slice(&message) {
-                    info!(peers = fleet.len(), "received fleet update");
+                match timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)).await {
+                    Ok(Ok(mut message)) => {
+                        match serde_json::from_slice::<SovereignCommand>(&message) {
+                            Ok(SovereignCommand::NodeFleet(fleet)) => {
+                                info!(peers = fleet.len(), "received fleet update");
+                            }
+                            Ok(SovereignCommand::StreamAnnouncement(announcement)) => {
+                                let now = SystemTime::now().duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default().as_secs();
+                                if registry.accept_announcement(announcement, now).is_ok() {
+                                    info!("received stream announcement");
+                                }
+                            }
+                            Ok(SovereignCommand::StreamDigest(digest))
+                                if digest.len() <= yukkios_6_8_0_inet3::STREAM_REGISTRY_MAX_STREAMS =>
+                            {
+                                for descriptor in registry.descriptors_for_digest(&digest)
+                                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                                {
+                                    let announcement = StreamAnnouncement {
+                                        message_id: Uuid::new_v4().to_string(),
+                                        remaining_hops: yukkios_6_8_0_inet3::STREAM_ANNOUNCEMENT_MAX_HOPS,
+                                        descriptor,
+                                    };
+                                    let bytes = serde_json::to_vec(
+                                        &SovereignCommand::StreamAnnouncement(announcement),
+                                    ).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                                    send_frame(&mut stream, &mut session, &bytes).await?;
+                                }
+                            }
+                            _ => {}
+                        }
+                        message.zeroize();
+                    }
+                    Ok(Err(error)) => return Err(error),
+                    Err(_) => {}
                 }
-                message.zeroize();
+                if last_digest.elapsed() >= ANTI_ENTROPY_INTERVAL {
+                    send_gossip_digest(&mut stream, &mut session, &registry).await?;
+                    last_digest = Instant::now();
+                }
             }
             #[allow(unreachable_code)]
             Ok::<(), io::Error>(())
@@ -360,8 +497,204 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     }
 }
 
+async fn send_gossip_digest(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    registry: &StreamRegistry,
+) -> io::Result<()> {
+    let digest = registry
+        .digest()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let message = serde_json::to_vec(&SovereignCommand::StreamDigest(digest))
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    send_frame(stream, session, &message).await
+}
+
 fn usage() -> &'static str {
-    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address>\nSet YUKKI_PSK_HEX to a 32-byte hexadecimal pre-shared key."
+    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address> | gateway [listen-address] [--insecure-dev] | streams list [gateway-address] | streams tune <stream-id> [--from <seq>]\nSet YUKKI_PSK_HEX for mesh commands and YUKKI_GATEWAY_TOKEN for the gateway."
+}
+
+const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:7670";
+const MAX_GATEWAY_TOKEN_BYTES: usize = 4096;
+const MAX_CLI_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+fn gateway_address() -> io::Result<SocketAddr> {
+    env::var("YUKKI_GATEWAY_ENDPOINT")
+        .unwrap_or_else(|_| DEFAULT_GATEWAY_ADDRESS.to_string())
+        .parse()
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "YUKKI_GATEWAY_ENDPOINT must be a socket address",
+            )
+        })
+}
+
+fn gateway_auth(insecure_dev: bool) -> io::Result<GatewayAuth> {
+    match env::var("YUKKI_GATEWAY_TOKEN") {
+        Ok(token)
+            if !token.is_empty()
+                && token.len() <= MAX_GATEWAY_TOKEN_BYTES
+                && token
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._~+/=".contains(&byte)) =>
+        {
+            Ok(GatewayAuth::Bearer(token))
+        }
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "YUKKI_GATEWAY_TOKEN must be 1..=4096 visible bearer-token characters",
+        )),
+        Err(_) if insecure_dev => Ok(GatewayAuth::InsecureDev),
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "YUKKI_GATEWAY_TOKEN is required; use --insecure-dev only for local development",
+        )),
+    }
+}
+
+async fn run_gateway(address: SocketAddr, insecure_dev: bool) -> io::Result<()> {
+    let auth = gateway_auth(insecure_dev)?;
+    let streams = Arc::new(
+        LiveMediaStreams::new(MediaStreamConfig::default())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
+    );
+    let registry = StreamRegistry::new("local", streams.clone())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let listener = TcpListener::bind(address).await?;
+    info!(%address, "stream gateway listening");
+    stream_gateway::serve(listener, streams, registry, auth).await
+}
+
+async fn gateway_get(address: SocketAddr, path: &str, token: &str) -> io::Result<(u16, Vec<u8>)> {
+    let mut socket = timeout(Duration::from_secs(5), TcpStream::connect(address))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "gateway connection timed out"))??;
+    let authorization = ["Authorization: Bearer ", token, "\r\n"].concat();
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {address}\r\n{authorization}Connection: close\r\n\r\n"
+    );
+    socket.write_all(request.as_bytes()).await?;
+    let mut response = Vec::new();
+    let read = timeout(
+        Duration::from_secs(30),
+        socket
+            .take((MAX_CLI_RESPONSE_BYTES + 1) as u64)
+            .read_to_end(&mut response),
+    )
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "gateway response timed out"))??;
+    if read > MAX_CLI_RESPONSE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "gateway response exceeds limit",
+        ));
+    }
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid HTTP response"))?;
+    let headers = std::str::from_utf8(&response[..header_end])
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid HTTP headers"))?;
+    let status = headers
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid HTTP status"))?;
+    Ok((status, response[header_end + 4..].to_vec()))
+}
+
+fn gateway_token() -> io::Result<String> {
+    let token = env::var("YUKKI_GATEWAY_TOKEN").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "YUKKI_GATEWAY_TOKEN is required to use the gateway",
+        )
+    })?;
+    gateway_auth(false)?;
+    Ok(token)
+}
+
+fn percent_encode_path(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
+async fn run_streams_list(address: SocketAddr) -> io::Result<()> {
+    let token = gateway_token()?;
+    let (status, body) = gateway_get(address, "/v1/streams", &token).await?;
+    if status != 200 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("gateway returned HTTP {status}"),
+        ));
+    }
+    let streams: Vec<serde_json::Value> = serde_json::from_slice(&body)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    for stream in streams {
+        println!(
+            "{}\t{}\t{}\t{}",
+            stream["id"].as_str().unwrap_or(""),
+            stream["kind"].as_str().unwrap_or(""),
+            stream["status"].as_str().unwrap_or(""),
+            stream["name"].as_str().unwrap_or("")
+        );
+    }
+    Ok(())
+}
+
+async fn run_streams_tune(
+    address: SocketAddr,
+    stream_id: &str,
+    from_sequence: u64,
+) -> io::Result<()> {
+    let token = gateway_token()?;
+    let url = format!(
+        "ws://{address}/v1/streams/{}/ws?from={from_sequence}",
+        percent_encode_path(stream_id)
+    );
+    let mut request = url
+        .into_client_request()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let authorization = HeaderValue::from_str(&["Bearer ", &token].concat())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    request.headers_mut().insert(AUTHORIZATION, authorization);
+    let (mut socket, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+    let mut stdout = tokio::io::stdout();
+    while let Some(message) = socket.next().await {
+        match message.map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))? {
+            Message::Binary(frame) if frame.len() >= 8 => {
+                let sequence = u64::from_be_bytes(frame[..8].try_into().unwrap());
+                stdout.write_all(&frame[8..]).await?;
+                stdout.flush().await?;
+                let ack = serde_json::json!({"type": "ack", "sequence": sequence}).to_string();
+                socket
+                    .send(Message::Text(ack.into()))
+                    .await
+                    .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error))?;
+            }
+            Message::Text(text) if text.contains("\"lagged\"") => {
+                return Err(io::Error::other("stream subscription was lagged"));
+            }
+            Message::Ping(payload) => socket
+                .send(Message::Pong(payload))
+                .await
+                .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error))?,
+            Message::Close(_) => return Ok(()),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -373,14 +706,13 @@ async fn main() -> io::Result<()> {
         .json()
         .init();
     let args: Vec<String> = env::args().collect();
-    let psk = parse_psk()?;
     match args.as_slice() {
         [_, command, address] if command == "bootstrap" => {
             run_bootstrap(
                 address
                     .parse()
                     .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
-                psk,
+                parse_psk()?,
             )
             .await
         }
@@ -392,9 +724,55 @@ async fn main() -> io::Result<()> {
                 advertised
                     .parse()
                     .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
-                psk,
+                parse_psk()?,
             )
             .await
+        }
+        [_, command] if command == "gateway" => {
+            run_gateway(DEFAULT_GATEWAY_ADDRESS.parse().unwrap(), false).await
+        }
+        [_, command, flag] if command == "gateway" && flag == "--insecure-dev" => {
+            run_gateway(DEFAULT_GATEWAY_ADDRESS.parse().unwrap(), true).await
+        }
+        [_, command, address] if command == "gateway" => {
+            run_gateway(
+                address
+                    .parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
+                false,
+            )
+            .await
+        }
+        [_, command, address, flag] if command == "gateway" && flag == "--insecure-dev" => {
+            run_gateway(
+                address
+                    .parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
+                true,
+            )
+            .await
+        }
+        [_, command, action] if command == "streams" && action == "list" => {
+            run_streams_list(gateway_address()?).await
+        }
+        [_, command, action, address] if command == "streams" && action == "list" => {
+            run_streams_list(
+                address
+                    .parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
+            )
+            .await
+        }
+        [_, command, action, stream_id] if command == "streams" && action == "tune" => {
+            run_streams_tune(gateway_address()?, stream_id, 0).await
+        }
+        [_, command, action, stream_id, flag, from]
+            if command == "streams" && action == "tune" && flag == "--from" =>
+        {
+            let from_sequence = from
+                .parse()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, usage()))?;
+            run_streams_tune(gateway_address()?, stream_id, from_sequence).await
         }
         _ => Err(io::Error::new(io::ErrorKind::InvalidInput, usage())),
     }

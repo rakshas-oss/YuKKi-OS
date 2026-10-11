@@ -200,33 +200,6 @@ impl BrokerTask {
         Ok(())
     }
 
-    /// Heuristically derive a safe `timeout_ms` for this task rather than
-    /// trusting a raw, potentially unset or out-of-range value. Scales a base
-    /// allowance by the serialized payload size and clamps the result to
-    /// `[MIN_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS]`.
-    pub fn heuristic_timeout_ms(&self) -> u32 {
-        const BASE_TIMEOUT_MS: u64 = 1_000;
-        const PER_KIB_MS: u64 = 2;
-
-        let payload_bytes = serde_json::to_vec(&self.payload)
-            .map(|bytes| bytes.len() as u64)
-            .unwrap_or(0);
-        let payload_allowance_ms = (payload_bytes / 1024).saturating_mul(PER_KIB_MS);
-
-        BASE_TIMEOUT_MS
-            .saturating_add(payload_allowance_ms)
-            .clamp(MIN_TASK_TIMEOUT_MS as u64, MAX_TASK_TIMEOUT_MS as u64) as u32
-    }
-
-    /// Returns `timeout_ms` if it is within the acceptable bounds, otherwise
-    /// falls back to a heuristically derived timeout based on payload size.
-    pub fn effective_timeout_ms(&self) -> u32 {
-        if (MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&self.timeout_ms) {
-            self.timeout_ms
-        } else {
-            self.heuristic_timeout_ms()
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

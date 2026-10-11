@@ -1,4 +1,4 @@
-// YuKKi-OS v6.8.0 Wasmtime Host Execution Bridge Patch
+// YuKKi-OS v6.9.0 Wasmtime Host Execution Bridge Patch
 use crate::sched::{yield_current_thread, ThreadState};
 use wasmtime::Caller;
 

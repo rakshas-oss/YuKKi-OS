@@ -6,6 +6,7 @@ COPY benches ./benches
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
+LABEL org.opencontainers.image.version="6.9.0"
 RUN useradd --system --uid 10001 --create-home yukki
 COPY --from=build /src/target/release/yukki_core_node /usr/local/bin/yukki_core_node
 USER 10001

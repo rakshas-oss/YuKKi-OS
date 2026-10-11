@@ -1,4 +1,4 @@
-# YuKKi OS v6.8.0 — Architecture
+# YuKKi OS v6.9.0 — Architecture
 
 ## Scope
 
@@ -6,12 +6,14 @@ This document describes the architecture implemented in the current repository s
 
 ## Runtime topology
 
-YuKKi-OS currently runs as a control-plane mesh with two process roles:
+YuKKi-OS runs as a control-plane mesh with two process roles:
 
 - `bootstrap <bind-address>`: accepts peer registrations and broadcasts fleet updates
 - `node <bootstrap-address> <advertised-address>`: registers to bootstrap and receives fleet updates
 
-No interactive REPL command surface is implemented in `src/main.rs`.
+The CLI also provides an authenticated stream gateway and `streams list` /
+`streams tune` clients. When `YUKKI_GATEWAY_TOKEN` is set, a node starts a
+loopback HTTP/WebSocket gateway sharing its in-process stream registry.
 
 ## Control-plane transport
 
@@ -35,6 +37,14 @@ No interactive REPL command surface is implemented in `src/main.rs`.
 - Fleet update payload is JSON:
   - `NodeFleet(Vec<PeerInfo>)`
 - Peer state is in-memory only.
+
+Stream announcements and SHA-256 descriptor digests are additional encrypted
+`SovereignCommand` messages on the same authenticated TCP session. Bootstrap
+relays each bounded, deduplicated announcement to the other connected nodes.
+Nodes exchange a compact digest every 30 seconds while idle and announce full
+descriptors for mismatches. Announcements expire after 120 seconds, have at
+most eight hops, are limited to 16 KiB, and are deduplicated using a 4096-entry
+cache. Fan-out is bounded by the existing 128-connection bootstrap limit.
 
 ## C FFI frame engine
 
@@ -80,12 +90,26 @@ discarding data. Consumers reclaim storage with `acknowledge_through` or
 envelope, but its JSON byte-array expansion remains subject to the broker
 client's configured frame-size limit.
 
-These library APIs do not add a network listener or bypass the broker/client
-boundary. WASM guests must continue to request host-mediated operations; no
-raw pointers, guest-owned native buffers, or direct media-store access are
-exposed. Applications are responsible for enforcing authorization and
-protecting raw broker TCP links with an authenticated proxy or equivalent
-deployment boundary.
+`src/stream_registry.rs` derives local stream descriptors from store snapshots
+and merges remote descriptors. Subscriptions have independent sequence cursors
+and aggregate acknowledgements; per-stream and per-node subscriber ceilings
+avoid per-consumer unbounded buffering. `src/stream_gateway.rs` exposes
+authenticated HTTP list/describe/range endpoints and an ack-driven WebSocket
+binary stream. The gateway caps accepted TCP connections at 128 and HTTP
+request handling at 30 seconds; WebSockets use 60-second idle timeouts with
+20-second pings. It does not provide TLS.
+
+The mesh currently distributes discovery metadata only. Remote chunk fetching,
+relay/fan-out trees, and shared upstream pulls are not implemented; the gateway
+returns `501` for remote WebSocket tune-in. The standalone `gateway` command
+owns a separate in-memory store, while the optional node gateway shares that
+node's store and registry.
+
+WASM stream selection remains host mediated: `wasm_ingest` validates guest
+memory ranges before copying one bounded encoded chunk through
+`env::yukki_select_stream`. No raw pointers or direct store handles are exposed.
+Applications must still protect broker TCP links with an authenticated proxy
+or equivalent deployment boundary.
 
 ## WebAssembly sandbox and GPU interop
 
@@ -116,3 +140,4 @@ deployment boundary.
 - No built-in TLS/mTLS transport wrapping for peer or broker sockets
 - No persistent runtime state store
 - No HTTP health endpoint; health is log- and process-state based
+- No remote stream media relay or upstream sharing

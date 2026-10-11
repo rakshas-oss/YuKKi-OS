@@ -166,7 +166,7 @@ impl RustasmSandbox {
             .or_else(|| self.lifecycle_client.as_ref().map(|l| l.broker_client()))
             .ok_or(GpuAdapterError::Disabled)?;
 
-        let mut request = GpuTaskRequest {
+        let request = GpuTaskRequest {
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
             task_id: task_id.to_string(),
             idempotency_key: Some(task_id.to_string()),
@@ -183,11 +183,6 @@ impl RustasmSandbox {
             )],
             metadata: None,
         };
-        // Heuristically normalize an invalid (zero or oversized) caller-supplied
-        // timeout rather than trusting it blindly; `validate()` inside
-        // `submit_task` still enforces the final bounds as a defense-in-depth check.
-        request.timeout_ms = request.effective_timeout_ms();
-
         let response = client.submit_task(&request).await?;
         for buf in response.output_buffers {
             if let Some(data) = buf.inline_data {

@@ -1,4 +1,4 @@
-//! YuKKi OS v6.8.0 — Library Interface (Inet3 Edition)
+//! YuKKi OS v6.9.0 — Library Interface (Inet3 Edition)
 //! Exports core modules for testing and external use
 
 pub mod adi_auto_tune;
@@ -7,6 +7,9 @@ pub mod broker_client;
 pub mod gpu_adapter;
 pub mod media_codec;
 pub mod nxr1;
+pub mod stream_gateway;
+pub mod stream_registry;
+pub mod wasm_ingest;
 pub mod wasm_sandbox;
 
 pub use broker_client::{
@@ -17,21 +20,19 @@ pub use broker_client::{
 };
 
 pub use gpu_adapter::{
-    decode_brk1_frame, decode_wsm1_message, encode_brk1_frame,
-    encode_wsm1_lifecycle_request, encode_wsm1_lifecycle_response,
-    encode_wsm1_task_request, encode_wsm1_task_response,
-    Brk1Frame, BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind,
-    CancelTaskRequest, CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient,
-    GpuTaskRequest, GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
-    ModuleLifecycleManager, ModuleLifecycleState, ModuleVersionHandle, ModuleVersionResources,
-    ProtocolHandshakeRequest, ProtocolHandshakeResponse, StateHandoffHook,
-    WasmBufferDescriptor, WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse,
-    WasmLifecycleState, WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus,
-    Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, BRK1_PROTOCOL_VERSION,
-    CURRENT_PROTOCOL_VERSION, DEFAULT_GPU_BROKER_ENDPOINT, DEFAULT_GPU_CONNECT_TIMEOUT,
-    DEFAULT_GPU_MAX_FRAME_BYTES, DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT,
-    DEFAULT_GPU_REQUEST_TIMEOUT, DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS,
-    WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
+    decode_brk1_frame, decode_wsm1_message, encode_brk1_frame, encode_wsm1_lifecycle_request,
+    encode_wsm1_lifecycle_response, encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame,
+    BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
+    CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
+    GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode, ModuleLifecycleManager,
+    ModuleLifecycleState, ModuleVersionHandle, ModuleVersionResources, ProtocolHandshakeRequest,
+    ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor, WasmLifecycleAction,
+    WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
+    WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST,
+    BRK1_MSG_RESPONSE, BRK1_PROTOCOL_VERSION, CURRENT_PROTOCOL_VERSION,
+    DEFAULT_GPU_BROKER_ENDPOINT, DEFAULT_GPU_CONNECT_TIMEOUT, DEFAULT_GPU_MAX_FRAME_BYTES,
+    DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT, DEFAULT_GPU_REQUEST_TIMEOUT,
+    DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS, WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
 
 pub use nxr1::{
@@ -45,9 +46,18 @@ pub use arcgis::{
 };
 
 pub use media_codec::{
-    LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig, MediaStreamMetadata, MediaType,
-    MEDIA_CHUNK_BROKER_KEY, MEDIA_CHUNK_HEADER_LEN, MEDIA_CHUNK_KIND, MEDIA_CHUNK_MAGIC,
-    MEDIA_CHUNK_VERSION, MEDIA_MAX_CHUNK_BYTES, MEDIA_MAX_CODEC_BYTES, MEDIA_MAX_STREAM_ID_BYTES,
+    LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig, MediaStreamMetadata,
+    MediaStreamSnapshot, MediaType, MEDIA_CHUNK_BROKER_KEY, MEDIA_CHUNK_HEADER_LEN,
+    MEDIA_CHUNK_KIND, MEDIA_CHUNK_MAGIC, MEDIA_CHUNK_VERSION, MEDIA_MAX_CHUNK_BYTES,
+    MEDIA_MAX_CODEC_BYTES, MEDIA_MAX_STREAM_ID_BYTES,
+};
+
+pub use stream_registry::{
+    RegistryError, StreamAnnouncement, StreamDescriptor, StreamDigestEntry, StreamKind,
+    StreamRegistry, StreamStatus, Subscription, SubscriptionRead, STREAM_ANNOUNCEMENT_MAX_BYTES,
+    STREAM_ANNOUNCEMENT_MAX_HOPS, STREAM_ANNOUNCEMENT_TTL_SECS, STREAM_MAX_NAME_BYTES,
+    STREAM_MAX_NODE_ID_BYTES, STREAM_MAX_SUBSCRIBERS, STREAM_MAX_SUBSCRIBERS_PER_NODE,
+    STREAM_REGISTRY_MAX_STREAMS,
 };
 
 use std::marker::PhantomData;

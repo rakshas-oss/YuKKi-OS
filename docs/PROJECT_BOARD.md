@@ -1,6 +1,6 @@
 # YuKKi OS — Production Readiness Project Board
 
-Tracks remaining work for the v6.8.0 baseline before production deployment.
+Tracks remaining work for the v6.9.0 baseline before production deployment.
 
 **Current completion:** ~30%
 

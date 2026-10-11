@@ -1,6 +1,6 @@
 # v6.6.6 — Inet3 Edition (Legacy / Historical)
 
-> Superseded by [v6.8.0](RELEASE_v6.8.0.md). This file is archival.
+> Superseded by [v6.9.0](RELEASE_v6.9.0.md). This file is archival.
 
 - Tag: `v6.6.6`
 - Status: historical reference

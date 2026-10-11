@@ -1,4 +1,4 @@
-# Deploy Scripts — YuKKi OS v6.8.0
+# Deploy Scripts — YuKKi OS v6.9.0
 
 ## Script
 

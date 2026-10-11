@@ -1,6 +1,6 @@
 [package]
 name = "yukkios_6_8_0_inet3"
-version = "6.8.0"
+version = "6.9.0"
 edition = "2021"
 
 [lib]
@@ -28,9 +28,12 @@ hkdf = "0.13"
 sha2 = "0.11"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+axum = { version = "0.8.9", features = ["json", "ws"] }
+tokio-tungstenite = "0.29.0"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
+wat = "1"
 
 [[bench]]
 name = "adi_benchmarks"
