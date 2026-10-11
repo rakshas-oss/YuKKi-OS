@@ -65,7 +65,9 @@ impl RustasmSandbox {
 
     pub fn with_gpu_client(mut self, client: Arc<GpuBrokerClient>) -> Self {
         if client.config().use_wsm1 && self.lifecycle_client.is_none() {
-            self.lifecycle_client = Some(Arc::new(LifecycleClient::from_broker_client(client.clone())));
+            self.lifecycle_client = Some(Arc::new(LifecycleClient::from_broker_client(
+                client.clone(),
+            )));
         }
         self.gpu_client = Some(client);
         self

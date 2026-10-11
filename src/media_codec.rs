@@ -6,6 +6,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use thiserror::Error;
@@ -60,6 +61,15 @@ pub struct MediaStreamMetadata {
     pub media_type: MediaType,
     /// Codec name/label (for example `h264`, `opus`, or `unknown`).
     pub codec: String,
+}
+
+/// Current state of a stream as observed by registry and gateway layers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaStreamSnapshot {
+    pub metadata: MediaStreamMetadata,
+    pub latest_sequence: Option<u64>,
+    pub finished: bool,
+    pub updated_at: u64,
 }
 
 impl MediaStreamMetadata {
@@ -388,6 +398,7 @@ struct StreamState {
     next_sequence: u64,
     acknowledged_through: Option<u64>,
     closed: bool,
+    updated_at: u64,
 }
 
 impl LiveMediaStreams {
@@ -422,6 +433,7 @@ impl LiveMediaStreams {
                 next_sequence: 0,
                 acknowledged_through: None,
                 closed: false,
+                updated_at: unix_timestamp(),
             },
         );
         Ok(())
@@ -475,6 +487,7 @@ impl LiveMediaStreams {
             let sequence_no = chunk.sequence_no;
             stream.chunks.insert(sequence_no, chunk);
             stream.next_sequence += 1;
+            stream.updated_at = unix_timestamp();
             sequence_no
         };
         state.retained_chunks += 1;
@@ -539,6 +552,7 @@ impl LiveMediaStreams {
                 .acknowledged_through
                 .map_or(sequence, |previous| previous.max(sequence)),
         );
+        stream.updated_at = unix_timestamp();
         state.retained_chunks -= removed;
         Ok(removed)
     }
@@ -554,6 +568,7 @@ impl LiveMediaStreams {
             return Err(MediaError::StreamClosed(stream_id.to_string()));
         }
         stream.closed = true;
+        stream.updated_at = unix_timestamp();
         Ok(())
     }
 
@@ -578,6 +593,30 @@ impl LiveMediaStreams {
             .map(|stream| stream.metadata.clone())
             .ok_or_else(|| MediaError::StreamNotFound(stream_id.to_string()))
     }
+
+    /// Return a bounded snapshot of all streams, including finished streams.
+    pub fn stream_snapshots(&self) -> Result<Vec<MediaStreamSnapshot>, MediaError> {
+        let state = self.state.lock().map_err(|_| MediaError::LockPoisoned)?;
+        let mut snapshots: Vec<_> = state
+            .streams
+            .values()
+            .map(|stream| MediaStreamSnapshot {
+                metadata: stream.metadata.clone(),
+                latest_sequence: stream.next_sequence.checked_sub(1),
+                finished: stream.closed,
+                updated_at: stream.updated_at,
+            })
+            .collect();
+        snapshots.sort_by(|left, right| left.metadata.stream_id.cmp(&right.metadata.stream_id));
+        Ok(snapshots)
+    }
+}
+
+fn unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn validate_string(field: &'static str, value: &str, max: usize) -> Result<(), MediaError> {

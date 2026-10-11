@@ -356,7 +356,6 @@ impl GpuTaskRequest {
     pub fn effective_idempotency_key(&self) -> &str {
         self.idempotency_key.as_deref().unwrap_or(&self.task_id)
     }
-
 }
 
 /// Execution status of a GPU task.
@@ -1407,7 +1406,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u8(&mut self) -> Result<u8, GpuAdapterError> {
         if self.offset + 1 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u8".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u8".to_string(),
+            ));
         }
         let val = self.data[self.offset];
         self.offset += 1;
@@ -1416,7 +1417,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u16(&mut self) -> Result<u16, GpuAdapterError> {
         if self.offset + 2 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u16".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u16".to_string(),
+            ));
         }
         let bytes: [u8; 2] = self.data[self.offset..self.offset + 2].try_into().unwrap();
         self.offset += 2;
@@ -1425,7 +1428,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u32(&mut self) -> Result<u32, GpuAdapterError> {
         if self.offset + 4 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u32".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u32".to_string(),
+            ));
         }
         let bytes: [u8; 4] = self.data[self.offset..self.offset + 4].try_into().unwrap();
         self.offset += 4;
@@ -1434,7 +1439,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_i32(&mut self) -> Result<i32, GpuAdapterError> {
         if self.offset + 4 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading i32".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading i32".to_string(),
+            ));
         }
         let bytes: [u8; 4] = self.data[self.offset..self.offset + 4].try_into().unwrap();
         self.offset += 4;
@@ -1443,7 +1450,9 @@ impl<'a> ByteReader<'a> {
 
     fn read_u64(&mut self) -> Result<u64, GpuAdapterError> {
         if self.offset + 8 > self.data.len() {
-            return Err(GpuAdapterError::Wsm1Codec("unexpected EOF reading u64".to_string()));
+            return Err(GpuAdapterError::Wsm1Codec(
+                "unexpected EOF reading u64".to_string(),
+            ));
         }
         let bytes: [u8; 8] = self.data[self.offset..self.offset + 8].try_into().unwrap();
         self.offset += 8;
@@ -1747,7 +1756,9 @@ pub fn encode_brk1_frame(frame: &Brk1Frame) -> Result<Vec<u8>, GpuAdapterError> 
 /// Decode a `Brk1Frame` from bytes.
 pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     if data.len() < 8 {
-        return Err(GpuAdapterError::Wsm1Codec("BRK1 frame too short".to_string()));
+        return Err(GpuAdapterError::Wsm1Codec(
+            "BRK1 frame too short".to_string(),
+        ));
     }
     let mut r = ByteReader::new(data);
     let magic = r.read_u32()?;
@@ -1800,9 +1811,7 @@ async fn write_raw_frame(
             max: max_frame_size,
         });
     }
-    stream
-        .write_all(&(data.len() as u32).to_be_bytes())
-        .await?;
+    stream.write_all(&(data.len() as u32).to_be_bytes()).await?;
     stream.write_all(data).await?;
     stream.flush().await?;
     Ok(())
@@ -1853,7 +1862,9 @@ fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAda
     if let Ok(resp) = serde_json::from_slice::<WasmLifecycleResponse>(body) {
         return Ok(resp);
     }
-    if let Ok(BrokerMessage::LifecycleResponse(resp)) = serde_json::from_slice::<BrokerMessage>(body) {
+    if let Ok(BrokerMessage::LifecycleResponse(resp)) =
+        serde_json::from_slice::<BrokerMessage>(body)
+    {
         return Ok(resp);
     }
     Err(GpuAdapterError::MalformedResponse(
@@ -1883,7 +1894,8 @@ fn parse_task_response(body: &[u8]) -> Result<WasmTaskResponse, GpuAdapterError>
     if let Ok(resp) = serde_json::from_slice::<WasmTaskResponse>(body) {
         return Ok(resp);
     }
-    if let Ok(BrokerMessage::TaskResponse(gpu_resp)) = serde_json::from_slice::<BrokerMessage>(body) {
+    if let Ok(BrokerMessage::TaskResponse(gpu_resp)) = serde_json::from_slice::<BrokerMessage>(body)
+    {
         let status = match gpu_resp.status {
             GpuTaskStatus::Completed => WasmTaskStatus::Ok,
             GpuTaskStatus::Cancelled => WasmTaskStatus::Rejected,
@@ -1982,12 +1994,9 @@ impl LifecycleClient {
             return Err(GpuAdapterError::Disabled);
         }
 
-        let mut stream = timeout(
-            config.connect_timeout,
-            TcpStream::connect(&config.endpoint),
-        )
-        .await
-        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
+            .await
+            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_lifecycle_request(request)?,
@@ -2156,12 +2165,9 @@ impl LifecycleClient {
         task: &WasmTaskRequest,
     ) -> Result<WasmTaskResponse, GpuAdapterError> {
         let config = self.broker_client.config();
-        let mut stream = timeout(
-            config.connect_timeout,
-            TcpStream::connect(&config.endpoint),
-        )
-        .await
-        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
+            .await
+            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_task_request(task)?,
@@ -2203,7 +2209,11 @@ impl LifecycleClient {
                 // without blocking the caller any further than request_timeout
                 // already incurred.
                 self.broker_client
-                    .request_broker_cancel(&task.task_id, &task.sandbox_id, "client request timeout")
+                    .request_broker_cancel(
+                        &task.task_id,
+                        &task.sandbox_id,
+                        "client request timeout",
+                    )
                     .await;
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
             }
@@ -2482,12 +2492,7 @@ impl ModuleLifecycleManager {
         if let Some(ref client) = lifecycle_client {
             let target_gpu = new_handle.assigned_gpu.load(Ordering::SeqCst);
             let resp = match client
-                .prepare(
-                    "rustasm_sandbox",
-                    module_id,
-                    new_version,
-                    target_gpu,
-                )
+                .prepare("rustasm_sandbox", module_id, new_version, target_gpu)
                 .await
             {
                 Ok(r) => r,

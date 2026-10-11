@@ -172,10 +172,21 @@ pub fn run_guest(
     linker
         .func_wrap(IMPORT_MODULE, IMPORT_NAME, bridge)
         .map_err(|e| exec(e.to_string()))?;
-    let limits = StoreLimitsBuilder::new().memory_size(MAX_MEMORY_BYTES).build();
-    let mut store = Store::new(&engine, GuestState { limits, channel_id, handler });
+    let limits = StoreLimitsBuilder::new()
+        .memory_size(MAX_MEMORY_BYTES)
+        .build();
+    let mut store = Store::new(
+        &engine,
+        GuestState {
+            limits,
+            channel_id,
+            handler,
+        },
+    );
     store.limiter(|s| &mut s.limits);
-    store.set_fuel(DEFAULT_FUEL).map_err(|e| exec(e.to_string()))?;
+    store
+        .set_fuel(DEFAULT_FUEL)
+        .map_err(|e| exec(e.to_string()))?;
     store.set_epoch_deadline(1);
     let instance = linker
         .instantiate(&mut store, &module)
@@ -190,7 +201,10 @@ pub fn run_guest(
     // Place channel + tensor in freshly grown pages so guest data is untouched.
     let needed = CHANNEL_SIZE + CHANNEL_ALIGN + tensor.len();
     let pages = needed.div_ceil(WASM_PAGE) as u64;
-    let base = memory.grow(&mut store, pages).map_err(|e| exec(e.to_string()))? as usize * WASM_PAGE;
+    let base = memory
+        .grow(&mut store, pages)
+        .map_err(|e| exec(e.to_string()))? as usize
+        * WASM_PAGE;
     let tensor_off = base + CHANNEL_SIZE + CHANNEL_ALIGN;
     {
         let data = memory.data_mut(&mut store);
@@ -229,7 +243,10 @@ pub fn handle_deploy(
     body: &[u8],
     handler: XpuHandler,
 ) -> DeployResponse {
-    let resp = |status: u16, body: &str| DeployResponse { status, body: body.to_string() };
+    let resp = |status: u16, body: &str| DeployResponse {
+        status,
+        body: body.to_string(),
+    };
     if content_type.map(|c| c.trim().eq_ignore_ascii_case("application/wasm")) != Some(true) {
         return resp(415, "Content-Type must be application/wasm");
     }
@@ -246,7 +263,10 @@ pub fn handle_deploy(
     // Smoke-run with a minimal tensor to confirm the module executes within limits.
     match run_guest(body, channel_id, &[0u8; 16], handler) {
         Ok(0) => resp(200, "deployed"),
-        Ok(code) => DeployResponse { status: 422, body: format!("guest returned {code}") },
+        Ok(code) => DeployResponse {
+            status: 422,
+            body: format!("guest returned {code}"),
+        },
         Err(e) => resp(422, &e.to_string()),
     }
 }
