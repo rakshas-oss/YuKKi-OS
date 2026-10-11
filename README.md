@@ -2,7 +2,7 @@
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
-> Research/demo software: not production-ready without additional hardening and independent security review.
+> Production baseline: v6.9.3 is the current stable release line. It is intended for validation, experimentation, and deployment with the caveat that independent security review remains recommended for production use.
 
 ## Current baseline
 
@@ -10,6 +10,7 @@ YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame eng
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
+- Status: **stable release**
 
 ## CLI and stream gateway
 
@@ -126,13 +127,13 @@ Environment variables:
 
 ### CPU-first execution policy
 
-CPU is the always-available correctness baseline; accelerators are optional, best-effort tiers (`src/exec_policy.rs`). `RustasmSandbox::execute_with_policy` picks a backend from a `TaskProfile` (exact precision, inference, data-parallel, estimated size/compute, deadline, `cpu_retry_safe`) via `BackendPolicy`:
+CPU is the always-available correctness baseline; accelerators are optional, best-effort tiers (`src/exec_policy.rs`). `RustasmSandbox::execute_with_policy` picks a backend from a `TaskProfile`:
 
 1. **CPU** (default): used for small tasks, when no accelerator is available, or when `YUKKI_FORCE_CPU_FALLBACK=true`.
 2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
 3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
 
-Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the accelerator error is returned unchanged. The broker protocol is unchanged.
+Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the task remains failed.
 
 See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
 
