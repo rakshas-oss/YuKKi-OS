@@ -143,7 +143,17 @@ mod cpu_first_policy {
     async fn cpu_only_without_accelerator() {
         let sb = RustasmSandbox::new();
         let out = sb
-            .execute_with_policy(&BackendPolicy::default(), &big_parallel(), "m", "1", "t", &[1, 2], 0, 100, cpu)
+            .execute_with_policy(
+                &BackendPolicy::default(),
+                &big_parallel(),
+                "m",
+                "1",
+                "t",
+                &[1, 2],
+                0,
+                100,
+                cpu,
+            )
             .await
             .unwrap();
         assert_eq!(out.backend, ExecutionBackend::Cpu);
@@ -153,7 +163,17 @@ mod cpu_first_policy {
     #[tokio::test]
     async fn force_cpu_policy_skips_broker() {
         let out = gpu_sandbox()
-            .execute_with_policy(&BackendPolicy::cpu_only(), &big_parallel(), "m", "1", "t", &[1], 0, 100, cpu)
+            .execute_with_policy(
+                &BackendPolicy::cpu_only(),
+                &big_parallel(),
+                "m",
+                "1",
+                "t",
+                &[1],
+                0,
+                100,
+                cpu,
+            )
             .await
             .unwrap();
         assert_eq!(out.backend, ExecutionBackend::Cpu);
@@ -163,7 +183,17 @@ mod cpu_first_policy {
     #[tokio::test]
     async fn accelerator_failure_falls_back_to_cpu() {
         let out = gpu_sandbox()
-            .execute_with_policy(&BackendPolicy::default(), &big_parallel(), "m", "1", "t", &[1, 2], 0, 100, cpu)
+            .execute_with_policy(
+                &BackendPolicy::default(),
+                &big_parallel(),
+                "m",
+                "1",
+                "t",
+                &[1, 2],
+                0,
+                100,
+                cpu,
+            )
             .await
             .unwrap();
         assert_eq!(out.backend, ExecutionBackend::Cpu);
@@ -172,9 +202,22 @@ mod cpu_first_policy {
 
     #[tokio::test]
     async fn unsafe_retry_preserves_accelerator_error() {
-        let profile = TaskProfile { cpu_retry_safe: false, ..big_parallel() };
+        let profile = TaskProfile {
+            cpu_retry_safe: false,
+            ..big_parallel()
+        };
         let err = gpu_sandbox()
-            .execute_with_policy(&BackendPolicy::default(), &profile, "m", "1", "t", &[1], 0, 100, cpu)
+            .execute_with_policy(
+                &BackendPolicy::default(),
+                &profile,
+                "m",
+                "1",
+                "t",
+                &[1],
+                0,
+                100,
+                cpu,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, PolicyExecError::Accelerator(_)));
@@ -182,9 +225,22 @@ mod cpu_first_policy {
 
     #[tokio::test]
     async fn exact_precision_never_offloads() {
-        let profile = TaskProfile { requires_exact_precision: true, ..big_parallel() };
+        let profile = TaskProfile {
+            requires_exact_precision: true,
+            ..big_parallel()
+        };
         let out = gpu_sandbox()
-            .execute_with_policy(&BackendPolicy::default(), &profile, "m", "1", "t", &[1], 0, 100, cpu)
+            .execute_with_policy(
+                &BackendPolicy::default(),
+                &profile,
+                "m",
+                "1",
+                "t",
+                &[1],
+                0,
+                100,
+                cpu,
+            )
             .await
             .unwrap();
         assert_eq!(out.backend, ExecutionBackend::Cpu);

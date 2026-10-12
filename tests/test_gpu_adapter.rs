@@ -19,11 +19,11 @@ use yukkios_6_8_0_inet3::{
         CancelTaskRequest, CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient,
         GpuTaskRequest, GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode,
         ModuleLifecycleManager, ModuleLifecycleState, ProtocolHandshakeRequest,
-        ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor,
-        WasmLifecycleAction, WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState,
-        WasmLifecycleStatus, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message,
-        BRK1_MAGIC, BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION,
-        MAX_CONFIG_TIMEOUT, MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
+        ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor, WasmLifecycleAction,
+        WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
+        WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC,
+        BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION, MAX_CONFIG_TIMEOUT,
+        MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
 };
@@ -723,7 +723,14 @@ async fn test_sandbox_rejects_invalid_task_timeout_without_payload_heuristic() {
     let sandbox = RustasmSandbox::new().with_gpu_client(client);
 
     let error = sandbox
-        .submit_gpu_task("mod-geo", "1.0.0", "task-sb-invalid-timeout", &[1, 2, 3, 4], 5, 0)
+        .submit_gpu_task(
+            "mod-geo",
+            "1.0.0",
+            "task-sb-invalid-timeout",
+            &[1, 2, 3, 4],
+            5,
+            0,
+        )
         .await
         .expect_err("zero task timeout must be rejected");
     assert!(matches!(error, GpuAdapterError::InvalidRequest(_)));
@@ -1222,8 +1229,7 @@ fn test_wsm1_lifecycle_codecs_roundtrip() {
         lease_token: "lease-vision-xyz".to_string(),
         error: String::new(),
     };
-    let encoded_resp =
-        encode_wsm1_lifecycle_response(&prep_resp).expect("encode prepare response");
+    let encoded_resp = encode_wsm1_lifecycle_response(&prep_resp).expect("encode prepare response");
     let decoded_resp = decode_wsm1_message(&encoded_resp).expect("decode prepare response");
     match decoded_resp {
         Wsm1Message::LifecycleResponse(resp) => {
@@ -1582,8 +1588,8 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
                             },
                         };
 
-                        let wsm_resp_bytes =
-                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
+                        let wsm_resp_bytes = encode_wsm1_lifecycle_response(&resp)
+                            .expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1734,8 +1740,8 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp =
-                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
+                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
+                            .expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1879,8 +1885,8 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
                             }
                         };
 
-                        let wsm_resp =
-                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
+                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
+                            .expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -1989,8 +1995,8 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
                             _ => panic!("unexpected action: {:?}", req.action),
                         };
 
-                        let wsm_resp =
-                            encode_wsm1_lifecycle_response(&resp).expect("encode lifecycle response");
+                        let wsm_resp = encode_wsm1_lifecycle_response(&resp)
+                            .expect("encode lifecycle response");
                         let resp_brk = Brk1Frame {
                             msg_type: BRK1_MSG_RESPONSE,
                             task_id: brk_frame.task_id,
@@ -2187,7 +2193,10 @@ async fn test_execute_task_with_deadline_timeout_requests_cancellation() {
     let handle = manager
         .prepare_version("cancel_mod", "1.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare");
-    manager.hotswap("cancel_mod", "1.0.0").await.expect("activate");
+    manager
+        .hotswap("cancel_mod", "1.0.0")
+        .await
+        .expect("activate");
 
     let result = manager
         .execute_task_with_deadline("cancel_mod", Duration::from_millis(30), |_h| async {
@@ -2206,7 +2215,10 @@ async fn test_cancel_in_flight_interrupts_deadline_task() {
     let handle = manager
         .prepare_version("cancel_mod2", "1.0.0", MINIMAL_VALID_WASM, None)
         .expect("prepare");
-    manager.hotswap("cancel_mod2", "1.0.0").await.expect("activate");
+    manager
+        .hotswap("cancel_mod2", "1.0.0")
+        .await
+        .expect("activate");
 
     let m = manager.clone();
     let task = tokio::spawn(async move {

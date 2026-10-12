@@ -357,7 +357,6 @@ impl GpuTaskRequest {
     pub fn effective_idempotency_key(&self) -> &str {
         self.idempotency_key.as_deref().unwrap_or(&self.task_id)
     }
-
 }
 
 /// Execution status of a GPU task.
