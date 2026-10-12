@@ -122,16 +122,15 @@ impl StreamRelay {
         if snapshot.finished {
             return Ok(0);
         }
-        let mut next = snapshot.latest_sequence.map_or(0, |seq| seq + 1);
+        let next = snapshot.latest_sequence.map_or(0, |seq| seq + 1);
         let mut appended = 0;
         let chunks = self.source.fetch_range(stream_id, next, RELAY_MAX_BATCH);
         *last = Some(Instant::now());
-        for chunk in chunks? {
-            if chunk.sequence_no != next {
+        for (expected, chunk) in (next..).zip(chunks?) {
+            if chunk.sequence_no != expected {
                 return Err(RelayError::Upstream("non-contiguous chunk".into()));
             }
             self.streams.append_chunk(stream_id, chunk)?;
-            next += 1;
             appended += 1;
         }
         if appended == 0 && self.source.is_finished(stream_id)? {
