@@ -1,5 +1,3 @@
-//! Authenticated HTTP and WebSocket access to a bounded stream registry.
-
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -52,6 +50,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const DEFAULT_DRONE_DASHBOARD_MAX_CHUNKS: u64 = 256;
 
 #[derive(Clone)]
 pub enum GatewayAuth {
@@ -115,6 +114,8 @@ pub async fn serve_with_relay(
     };
     let app = Router::new()
         .route("/dashboard", get(dashboard))
+        .route("/dashboard/drones", get(list_drones))
+        .route("/dashboard/drones/{id}", get(describe_drone))
         .route("/v1/streams", get(list_streams))
         .route("/v1/streams/{id}", get(describe_stream))
         .route("/v1/streams/{id}/chunks", get(read_chunks))
@@ -135,77 +136,21 @@ pub async fn serve_with_relay(
     .await
 }
 
-struct CappedListener {
-    listener: TcpListener,
-    permits: Arc<Semaphore>,
+fn drone_dashboard_enabled() -> bool {
+    matches!(
+        std::env::var("YUKKI_DRONE_DASHBOARD_ENABLED")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("True") | Some("yes") | Some("YES")
+    )
 }
 
-struct CappedStream {
-    stream: TcpStream,
-    _permit: tokio::sync::OwnedSemaphorePermit,
-}
-
-impl Listener for CappedListener {
-    type Io = CappedStream;
-    type Addr = std::net::SocketAddr;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        let permit = self
-            .permits
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("gateway connection semaphore remains open");
-        loop {
-            match self.listener.accept().await {
-                Ok((stream, address)) => {
-                    return (
-                        CappedStream {
-                            stream,
-                            _permit: permit,
-                        },
-                        address,
-                    );
-                }
-                Err(error) => {
-                    warn!(%error, "gateway accept failed");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-        }
-    }
-
-    fn local_addr(&self) -> io::Result<Self::Addr> {
-        self.listener.local_addr()
-    }
-}
-
-impl AsyncRead for CappedStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_read(context, buffer)
-    }
-}
-
-impl AsyncWrite for CappedStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-        buffer: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.stream).poll_write(context, buffer)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_flush(context)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.stream).poll_shutdown(context)
-    }
+fn drone_dashboard_max_chunks() -> u64 {
+    std::env::var("YUKKI_DRONE_DASHBOARD_MAX_CHUNKS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_DRONE_DASHBOARD_MAX_CHUNKS)
 }
 
 async fn authenticate_and_limit(
@@ -213,8 +158,9 @@ async fn authenticate_and_limit(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    // The dashboard page is static and carries no data; every data route stays authenticated.
-    if request.uri().path() != "/dashboard" && !authorized(request.headers(), &state.auth) {
+    let path = request.uri().path();
+    let drone_dashboard = path.starts_with("/dashboard/drones");
+    if path != "/dashboard" && !drone_dashboard && !authorized(request.headers(), &state.auth) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ErrorBody {
@@ -222,6 +168,9 @@ async fn authenticate_and_limit(
             }),
         )
             .into_response();
+    }
+    if drone_dashboard && !drone_dashboard_enabled() {
+        return StatusCode::NOT_FOUND.into_response();
     }
     match timeout(HTTP_REQUEST_TIMEOUT, next.run(request)).await {
         Ok(response) => response,
@@ -266,6 +215,53 @@ async fn dashboard() -> Response {
         DASHBOARD_HTML,
     )
         .into_response()
+}
+
+async fn list_drones(State(state): State<GatewayState>) -> Response {
+    if !drone_dashboard_enabled() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let mut drones = Vec::new();
+    let max_chunks = drone_dashboard_max_chunks();
+    match state.registry.list_streams() {
+        Ok(streams) => {
+            for stream in streams {
+                drones.push(serde_json::json!({
+                    "id": stream.id,
+                    "stream_id": stream.id,
+                    "name": stream.name,
+                    "kind": stream.kind,
+                    "status": stream.status,
+                    "max_chunks": max_chunks,
+                    "source": "gateway"
+                }));
+            }
+            Json(drones).into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn describe_drone(State(state): State<GatewayState>, Path(id): Path<String>) -> Response {
+    if !drone_dashboard_enabled() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    match state.registry.describe(&id) {
+        Ok(stream) => Json(serde_json::json!({
+            "id": id,
+            "stream_id": stream.id,
+            "name": stream.name,
+            "kind": stream.kind,
+            "status": stream.status,
+            "max_chunks": drone_dashboard_max_chunks(),
+            "summary": "optional drone dashboard record"
+        }))
+        .into_response(),
+        Err(RegistryError::StreamNotFound(_)) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
 }
 
 async fn list_streams(State(state): State<GatewayState>) -> Response {
@@ -477,6 +473,16 @@ mod tests {
         headers.remove(header::AUTHORIZATION);
         assert!(!authorized(&headers, &auth));
         assert!(authorized(&HeaderMap::new(), &GatewayAuth::InsecureDev));
+    }
+
+    #[test]
+    fn drone_dashboard_routes_are_disabled_until_enabled() {
+        let original = std::env::var("YUKKI_DRONE_DASHBOARD_ENABLED").ok();
+        std::env::remove_var("YUKKI_DRONE_DASHBOARD_ENABLED");
+        assert!(!drone_dashboard_enabled());
+        if let Some(value) = original {
+            std::env::set_var("YUKKI_DRONE_DASHBOARD_ENABLED", value);
+        }
     }
 
     fn auth_token(auth: &GatewayAuth) -> &str {
