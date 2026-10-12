@@ -1,4 +1,4 @@
-# YuKKi OS v6.9.0 — Deployment Guide
+# YuKKi OS v6.9.5 — Deployment Guide
 
 ## Supported runtime shape
 
@@ -6,6 +6,7 @@ Current CLI supports:
 
 - `bootstrap <bind-address>`
 - `node <bootstrap-address> <advertised-address>`
+- `gateway [listen-address] [--insecure-dev]`
 
 No interactive in-process command console is implemented.
 
@@ -45,12 +46,19 @@ export YUKKI_PSK_HEX="<64-hex-characters>"
 
 ```bash
 export RUST_LOG=info
+export YUKKI_GATEWAY_TOKEN="<bearer-token>"
+export YUKKI_GATEWAY_LISTEN=127.0.0.1:7670
 export YUKKI_BROKER_ENDPOINT=127.0.0.1:9000
 export YUKKI_BROKER_CONNECT_TIMEOUT_MS=3000
 export YUKKI_BROKER_REQUEST_TIMEOUT_MS=5000
 export YUKKI_BROKER_MAX_FRAME_BYTES=65536
 export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
 ```
+
+The gateway token is required unless `--insecure-dev` is explicitly selected
+for local development. The optional node gateway shares the node's in-memory
+store; a standalone gateway owns a separate store. The `/dashboard` page is
+public, but its stream data API remains bearer-token authenticated.
 
 `YUKKI_BROKER_CONNECT_TIMEOUT_MS` and `YUKKI_BROKER_REQUEST_TIMEOUT_MS` must
 each be greater than `0` and no more than `600000` (10 minutes); values
@@ -94,13 +102,13 @@ See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for hardened service examples, env fi
 Build image:
 
 ```bash
-docker build -t yukkios:6.9.0 .
+docker build -t yukkios:6.9.5 .
 ```
 
 Run bootstrap:
 
 ```bash
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.9.0 bootstrap 0.0.0.0:7660
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.9.5 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: container image does not add TLS/mTLS termination; deploy with external network controls.

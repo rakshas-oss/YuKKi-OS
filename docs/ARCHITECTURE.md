@@ -1,8 +1,8 @@
-# YuKKi OS v6.9.3 — Architecture
+# YuKKi OS v6.9.5 — Architecture
 
 ## Scope
 
-This document describes the architecture implemented in the current repository state, v6.9.3 stable release.
+This document describes the architecture implemented in the current repository state, v6.9.5 stable release.
 
 ## Runtime topology
 
@@ -107,12 +107,15 @@ request handling at 30 seconds; WebSockets use 60-second idle timeouts with
 
 The mesh distributes discovery metadata. `src/stream_relay.rs` adds an opt-in
 `StreamRelay` that mirrors a remotely discovered stream into the local store via
-a pluggable `ChunkSource` (for example an HTTP client for the origin's range
-endpoint). All local subscribers share one rate-limited upstream pull per
-stream, and the mirror is an ordinary local stream, so downstream nodes can
-relay from it to form fan-out trees. `stream_gateway::serve_with_relay` uses it
-for remote WebSocket tune-in; plain `serve` still returns `501` for remote
-streams, and no built-in `ChunkSource` implementation ships yet.
+a pluggable `ChunkSource`. `OriginChunkClient` implements this interface for
+the origin gateway's HTTP descriptor and range endpoints, using plain HTTP and
+an optional bearer token. All local subscribers share one rate-limited upstream
+pull per stream, and the mirror is an ordinary local stream, so downstream
+nodes can relay from it to form fan-out trees. `stream_gateway::serve_with_relay`
+uses a configured relay for remote WebSocket tune-in; plain `serve` still
+returns `501` for remote streams. The current descriptors do not include codec
+metadata, so `OriginChunkClient` reports the codec as `unknown`; applications
+must account for this when relaying media.
 The standalone `gateway` command
 owns a separate in-memory store, while the optional node gateway shares that
 node's store and registry.
@@ -152,4 +155,5 @@ or equivalent deployment boundary.
 - No built-in TLS/mTLS transport wrapping for peer or broker sockets
 - No persistent runtime state store
 - No HTTP health endpoint; health is log- and process-state based
-- No remote stream media relay or upstream sharing
+- Remote stream relay requires application wiring; the CLI does not configure
+  an origin client or relay automatically

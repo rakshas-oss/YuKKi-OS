@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-### Stream selection, gateway, discovery, and WASM access
+## v6.9.5 (current)
+
+### Remote stream relay, origin client, dashboard, and WASM access
 
 - Added `StreamRegistry` descriptors derived from live store lifecycle snapshots,
   bounded per-subscriber cursors, aggregate acknowledgements, hop-limited
@@ -12,10 +14,16 @@
   WebSocket chunk endpoint. Added gateway and `streams list`/`streams tune`
   CLI commands; gateway startup requires `YUKKI_GATEWAY_TOKEN` unless the
   explicit `--insecure-dev` option is used.
+- Added the gateway stream dashboard at `/dashboard`; its static page is public,
+  while stream data requests still require the bearer token.
 - Nodes relay bounded stream announcements and digest messages over the
-  existing authenticated encrypted bootstrap transport. Discovery does not
-  relay media chunks: remote tune-in and shared upstream pulls remain
-  unsupported.
+  existing authenticated encrypted bootstrap transport.
+- Added `StreamRelay` to mirror discovered remote streams locally with shared,
+  rate-limited upstream pulls, plus `OriginChunkClient` for authenticated HTTP
+  metadata and chunk-range requests. Applications opt in by wiring a relay into
+  `serve_with_relay`; the CLI does not configure an origin or relay automatically.
+- The origin client uses plain HTTP, with bounded I/O and response sizes; use a
+  trusted network or TLS-terminating proxy.
 - Added the optional Wasmtime `env::yukki_select_stream` host import, which
   copies one bounded encoded YKMC chunk from a host store into validated guest
   memory without exposing native pointers.
@@ -42,7 +50,7 @@
   non-finite numbers.
 - Documented the wire contract and adapter usage in `docs/API.md`.
 
-## v6.9.3 (current)
+## v6.9.3
 
 ### Version bump and documentation refresh
 

@@ -1,12 +1,12 @@
-# YuKKi OS v6.9.3
+# YuKKi OS v6.9.5
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
-> Production baseline: v6.9.3 is the current stable release line. It is intended for validation, experimentation, and deployment with the caveat that independent security review remains recommended for production use.
+> Current stable release: v6.9.5. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.9.3**
+- Release line: **v6.9.5**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
@@ -22,8 +22,9 @@ yukki_core_node streams list
 yukki_core_node streams tune <stream-id> [--from <seq>]
 ```
 
-The gateway defaults to `127.0.0.1:7670`. Set `YUKKI_GATEWAY_TOKEN` before
-starting `gateway`; the explicit `--insecure-dev` option is for local
+The gateway defaults to `127.0.0.1:7670`. Open `/dashboard` for the stream
+dashboard and enter the gateway bearer token to load stream data. Set
+`YUKKI_GATEWAY_TOKEN` before starting `gateway`; the explicit `--insecure-dev` option is for local
 development only. A node also starts its gateway when that token is set.
 `YUKKI_GATEWAY_LISTEN` configures the node's listener and
 `YUKKI_GATEWAY_ENDPOINT` configures the `streams` CLI target.
@@ -91,10 +92,13 @@ binary frames and explicit acknowledgements.
 The default store retains at most 256 chunks (256 KiB maximum each); it does
 not transcode media. Nodes exchange bounded stream announcements and
 low-frequency digest summaries over the existing authenticated mesh transport.
-Remote stream selection is discoverable, but remote chunk relay/upstream
-sharing is not implemented yet; remote WebSocket tune-in currently returns
-`501`. A standalone `gateway` has its own in-memory store; use the node's
-gateway or embed the library gateway with the producer's shared store.
+`StreamRelay` can mirror discovered remote streams into a local store, sharing
+one upstream pull among local subscribers and enabling relay fan-out. The
+library includes `OriginChunkClient` for authenticated HTTP range reads from an
+origin gateway. Applications must wire these into `serve_with_relay`; the CLI
+does not configure a relay automatically. The standalone `gateway` command
+owns its own in-memory store. The origin client uses plain HTTP, so use a
+trusted network or a TLS-terminating proxy.
 WASM guests can select bounded binary chunks through a checked host import;
 they never receive raw store pointers.
 
@@ -139,7 +143,7 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 
 ## Documentation
 
-- [docs/RELEASE_v6.9.0.md](docs/RELEASE_v6.9.0.md)
+- [docs/RELEASE_v6.9.5.md](docs/RELEASE_v6.9.5.md)
 - [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md)
@@ -156,8 +160,8 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.9.3 .
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> yukkios:6.9.3 bootstrap 0.0.0.0:7660
+docker build -t yukkios:6.9.5 .
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> yukkios:6.9.5 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.

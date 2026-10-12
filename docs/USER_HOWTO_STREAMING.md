@@ -27,7 +27,7 @@ same `YUKKI_PSK_HEX` there):
 ./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
-The peer mesh distributes stream descriptors. Set the same gateway token in
+The peer mesh distributes stream descriptors. Set a gateway token in
 each node's environment to start its loopback HTTP/WebSocket gateway alongside
 the node process:
 
@@ -57,10 +57,11 @@ big-endian sequence prefix followed by a YKMC frame. A client must acknowledge
 each sequence using `{"type":"ack","sequence":N}`. Finished streams close
 cleanly, and slow consumers receive an explicit lagged signal.
 
-Discovery descriptors are announced through the authenticated peer mesh and
-periodic digest summaries repair missed announcements. Remote chunk fetching
-and relay are not implemented yet: selecting a remotely discovered stream over
-WebSocket returns HTTP 501. There is no built-in TLS; use a trusted reverse
+The dashboard is available at `/dashboard`. The static page does not require
+authentication, but enter the bearer token in the page to access the protected
+stream API; the token remains in page memory. Discovery descriptors are
+announced through the authenticated peer mesh and periodic digest summaries
+repair missed announcements. There is no built-in TLS; use a trusted reverse
 proxy for any non-loopback deployment.
 
 ## Stream media and data chunks
@@ -217,27 +218,29 @@ not grant stream access.
 The stream gateway does not register the deploy handler. Do not expose
 `handle_deploy` on an unauthenticated endpoint.
 
-## Workaround for remote streams
+## Relaying remote streams
 
-Until remote chunk fetching and relay trees exist, use the mesh only to
-discover which node owns a stream, then pull from that origin directly:
+The library provides `StreamRelay` for mirroring a remotely discovered stream
+into a local store, and `OriginChunkClient` as a `ChunkSource` for reading
+descriptors and chunk ranges from an origin gateway over HTTP. Applications
+can pass the relay to `stream_gateway::serve_with_relay`; local subscribers
+share a rate-limited upstream pull, and the mirrored stream can be relayed
+further to form a fan-out tree.
 
-1. Read the remote descriptor from the local registry to find the owning node.
-2. Point a client (or a producer on your node) at that node's authenticated
-   gateway HTTP range endpoints and fetch chunks there.
-3. To share one upstream pull among many local viewers, have one local process
-   fetch from the origin and publish the chunks into the local
-   `LiveMediaStreams`; local viewers then tune in to the local gateway.
-4. For fan-out, place a reverse proxy (with TLS and auth) in front of the
-   origin gateway and chain such local republishers manually.
+The CLI does not configure the origin client or relay automatically. An
+application must construct these library components and supply the origin
+gateway address and its bearer token. `OriginChunkClient` uses plain HTTP and
+returns codec metadata as `unknown` because stream descriptors currently do
+not include a codec; applications must account for this before relaying media.
+Use a trusted network or TLS-terminating proxy for origin traffic.
 
 ## Limitations and security
 
 - `LiveMediaStreams` is in-process memory only; the mesh shares bounded
   discovery metadata, not media chunks or persistence.
-- Remote tune-in requires `StreamRelay` with an application-provided
-  `ChunkSource`; no default network source ships, and a relayed stream is
-  reported as locally owned once mirrored.
+- Remote tune-in requires an application-wired `StreamRelay`; the standard CLI
+  does not configure the relay. A relayed stream is reported as locally owned
+  once mirrored.
 - The standalone gateway owns an empty in-memory store unless an application
   embeds it alongside its producer and shared stream store.
 - Media payloads are passed through unchanged; there is no transcoding.

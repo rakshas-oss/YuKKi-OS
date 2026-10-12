@@ -1,4 +1,21 @@
-# YuKKi OS v6.9.3 — API and ABI Reference
+# YuKKi OS v6.9.5 — API and ABI Reference
+
+## Stream dashboard and relay
+
+The gateway serves a static stream dashboard at `/dashboard`. The page itself
+is unauthenticated; it requires the gateway bearer token in the page to load
+stream data from the authenticated API.
+
+`OriginChunkClient` implements `ChunkSource` for an origin gateway's HTTP
+descriptor and chunk-range endpoints. It accepts an origin `SocketAddr`, an
+optional bearer token, and a configurable timeout. It uses plain HTTP (no TLS),
+limits response headers and bodies, and reports the codec as `unknown` because
+stream descriptors do not carry codec metadata.
+
+`StreamRelay` mirrors a discovered remote stream into a local store. Applications
+can pass the relay to `stream_gateway::serve_with_relay` to enable remote
+WebSocket tune-in. The standard CLI does not configure an origin client or
+relay; applications must construct and wire these library components.
 
 ## CLI API (`src/main.rs`)
 
