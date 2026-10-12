@@ -2,7 +2,24 @@
 
 ## Unreleased
 
-### Stream selection, gateway, discovery, and WASM access
+## v6.9.5 (current)
+
+### Remote stream relay and dashboard
+
+- Added `StreamRelay` to mirror discovered remote streams locally with shared,
+  rate-limited upstream pulls, plus `OriginChunkClient` for authenticated HTTP
+  metadata and chunk-range requests.
+- Added the gateway stream dashboard at `/dashboard`; its static page is public,
+  while stream data requests still require the bearer token.
+- Applications opt in by wiring a relay into `serve_with_relay`; the CLI does
+  not configure an origin or relay automatically.
+- The origin client uses plain HTTP, with bounded I/O and response sizes; use a
+  trusted network or TLS-terminating proxy. Origin descriptors omit codec
+  metadata, so `OriginChunkClient` reports the codec as `unknown`.
+
+## v6.9.3
+
+### Stream registry, gateway, discovery, and WASM access
 
 - Added `StreamRegistry` descriptors derived from live store lifecycle snapshots,
   bounded per-subscriber cursors, aggregate acknowledgements, hop-limited
@@ -13,36 +30,13 @@
   CLI commands; gateway startup requires `YUKKI_GATEWAY_TOKEN` unless the
   explicit `--insecure-dev` option is used.
 - Nodes relay bounded stream announcements and digest messages over the
-  existing authenticated encrypted bootstrap transport. Discovery does not
-  relay media chunks: remote tune-in and shared upstream pulls remain
-  unsupported.
+  existing authenticated encrypted bootstrap transport.
 - Added the optional Wasmtime `env::yukki_select_stream` host import, which
   copies one bounded encoded YKMC chunk from a host store into validated guest
   memory without exposing native pointers.
 - Added registry, gateway HTTP/WebSocket/auth, subscriber backpressure, and
   WASM selector tests; documented operational limits and TLS reverse-proxy
   guidance.
-
-### NXR1 geospatial frame interoperability
-
-- Added `src/nxr1.rs`: a dependency-free NXR1 binary codec for
-  `geospatial.frame.v1` messages, matching the `rakshas-oss/overhauled`
-  wire contract (magic `0x4E585231`, version `1`, big-endian fixed
-  geospatial/velocity/fluidity/drag/divergence fields, `u32` BE
-  length-prefixed opaque payload).
-- Added `to_broker_task`/`from_broker_task` adapters that carry an
-  `Nxr1Frame` inside the existing `BrokerTask` JSON envelope (kind
-  `geospatial.frame.v1`) over the existing `BrokerClient` TCP transport,
-  rather than introducing a second, conflicting binary protocol.
-- Re-exported the new types from `src/lib.rs` alongside the existing
-  `broker_client` exports.
-- Added unit tests (in `src/nxr1.rs`) and an integration test
-  (`tests/test_nxr1.rs`) covering round trips plus malformed input:
-  truncation, bad magic/version, trailing bytes, oversized payload, and
-  non-finite numbers.
-- Documented the wire contract and adapter usage in `docs/API.md`.
-
-## v6.9.3 (current)
 
 ### Version bump and documentation refresh
 
@@ -73,6 +67,17 @@
 - Refreshed active documentation, examples, and version metadata references
 
 ## v6.7.0 (archived)
+
+### NXR1 geospatial frame interoperability
+
+- Added `src/nxr1.rs`: a dependency-free NXR1 binary codec for
+  `geospatial.frame.v1` messages, matching the `rakshas-oss/overhauled`
+  wire contract (magic `0x4E585231`, version `1`, big-endian fixed
+  geospatial/velocity/fluidity/drag/divergence fields, `u32` BE
+  length-prefixed opaque payload).
+- Added `to_broker_task`/`from_broker_task` adapters to carry NXR1 frames in the
+  existing `BrokerTask` JSON envelope and documented the wire contract in
+  `docs/API.md`.
 
 ### Baseline cleanup and coherence refresh
 

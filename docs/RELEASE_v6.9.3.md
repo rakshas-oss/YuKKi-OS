@@ -4,7 +4,7 @@
 
 ## Summary
 
-This release advances the active YuKKi-OS baseline from v6.9.0 to v6.9.3.
+This release advanced the active YuKKi-OS baseline from v6.9.0 to v6.9.3.
 It refreshes the README, version metadata, Docker image metadata, and
 release references while keeping the `yukki_core_node` executable name and
 library crate naming stable.

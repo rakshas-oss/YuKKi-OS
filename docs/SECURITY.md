@@ -1,4 +1,4 @@
-# YuKKi OS v6.9.0 — Security Notes
+# YuKKi OS v6.9.5 — Security Notes
 
 > Research/demo software. Do not expose directly to untrusted networks.
 
@@ -38,7 +38,9 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
   ranges, and idle time are bounded. WebSocket clients must acknowledge each
   frame before the next is sent.
 - Stream discovery metadata is relayed only over the authenticated encrypted
-  peer transport. Remote media chunk relay is not implemented.
+  peer transport. Remote media relay is an application-configured feature;
+  `OriginChunkClient` uses plain HTTP and must only connect over a trusted link
+  or through a TLS-terminating proxy.
 
 ## Memory safety controls
 
