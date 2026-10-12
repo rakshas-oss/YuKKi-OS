@@ -1,171 +1,378 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YuKKi-OS Dashboard</title>
-<style>
-:root{color-scheme:light dark;--bg:#f5f6f8;--fg:#14171c;--card:#fff;--mut:#5b6472;--bd:#d6dae1;--ac:#2563eb;--ok:#15803d;--bad:#b91c1c}
-@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--fg:#e6e9ee;--card:#171b22;--mut:#9aa4b2;--bd:#2b323d;--ac:#60a5fa;--ok:#4ade80;--bad:#f87171}}
-*{box-sizing:border-box}
-body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
-header{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--bd);background:var(--card)}
-h1{font-size:1.1rem;margin:0}h2{font-size:1rem;margin:0 0 .5rem}
-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;padding:1rem}
-@media (max-width:800px){main{grid-template-columns:1fr}}
-section{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:1rem;min-width:0}
-input,button,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:.4rem .6rem}
-button{cursor:pointer}button:hover{border-color:var(--ac)}
-:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
-.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
-table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--bd);overflow-wrap:anywhere}
-th{color:var(--mut);font-weight:600;font-size:.85rem}
-tbody tr[tabindex]{cursor:pointer}tbody tr[aria-selected=true]{background:color-mix(in srgb,var(--ac) 15%,transparent)}
-.badge{padding:.05rem .5rem;border-radius:999px;border:1px solid currentColor;font-size:.8rem}
-.active{color:var(--ok)}.finished{color:var(--mut)}
-.mut{color:var(--mut)}#msg{min-height:1.5em}#msg.err{color:var(--bad)}
-.stats{display:flex;gap:1rem;flex-wrap:wrap}.stat b{display:block;font-size:1.4rem}
-@media (prefers-reduced-motion:no-preference){tbody tr{transition:background .15s}}
-</style>
-</head>
-<body>
-<header>
-<h1>YuKKi-OS Gateway Dashboard</h1>
-<form id="auth" class="row" autocomplete="off">
-<label for="token" class="mut">Token</label>
-<input id="token" type="password" placeholder="gateway token" aria-describedby="msg">
-<button type="submit">Connect</button>
-<button type="button" id="pause" aria-pressed="false">Pause</button>
-</form>
-</header>
-<p id="msg" role="status" aria-live="polite" style="padding:0 1rem"></p>
-<main>
-<section aria-labelledby="sh">
-<h2 id="sh">Streams</h2>
-<div class="stats" aria-label="Summary">
-<div class="stat"><b id="n-total">–</b><span class="mut">total</span></div>
-<div class="stat"><b id="n-active">–</b><span class="mut">active</span></div>
-<div class="stat"><b id="n-fin">–</b><span class="mut">finished</span></div>
-</div>
-<div class="row" style="margin:.75rem 0">
-<label for="q" class="mut">Filter</label><input id="q" type="search" placeholder="id, name, origin">
-<label for="st" class="mut">Status</label>
-<select id="st"><option value="">all</option><option>active</option><option>finished</option></select>
-</div>
-<table><caption class="mut" style="text-align:left">Select a row (Enter or click) to inspect it.</caption>
-<thead><tr><th scope="col">Stream</th><th scope="col">Kind</th><th scope="col">Status</th><th scope="col">Latest seq</th><th scope="col">Origin</th></tr></thead>
-<tbody id="rows"></tbody></table>
-<p id="empty" class="mut" hidden>No streams match.</p>
-</section>
-<section aria-labelledby="dh">
-<h2 id="dh">Details</h2>
-<p id="detail-empty" class="mut">No stream selected.</p>
-<div id="detail" hidden>
-<dl id="meta" style="display:grid;grid-template-columns:auto 1fr;gap:.2rem 1rem;margin:0 0 1rem"></dl>
-<h3 style="font-size:.95rem;margin:0 0 .25rem">Most recent chunks</h3>
-<table><thead><tr><th scope="col">Seq</th><th scope="col">Time (ms)</th><th scope="col">Keyframe</th><th scope="col">Bytes</th></tr></thead><tbody id="chunks"></tbody></table>
-</div>
-</section>
-</main>
-<script>
-"use strict";
-const REFRESH_MS = 3000, CHUNKS = 8;
-let token = "", selected = null, streams = [], paused = false, timer = null;
-const $ = id => document.getElementById(id);
+#![allow(dead_code)]
 
-function say(text, err) { const m = $("msg"); m.textContent = text; m.className = err ? "err" : ""; }
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
-async function api(path) {
-  const r = await fetch(path, { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
-  if (r.status === 401) { throw new Error("Unauthorized: check the bearer token."); }
-  if (!r.ok) { throw new Error("Request failed (HTTP " + r.status + ")."); }
-  return r.json();
+use axum::serve::Listener;
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        DefaultBodyLimit, Path, Query, State,
+    },
+    http::{header, HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    net::{TcpListener, TcpStream},
+    sync::Semaphore,
+    time::{interval, timeout, MissedTickBehavior},
+};
+use tracing::warn;
+
+use crate::{
+    media_codec::{LiveMediaStreams, MediaChunk, MediaError},
+    mesh::{MeshSnapshot, MeshStore, demo_mesh_nodes},
+    stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
+    stream_relay::{RelayError, StreamRelay},
+};
+
+const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+const MAX_HTTP_BODY_BYTES: usize = 1024;
+const MAX_RANGE_CHUNKS: u64 = 8;
+const MAX_CONNECTIONS: usize = 128;
+const MAX_WS_FRAME_BYTES: usize = crate::media_codec::MEDIA_CHUNK_HEADER_LEN
+    + crate::media_codec::MEDIA_MAX_STREAM_ID_BYTES
+    + crate::media_codec::MEDIA_MAX_CODEC_BYTES
+    + crate::media_codec::MEDIA_MAX_CHUNK_BYTES
+    + 8;
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const PING_INTERVAL: Duration = Duration::from_secs(20);
+const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MESH_DEMO_BBOX: &str = "-122.48,37.76,-122.35,37.79";
+
+#[derive(Clone)]
+pub enum GatewayAuth {
+    Bearer(String),
+    InsecureDev,
 }
 
-function cell(tr, text, cls) {
-  const td = document.createElement("td");
-  if (cls) { const s = document.createElement("span"); s.className = cls; s.textContent = text; td.appendChild(s); }
-  else { td.textContent = text; }
-  tr.appendChild(td);
+#[derive(Clone)]
+struct GatewayState {
+    streams: Arc<LiveMediaStreams>,
+    registry: StreamRegistry,
+    auth: GatewayAuth,
+    relay: Option<Arc<StreamRelay>>,
+    mesh: Arc<MeshStore>,
 }
 
-function render() {
-  const q = $("q").value.trim().toLowerCase(), st = $("st").value;
-  const shown = streams.filter(s => (!st || s.status === st) &&
-    (!q || [s.id, s.name, s.origin_node].some(v => String(v).toLowerCase().includes(q))));
-  $("n-total").textContent = streams.length;
-  $("n-active").textContent = streams.filter(s => s.status === "active").length;
-  $("n-fin").textContent = streams.filter(s => s.status === "finished").length;
-  const body = $("rows"); body.replaceChildren();
-  for (const s of shown) {
-    const tr = document.createElement("tr");
-    tr.tabIndex = 0; tr.setAttribute("aria-selected", String(s.id === selected));
-    cell(tr, s.name && s.name !== s.id ? s.name + " (" + s.id + ")" : s.id);
-    cell(tr, s.kind);
-    cell(tr, s.status, "badge " + s.status);
-    cell(tr, s.latest_seq === null ? "–" : s.latest_seq);
-    cell(tr, s.origin_node);
-    const pick = () => { selected = s.id; render(); loadDetail(); };
-    tr.addEventListener("click", pick);
-    tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
-    body.appendChild(tr);
-  }
-  $("empty").hidden = shown.length > 0;
+#[derive(Deserialize)]
+struct ChunkQuery { from: u64, limit: Option<u64> }
+#[derive(Deserialize)]
+struct StreamQuery { from: Option<u64> }
+#[derive(Deserialize)]
+struct ClientAck { r#type: String, sequence: u64 }
+#[derive(Serialize)]
+struct ErrorBody { error: &'static str }
+
+#[derive(Deserialize)]
+struct MeshQuery {
+    bbox: Option<String>,
+    limit: Option<usize>,
+    since: Option<u64>,
 }
 
-async function loadDetail() {
-  if (!selected) { return; }
-  const id = selected;
-  try {
-    const d = await api("/v1/streams/" + encodeURIComponent(id));
-    const meta = $("meta"); meta.replaceChildren();
-    for (const k of ["id", "name", "kind", "status", "origin_node", "latest_seq", "updated_at"]) {
-      const dt = document.createElement("dt"), dd = document.createElement("dd");
-      dt.className = "mut"; dt.textContent = k; dd.style.margin = "0";
-      dd.textContent = k === "updated_at" ? new Date(d[k] * 1000).toLocaleString() : String(d[k] ?? "–");
-      meta.append(dt, dd);
+#[cfg(feature = "mesh_dashboard")]
+pub async fn serve_with_mesh(
+    listener: TcpListener,
+    streams: Arc<LiveMediaStreams>,
+    registry: StreamRegistry,
+    auth: GatewayAuth,
+    relay: Option<Arc<StreamRelay>>,
+) -> std::io::Result<()> {
+    let mesh = Arc::new(MeshStore::new());
+    for node in demo_mesh_nodes() {
+        mesh.upsert_node(node);
     }
-    const rows = $("chunks"); rows.replaceChildren();
-    if (d.latest_seq !== null && d.latest_seq !== undefined) {
-      const from = Math.max(0, d.latest_seq - (CHUNKS - 1));
-      const list = await api("/v1/streams/" + encodeURIComponent(id) + "/chunks?from=" + from + "&limit=" + (d.latest_seq - from + 1))
-        .catch(() => []);
-      for (const c of list.reverse()) {
-        const tr = document.createElement("tr");
-        cell(tr, c.sequence_no); cell(tr, c.timestamp_ms);
-        cell(tr, c.is_keyframe ? "yes" : "no"); cell(tr, c.payload.length);
-        rows.appendChild(tr);
-      }
+    let state = GatewayState {
+        streams,
+        registry,
+        auth,
+        relay,
+        mesh,
+    };
+    let app = Router::new()
+        .route("/dashboard", get(dashboard))
+        .route("/v1/streams", get(list_streams))
+        .route("/v1/streams/{id}", get(describe_stream))
+        .route("/v1/streams/{id}/chunks", get(read_chunks))
+        .route("/v1/streams/{id}/ws", get(websocket_tune_in))
+        .route("/v1/mesh", get(mesh_state))
+        .with_state(state.clone())
+        .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
+        .layer(middleware::from_fn_with_state(state, authenticate_and_limit));
+    axum::serve(
+        CappedListener { listener, permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)) },
+        app,
+    )
+    .await
+}
+
+#[cfg(not(feature = "mesh_dashboard"))]
+pub async fn serve_with_mesh(
+    listener: TcpListener,
+    streams: Arc<LiveMediaStreams>,
+    registry: StreamRegistry,
+    auth: GatewayAuth,
+    relay: Option<Arc<StreamRelay>>,
+) -> std::io::Result<()> {
+    let state = GatewayState { streams, registry, auth, relay, mesh: Arc::new(MeshStore::new()) };
+    let app = Router::new().route("/dashboard", get(dashboard)).route("/v1/streams", get(list_streams)).route("/v1/streams/{id}", get(describe_stream)).route("/v1/streams/{id}/chunks", get(read_chunks)).route("/v1/streams/{id}/ws", get(websocket_tune_in)).with_state(state.clone()).layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES)).layer(middleware::from_fn_with_state(state, authenticate_and_limit));
+    axum::serve(CappedListener { listener, permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)) }, app).await
+}
+
+async fn mesh_state(State(state): State<GatewayState>, Query(query): Query<MeshQuery>) -> Response {
+    if let Some(bbox) = query.bbox {
+        let mut parts = bbox.split(',');
+        let (Some(min_lon), Some(min_lat), Some(max_lon), Some(max_lat)) = (
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+        ) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        let limit = query.limit.unwrap_or(500).min(5000);
+        let nodes = state.mesh.query_bbox(min_lon, min_lat, max_lon, max_lat, limit, query.since);
+        return Json(MeshSnapshot { nodes, generated_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }).into_response();
     }
-    $("detail").hidden = false; $("detail-empty").hidden = true;
-  } catch (e) { say(e.message, true); }
+    Json(state.mesh.snapshot()).into_response()
 }
 
-async function refresh() {
-  if (!token || paused) { return; }
-  try {
-    streams = await api("/v1/streams");
-    say("Updated " + new Date().toLocaleTimeString() + ".");
-    render();
-    if (selected && streams.some(s => s.id === selected)) { await loadDetail(); }
-  } catch (e) { say(e.message, true); }
+async fn dashboard() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://*.tile.openstreetmap.org; font-src 'self' data: https://unpkg.com; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            ),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        DASHBOARD_HTML,
+    )
+        .into_response()
 }
 
-$("auth").addEventListener("submit", e => {
-  e.preventDefault();
-  token = $("token").value;
-  clearInterval(timer);
-  refresh(); timer = setInterval(refresh, REFRESH_MS);
-});
-$("pause").addEventListener("click", e => {
-  paused = !paused; e.target.setAttribute("aria-pressed", String(paused));
-  e.target.textContent = paused ? "Resume" : "Pause";
-  say(paused ? "Auto-refresh paused." : ""); if (!paused) { refresh(); }
-});
-$("q").addEventListener("input", render);
-$("st").addEventListener("change", render);
-say("Enter the gateway bearer token to begin. It is kept in memory only.");
-</script>
-</body>
-</html>
+async fn list_streams(State(state): State<GatewayState>) -> Response {
+    match state.registry.list_streams() {
+        Ok(streams) => Json(streams).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn describe_stream(State(state): State<GatewayState>, Path(id): Path<String>) -> Response {
+    match state.registry.describe(&id) {
+        Ok(stream) => Json(stream).into_response(),
+        Err(RegistryError::StreamNotFound(_)) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+async fn read_chunks(State(state): State<GatewayState>, Path(id): Path<String>, Query(query): Query<ChunkQuery>) -> Response {
+    let limit = query.limit.unwrap_or(1);
+    if limit == 0 || limit > MAX_RANGE_CHUNKS {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let Some(last) = query.from.checked_add(limit - 1) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match state.streams.get_range(&id, query.from, last) {
+        Ok(chunks) => Json(chunks).into_response(),
+        Err(MediaError::StreamNotFound(_)) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::RANGE_NOT_SATISFIABLE.into_response(),
+    }
+}
+
+async fn websocket_tune_in(State(state): State<GatewayState>, Path(id): Path<String>, Query(query): Query<StreamQuery>, websocket: WebSocketUpgrade) -> Response {
+    let from = query.from.unwrap_or(0);
+    let result = match state.relay.clone() {
+        Some(relay) => {
+            let id = id.clone();
+            match tokio::task::spawn_blocking(move || relay.tune_in(&id, from)).await {
+                Ok(Ok(subscription)) => Ok(subscription),
+                Ok(Err(RelayError::Registry(error))) => Err(error),
+                Ok(Err(RelayError::Upstream(_))) => return StatusCode::BAD_GATEWAY.into_response(),
+                _ => return StatusCode::BAD_REQUEST.into_response(),
+            }
+        }
+        None => state.registry.tune_in(&id, from),
+    };
+    let subscription = match result {
+        Ok(subscription) => subscription,
+        Err(RegistryError::StreamNotFound(_)) => return StatusCode::NOT_FOUND.into_response(),
+        Err(RegistryError::Invalid("remote stream subscription")) => return StatusCode::NOT_IMPLEMENTED.into_response(),
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    websocket.max_frame_size(MAX_WS_FRAME_BYTES).max_message_size(MAX_WS_FRAME_BYTES).on_upgrade(move |socket| websocket_session(socket, subscription, state.registry, state.relay, id))
+}
+
+async fn websocket_session(socket: WebSocket, mut subscription: Subscription, registry: StreamRegistry, relay: Option<Arc<StreamRelay>>, stream_id: String) {
+    let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
+    let mut ping = interval(PING_INTERVAL);
+    ping.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    ping.tick().await;
+    let mut poll = interval(STREAM_POLL_INTERVAL);
+    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut last_activity = Instant::now();
+    let mut awaiting_ack = None;
+    loop {
+        tokio::select! {
+            incoming = futures_util::StreamExt::next(&mut receiver) => {
+                match incoming {
+                    Some(Ok(Message::Text(text))) if text.len() <= 1024 => {
+                        let ack = serde_json::from_str::<ClientAck>(&text);
+                        match ack {
+                            Ok(ack) if ack.r#type == "ack" && awaiting_ack == Some(ack.sequence) => {
+                                if subscription.acknowledge_through(ack.sequence).is_err() {
+                                    close_policy(&mut sender).await;
+                                    break;
+                                }
+                                awaiting_ack = None;
+                                last_activity = Instant::now();
+                            }
+                            _ => {
+                                close_policy(&mut sender).await;
+                                break;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => last_activity = Instant::now(),
+                    Some(Ok(Message::Ping(payload))) => {
+                        if futures_util::SinkExt::send(&mut sender, Message::Pong(payload)).await.is_err() { break; }
+                        last_activity = Instant::now();
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {
+                        close_policy(&mut sender).await;
+                        break;
+                    }
+                }
+            }
+            _ = ping.tick() => {
+                if last_activity.elapsed() >= IDLE_TIMEOUT {
+                    let _ = futures_util::SinkExt::send(&mut sender, Message::Close(None)).await;
+                    break;
+                }
+                if futures_util::SinkExt::send(&mut sender, Message::Ping(Vec::new().into())).await.is_err() { break; }
+            }
+            _ = poll.tick(), if awaiting_ack.is_none() => {
+                match subscription.next_chunk() {
+                    Ok(SubscriptionRead::Chunk(chunk)) => {
+                        let sequence = chunk.sequence_no;
+                        let Ok(frame) = websocket_chunk_frame(&chunk) else { break; };
+                        match timeout(Duration::from_secs(30), futures_util::SinkExt::send(&mut sender, Message::Binary(frame.into()))).await {
+                            Ok(Ok(())) => awaiting_ack = Some(sequence),
+                            _ => break,
+                        }
+                    }
+                    Ok(SubscriptionRead::Waiting) => {
+                        if let Some(relay) = relay.clone().filter(|r| r.is_mirror(&stream_id)) {
+                            let id = stream_id.clone();
+                            let _ = tokio::task::spawn_blocking(move || relay.pump(&id)).await;
+                        }
+                    }
+                    Ok(SubscriptionRead::Finished) => {
+                        let _ = futures_util::SinkExt::send(&mut sender, Message::Close(None)).await;
+                        break;
+                    }
+                    Ok(SubscriptionRead::Lagged) => {
+                        let signal = serde_json::json!({ "type": "lagged", "next_seq": subscription.next_sequence() }).to_string();
+                        let _ = futures_util::SinkExt::send(&mut sender, Message::Text(signal.into())).await;
+                        close_policy(&mut sender).await;
+                        break;
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+    let _ = registry.tune_out(&subscription);
+}
+
+fn websocket_chunk_frame(chunk: &MediaChunk) -> Result<Vec<u8>, MediaError> {
+    let encoded = chunk.encode()?;
+    let mut frame = Vec::with_capacity(8 + encoded.len());
+    frame.extend_from_slice(&chunk.sequence_no.to_be_bytes());
+    frame.extend_from_slice(&encoded);
+    Ok(frame)
+}
+
+async fn close_policy<S>(sender: &mut S)
+where
+    S: futures_util::Sink<Message, Error = axum::Error> + Unpin,
+{
+    let close = Message::Close(Some(axum::extract::ws::CloseFrame {
+        code: axum::extract::ws::close_code::POLICY,
+        reason: "invalid stream control message".into(),
+    }));
+    let _ = futures_util::SinkExt::send(sender, close).await;
+}
+
+pub fn parse_listen_address(address: &str) -> Result<SocketAddr, std::net::AddrParseError> {
+    address.parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bearer_comparison_rejects_wrong_and_different_length_tokens() {
+        let auth = GatewayAuth::Bearer("secret-token".into());
+        let mut headers = HeaderMap::new();
+        let correct = ["Bearer ", auth_token(&auth)].concat();
+        headers.insert(header::AUTHORIZATION, correct.parse().unwrap());
+        assert!(authorized(&headers, &auth));
+        let incorrect = ["Bearer ", "wrong"].concat();
+        headers.insert(header::AUTHORIZATION, incorrect.parse().unwrap());
+        assert!(!authorized(&headers, &auth));
+        headers.remove(header::AUTHORIZATION);
+        assert!(!authorized(&headers, &auth));
+        assert!(authorized(&HeaderMap::new(), &GatewayAuth::InsecureDev));
+    }
+
+    fn auth_token(auth: &GatewayAuth) -> &str {
+        match auth {
+            GatewayAuth::Bearer(token) => token,
+            GatewayAuth::InsecureDev => "",
+        }
+    }
+}
+
+fn authorized(headers: &HeaderMap, auth: &GatewayAuth) -> bool {
+    match auth {
+        GatewayAuth::InsecureDev => true,
+        GatewayAuth::Bearer(token) => headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .is_some_and(|candidate| constant_time_token_eq(token.as_bytes(), candidate.as_bytes())),
+    }
+}
+
+fn constant_time_token_eq(expected: &[u8], actual: &[u8]) -> bool {
+    let expected_hash = Sha256::digest(expected);
+    let actual_hash = Sha256::digest(actual);
+    let mut difference = (expected.len() ^ actual.len()) as u64;
+    for (left, right) in expected_hash.iter().zip(actual_hash.iter()) {
+        difference |= u64::from(left ^ right);
+    }
+    difference == 0
+}

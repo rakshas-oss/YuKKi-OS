@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "yukki_core_node"
 path = "src/main.rs"
 
+[features]
+default = []
+mesh_dashboard = ["dep:rstar", "dep:serde_cbor"]
+
 [dependencies]
 byteorder = "1.5"
 tokio = { version = "1", features = ["full", "process"] }
@@ -31,6 +35,8 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 axum = { version = "0.8.9", features = ["json", "ws"] }
 tokio-tungstenite = "0.29.0"
+rstar = { version = "0.12", optional = true }
+serde_cbor = { version = "0.11", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
