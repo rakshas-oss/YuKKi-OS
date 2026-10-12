@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuKKi-OS Dashboard</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f6f8;--fg:#14171c;--card:#fff;--mut:#5b6472;--bd:#d6dae1;--ac:#2563eb;--ok:#15803d;--bad:#b91c1c}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--fg:#e6e9ee;--card:#171b22;--mut:#9aa4b2;--bd:#2b323d;--ac:#60a5fa;--ok:#4ade80;--bad:#f87171}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--bd);background:var(--card)}
+h1{font-size:1.1rem;margin:0}h2{font-size:1rem;margin:0 0 .5rem}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;padding:1rem}
+@media (max-width:800px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:1rem;min-width:0}
+input,button,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:.4rem .6rem}
+button{cursor:pointer}button:hover{border-color:var(--ac)}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--bd);overflow-wrap:anywhere}
+th{color:var(--mut);font-weight:600;font-size:.85rem}
+tbody tr[tabindex]{cursor:pointer}tbody tr[aria-selected=true]{background:color-mix(in srgb,var(--ac) 15%,transparent)}
+.badge{padding:.05rem .5rem;border-radius:999px;border:1px solid currentColor;font-size:.8rem}
+.active{color:var(--ok)}.finished{color:var(--mut)}
+.mut{color:var(--mut)}#msg{min-height:1.5em}#msg.err{color:var(--bad)}
+.stats{display:flex;gap:1rem;flex-wrap:wrap}.stat b{display:block;font-size:1.4rem}
+@media (prefers-reduced-motion:no-preference){tbody tr{transition:background .15s}}
+</style>
+</head>
+<body>
+<header>
+<h1>YuKKi-OS Gateway Dashboard</h1>
+<form id="auth" class="row" autocomplete="off">
+<label for="token" class="mut">Token</label>
+<input id="token" type="password" placeholder="gateway token" aria-describedby="msg">
+<button type="submit">Connect</button>
+<button type="button" id="pause" aria-pressed="false">Pause</button>
+</form>
+</header>
+<p id="msg" role="status" aria-live="polite" style="padding:0 1rem"></p>
+<main>
+<section aria-labelledby="sh">
+<h2 id="sh">Streams</h2>
+<div class="stats" aria-label="Summary">
+<div class="stat"><b id="n-total">–</b><span class="mut">total</span></div>
+<div class="stat"><b id="n-active">–</b><span class="mut">active</span></div>
+<div class="stat"><b id="n-fin">–</b><span class="mut">finished</span></div>
+</div>
+<div class="row" style="margin:.75rem 0">
+<label for="q" class="mut">Filter</label><input id="q" type="search" placeholder="id, name, origin">
+<label for="st" class="mut">Status</label>
+<select id="st"><option value="">all</option><option>active</option><option>finished</option></select>
+</div>
+<table><caption class="mut" style="text-align:left">Select a row (Enter or click) to inspect it.</caption>
+<thead><tr><th scope="col">Stream</th><th scope="col">Kind</th><th scope="col">Status</th><th scope="col">Latest seq</th><th scope="col">Origin</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<p id="empty" class="mut" hidden>No streams match.</p>
+</section>
+<section aria-labelledby="dh">
+<h2 id="dh">Details</h2>
+<p id="detail-empty" class="mut">No stream selected.</p>
+<div id="detail" hidden>
+<dl id="meta" style="display:grid;grid-template-columns:auto 1fr;gap:.2rem 1rem;margin:0 0 1rem"></dl>
+<h3 style="font-size:.95rem;margin:0 0 .25rem">Most recent chunks</h3>
+<table><thead><tr><th scope="col">Seq</th><th scope="col">Time (ms)</th><th scope="col">Keyframe</th><th scope="col">Bytes</th></tr></thead><tbody id="chunks"></tbody></table>
+</div>
+</section>
+</main>
+<script>
+"use strict";
+const REFRESH_MS = 3000, CHUNKS = 8;
+let token = "", selected = null, streams = [], paused = false, timer = null;
+const $ = id => document.getElementById(id);
+
+function say(text, err) { const m = $("msg"); m.textContent = text; m.className = err ? "err" : ""; }
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
+  if (r.status === 401) { throw new Error("Unauthorized: check the bearer token."); }
+  if (!r.ok) { throw new Error("Request failed (HTTP " + r.status + ")."); }
+  return r.json();
+}
+
+function cell(tr, text, cls) {
+  const td = document.createElement("td");
+  if (cls) { const s = document.createElement("span"); s.className = cls; s.textContent = text; td.appendChild(s); }
+  else { td.textContent = text; }
+  tr.appendChild(td);
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase(), st = $("st").value;
+  const shown = streams.filter(s => (!st || s.status === st) &&
+    (!q || [s.id, s.name, s.origin_node].some(v => String(v).toLowerCase().includes(q))));
+  $("n-total").textContent = streams.length;
+  $("n-active").textContent = streams.filter(s => s.status === "active").length;
+  $("n-fin").textContent = streams.filter(s => s.status === "finished").length;
+  const body = $("rows"); body.replaceChildren();
+  for (const s of shown) {
+    const tr = document.createElement("tr");
+    tr.tabIndex = 0; tr.setAttribute("aria-selected", String(s.id === selected));
+    cell(tr, s.name && s.name !== s.id ? s.name + " (" + s.id + ")" : s.id);
+    cell(tr, s.kind);
+    cell(tr, s.status, "badge " + s.status);
+    cell(tr, s.latest_seq === null ? "–" : s.latest_seq);
+    cell(tr, s.origin_node);
+    const pick = () => { selected = s.id; render(); loadDetail(); };
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+    body.appendChild(tr);
+  }
+  $("empty").hidden = shown.length > 0;
+}
+
+async function loadDetail() {
+  if (!selected) { return; }
+  const id = selected;
+  try {
+    const d = await api("/v1/streams/" + encodeURIComponent(id));
+    const meta = $("meta"); meta.replaceChildren();
+    for (const k of ["id", "name", "kind", "status", "origin_node", "latest_seq", "updated_at"]) {
+      const dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.className = "mut"; dt.textContent = k; dd.style.margin = "0";
+      dd.textContent = k === "updated_at" ? new Date(d[k] * 1000).toLocaleString() : String(d[k] ?? "–");
+      meta.append(dt, dd);
+    }
+    const rows = $("chunks"); rows.replaceChildren();
+    if (d.latest_seq !== null && d.latest_seq !== undefined) {
+      const from = Math.max(0, d.latest_seq - (CHUNKS - 1));
+      const list = await api("/v1/streams/" + encodeURIComponent(id) + "/chunks?from=" + from + "&limit=" + (d.latest_seq - from + 1))
+        .catch(() => []);
+      for (const c of list.reverse()) {
+        const tr = document.createElement("tr");
+        cell(tr, c.sequence_no); cell(tr, c.timestamp_ms);
+        cell(tr, c.is_keyframe ? "yes" : "no"); cell(tr, c.payload.length);
+        rows.appendChild(tr);
+      }
+    }
+    $("detail").hidden = false; $("detail-empty").hidden = true;
+  } catch (e) { say(e.message, true); }
+}
+
+async function refresh() {
+  if (!token || paused) { return; }
+  try {
+    streams = await api("/v1/streams");
+    say("Updated " + new Date().toLocaleTimeString() + ".");
+    render();
+    if (selected && streams.some(s => s.id === selected)) { await loadDetail(); }
+  } catch (e) { say(e.message, true); }
+}
+
+$("auth").addEventListener("submit", e => {
+  e.preventDefault();
+  token = $("token").value;
+  clearInterval(timer);
+  refresh(); timer = setInterval(refresh, REFRESH_MS);
+});
+$("pause").addEventListener("click", e => {
+  paused = !paused; e.target.setAttribute("aria-pressed", String(paused));
+  e.target.textContent = paused ? "Resume" : "Pause";
+  say(paused ? "Auto-refresh paused." : ""); if (!paused) { refresh(); }
+});
+$("q").addEventListener("input", render);
+$("st").addEventListener("change", render);
+say("Enter the gateway bearer token to begin. It is kept in memory only.");
+</script>
+</body>
+</html>
