@@ -1,12 +1,12 @@
-# YuKKi OS v6.9.5
+# YuKKi OS v6.9.6
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
-> Current stable release: v6.9.5. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Current stable release: v6.9.6. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.9.5**
+- Release line: **v6.9.6**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
@@ -137,13 +137,13 @@ CPU is the always-available correctness baseline; accelerators are optional, bes
 2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
 3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
 
-Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the task remains failed.
+Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the[...]
 
 See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
 
 ## Documentation
 
-- [docs/RELEASE_v6.9.5.md](docs/RELEASE_v6.9.5.md)
+- [docs/RELEASE_v6.9.6.md](docs/RELEASE_v6.9.6.md)
 - [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md)
@@ -160,8 +160,7 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.9.5 .
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> yukkios:6.9.5 bootstrap 0.0.0.0:7660
+docker build -t yukkios:6.9.6 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.

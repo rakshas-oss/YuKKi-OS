@@ -19,7 +19,7 @@ Output: `guest-worker/target/wasm32-wasip1/release/yukki_guest_worker.wasm`.
 
 ## Deploy
 
-For YuKKi-OS v6.9.5, the host-side ingest logic is
+For YuKKi-OS v6.9.6, the host-side ingest logic is
 `yukkios_6_8_0_inet3::wasm_ingest::handle_deploy`
 (max module size, `\0asm` check, only the `env.wasmtime_yield_xpu` import,
 required exports, fuel/epoch/memory limits, hex `X-YuKKi-Channel-Id`). The repo
