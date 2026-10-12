@@ -217,12 +217,27 @@ not grant stream access.
 The stream gateway does not register the deploy handler. Do not expose
 `handle_deploy` on an unauthenticated endpoint.
 
+## Workaround for remote streams
+
+Until remote chunk fetching and relay trees exist, use the mesh only to
+discover which node owns a stream, then pull from that origin directly:
+
+1. Read the remote descriptor from the local registry to find the owning node.
+2. Point a client (or a producer on your node) at that node's authenticated
+   gateway HTTP range endpoints and fetch chunks there.
+3. To share one upstream pull among many local viewers, have one local process
+   fetch from the origin and publish the chunks into the local
+   `LiveMediaStreams`; local viewers then tune in to the local gateway.
+4. For fan-out, place a reverse proxy (with TLS and auth) in front of the
+   origin gateway and chain such local republishers manually.
+
 ## Limitations and security
 
 - `LiveMediaStreams` is in-process memory only; the mesh shares bounded
   discovery metadata, not media chunks or persistence.
-- Remotely discovered streams cannot yet be tuned in to; remote chunk relay and
-  shared upstream fetching are not implemented.
+- Remote tune-in requires `StreamRelay` with an application-provided
+  `ChunkSource`; no default network source ships, and a relayed stream is
+  reported as locally owned once mirrored.
 - The standalone gateway owns an empty in-memory store unless an application
   embeds it alongside its producer and shared stream store.
 - Media payloads are passed through unchanged; there is no transcoding.

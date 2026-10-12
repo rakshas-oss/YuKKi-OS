@@ -36,6 +36,7 @@ use tracing::warn;
 use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
     stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
+    stream_relay::{RelayError, StreamRelay},
 };
 
 const MAX_HTTP_BODY_BYTES: usize = 1024;
@@ -62,6 +63,7 @@ struct GatewayState {
     streams: Arc<LiveMediaStreams>,
     registry: StreamRegistry,
     auth: GatewayAuth,
+    relay: Option<Arc<StreamRelay>>,
 }
 
 #[derive(Deserialize)]
@@ -92,10 +94,23 @@ pub async fn serve(
     registry: StreamRegistry,
     auth: GatewayAuth,
 ) -> std::io::Result<()> {
+    serve_with_relay(listener, streams, registry, auth, None).await
+}
+
+/// Like [`serve`], but remote streams are mirrored and relayed via `relay`
+/// instead of returning `501`.
+pub async fn serve_with_relay(
+    listener: TcpListener,
+    streams: Arc<LiveMediaStreams>,
+    registry: StreamRegistry,
+    auth: GatewayAuth,
+    relay: Option<Arc<StreamRelay>>,
+) -> std::io::Result<()> {
     let state = GatewayState {
         streams,
         registry,
         auth,
+        relay,
     };
     let app = Router::new()
         .route("/v1/streams", get(list_streams))
@@ -275,7 +290,21 @@ async fn websocket_tune_in(
     websocket: WebSocketUpgrade,
 ) -> Response {
     let from = query.from.unwrap_or(0);
-    let subscription = match state.registry.tune_in(&id, from) {
+    let result = match state.relay.clone() {
+        Some(relay) => {
+            let id = id.clone();
+            match tokio::task::spawn_blocking(move || relay.tune_in(&id, from)).await {
+                Ok(Ok(subscription)) => Ok(subscription),
+                Ok(Err(RelayError::Registry(error))) => Err(error),
+                Ok(Err(RelayError::Upstream(_))) => {
+                    return StatusCode::BAD_GATEWAY.into_response();
+                }
+                _ => return StatusCode::BAD_REQUEST.into_response(),
+            }
+        }
+        None => state.registry.tune_in(&id, from),
+    };
+    let subscription = match result {
         Ok(subscription) => subscription,
         Err(RegistryError::StreamNotFound(_)) => return StatusCode::NOT_FOUND.into_response(),
         Err(RegistryError::Invalid("remote stream subscription")) => {
@@ -286,13 +315,17 @@ async fn websocket_tune_in(
     websocket
         .max_frame_size(MAX_WS_FRAME_BYTES)
         .max_message_size(MAX_WS_FRAME_BYTES)
-        .on_upgrade(move |socket| websocket_session(socket, subscription, state.registry))
+        .on_upgrade(move |socket| {
+            websocket_session(socket, subscription, state.registry, state.relay, id)
+        })
 }
 
 async fn websocket_session(
     socket: WebSocket,
     mut subscription: Subscription,
     registry: StreamRegistry,
+    relay: Option<Arc<StreamRelay>>,
+    stream_id: String,
 ) {
     let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
     let mut ping = interval(PING_INTERVAL);
@@ -358,7 +391,12 @@ async fn websocket_session(
                             _ => break,
                         }
                     }
-                    Ok(SubscriptionRead::Waiting) => {}
+                    Ok(SubscriptionRead::Waiting) => {
+                        if let Some(relay) = relay.clone().filter(|r| r.is_mirror(&stream_id)) {
+                            let id = stream_id.clone();
+                            let _ = tokio::task::spawn_blocking(move || relay.pump(&id)).await;
+                        }
+                    }
                     Ok(SubscriptionRead::Finished) => {
                         let _ = futures_util::SinkExt::send(&mut sender, Message::Close(None)).await;
                         break;
