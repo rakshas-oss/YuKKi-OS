@@ -235,8 +235,9 @@ discover which node owns a stream, then pull from that origin directly:
 
 - `LiveMediaStreams` is in-process memory only; the mesh shares bounded
   discovery metadata, not media chunks or persistence.
-- Remotely discovered streams cannot yet be tuned in to; remote chunk relay and
-  shared upstream fetching are not implemented.
+- Remote tune-in requires `StreamRelay` with an application-provided
+  `ChunkSource`; no default network source ships, and a relayed stream is
+  reported as locally owned once mirrored.
 - The standalone gateway owns an empty in-memory store unless an application
   embeds it alongside its producer and shared stream store.
 - Media payloads are passed through unchanged; there is no transcoding.

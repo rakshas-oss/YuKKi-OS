@@ -10,6 +10,7 @@ pub mod media_codec;
 pub mod nxr1;
 pub mod stream_gateway;
 pub mod stream_registry;
+pub mod stream_relay;
 pub mod wasm_ingest;
 pub mod wasm_sandbox;
 
@@ -35,6 +36,8 @@ pub use gpu_adapter::{
     DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT, DEFAULT_GPU_REQUEST_TIMEOUT,
     DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS, WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
+
+pub use stream_relay::{ChunkSource, RelayError, StreamRelay};
 
 pub use nxr1::{
     from_broker_task, to_broker_task, Nxr1Error, Nxr1Frame, GEOSPATIAL_FRAME_KIND, NXR1_HEADER_LEN,

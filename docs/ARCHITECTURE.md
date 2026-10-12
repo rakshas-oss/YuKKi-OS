@@ -105,9 +105,15 @@ binary stream. The gateway caps accepted TCP connections at 128 and HTTP
 request handling at 30 seconds; WebSockets use 60-second idle timeouts with
 20-second pings. It does not provide TLS.
 
-The mesh currently distributes discovery metadata only. Remote chunk fetching,
-relay/fan-out trees, and shared upstream pulls are not implemented; the gateway
-returns `501` for remote WebSocket tune-in. The standalone `gateway` command
+The mesh distributes discovery metadata. `src/stream_relay.rs` adds an opt-in
+`StreamRelay` that mirrors a remotely discovered stream into the local store via
+a pluggable `ChunkSource` (for example an HTTP client for the origin's range
+endpoint). All local subscribers share one rate-limited upstream pull per
+stream, and the mirror is an ordinary local stream, so downstream nodes can
+relay from it to form fan-out trees. `stream_gateway::serve_with_relay` uses it
+for remote WebSocket tune-in; plain `serve` still returns `501` for remote
+streams, and no built-in `ChunkSource` implementation ships yet.
+The standalone `gateway` command
 owns a separate in-memory store, while the optional node gateway shares that
 node's store and registry.
 
