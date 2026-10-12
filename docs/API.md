@@ -8,9 +8,10 @@ stream data from the authenticated API.
 
 `OriginChunkClient` implements `ChunkSource` for an origin gateway's HTTP
 descriptor and chunk-range endpoints. It accepts an origin `SocketAddr`, an
-optional bearer token, and a configurable timeout. It uses plain HTTP (no TLS),
-limits response headers and bodies, and reports the codec as `unknown` because
-stream descriptors do not carry codec metadata.
+optional bearer token, and a configurable timeout (5 seconds by default). It
+uses plain HTTP (no TLS), limits response headers to 16 KiB and bodies to
+16 MiB, and reports the codec as `unknown` because stream descriptors do not
+carry codec metadata.
 
 `StreamRelay` mirrors a discovered remote stream into a local store. Applications
 can pass the relay to `stream_gateway::serve_with_relay` to enable remote
