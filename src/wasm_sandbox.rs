@@ -223,6 +223,7 @@ impl RustasmSandbox {
     /// `policy` selects an accelerator for `profile`. Accelerator failures fall back
     /// to `cpu` only when `profile.cpu_retry_safe`; otherwise the accelerator error
     /// is returned unchanged.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_with_policy<F>(
         &self,
         policy: &BackendPolicy,

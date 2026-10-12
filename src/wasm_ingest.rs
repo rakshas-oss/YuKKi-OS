@@ -134,7 +134,7 @@ pub fn validate_channel_ptr(mem_len: usize, ptr: u32) -> Result<usize, i32> {
     if ptr == 0 {
         return Err(STATUS_BAD_CHANNEL);
     }
-    if ptr % CHANNEL_ALIGN != 0 {
+    if !ptr.is_multiple_of(CHANNEL_ALIGN) {
         return Err(STATUS_MISALIGNED);
     }
     match ptr.checked_add(CHANNEL_SIZE) {

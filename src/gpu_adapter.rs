@@ -2219,11 +2219,10 @@ impl LifecycleClient {
             match self.submit_wsm1_task_single(task).await {
                 Ok(resp) => return Ok(resp),
                 Err(err) => {
-                    let is_retryable = match &err {
-                        GpuAdapterError::Io(_) => true,
-                        GpuAdapterError::ConnectTimeout(_) => true,
-                        _ => false,
-                    };
+                    let is_retryable = matches!(
+                        &err,
+                        GpuAdapterError::Io(_) | GpuAdapterError::ConnectTimeout(_)
+                    );
 
                     let last_error_msg = err.to_string();
                     if !is_retryable || attempt > config.max_retries {
@@ -2837,10 +2836,6 @@ impl ModuleLifecycleManager {
         if let Some(client) = self.lifecycle_client() {
             client.shutdown().await;
         }
-    }
-
-    fn get_active_handle(&self, module_id: &str) -> Option<Arc<ModuleVersionHandle>> {
-        self.active_routing.read().unwrap().get(module_id).cloned()
     }
 
     /// Requests cooperative cancellation of in-flight tasks on a version
