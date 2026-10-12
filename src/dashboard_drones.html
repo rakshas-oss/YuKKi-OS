@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YuKKi OS Drone Dashboard</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08131d;
+        --panel: #101d2d;
+        --panel-alt: #13273a;
+        --text: #e7f1ff;
+        --muted: #9db3c7;
+        --accent: #69d0ff;
+        --good: #4dd38b;
+        --warn: #f9c74f;
+        --border: rgba(255,255,255,0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        max-width: 1100px;
+        margin: 32px auto;
+        padding: 0 20px 48px;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.5rem, 2vw, 2.4rem);
+      }
+      .badge {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--muted);
+        padding: 8px 12px;
+        font-size: 0.85rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px;
+      }
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 0.82rem;
+        color: var(--muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .metric {
+        font-size: clamp(1.6rem, 2vw, 2.4rem);
+        font-weight: 700;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      th, td {
+        text-align: left;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      .status {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 5px 8px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      .online { background: rgba(77, 211, 139, 0.12); color: var(--good); }
+      .offline { background: rgba(255, 255, 255, 0.05); color: var(--muted); }
+      .error { background: rgba(249, 199, 79, 0.12); color: var(--warn); }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .empty {
+        color: var(--muted);
+        padding: 20px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="toolbar">
+        <h1>YuKKi OS Drone Dashboard</h1>
+        <div class="badge" id="updated">Loading…</div>
+      </div>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Nodes</h2>
+          <div class="metric" id="node-count">0</div>
+        </article>
+        <article class="card">
+          <h2>Streams</h2>
+          <div class="metric" id="stream-count">0</div>
+        </article>
+        <article class="card">
+          <h2>Mode</h2>
+          <div class="metric" id="mode">Read-only</div>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>Drone fleet</h2>
+        <div id="fleet-root"></div>
+      </section>
+    </main>
+
+    <script>
+      function statusClass(state) {
+        if (!state || state === 'offline') return 'offline';
+        if (state === 'online' || state === 'running') return 'online';
+        return 'error';
+      }
+
+      async function loadFleet() {
+        const root = document.getElementById('fleet-root');
+        try {
+          const response = await fetch('/dashboard/drones', {
+            headers: { Authorization: 'Bearer ' + localStorage.getItem('yukki_token') || '' }
+          });
+          if (!response.ok) {
+            root.innerHTML = '<div class="empty">Dashboard requires an authenticated gateway token.</div>';
+            return;
+          }
+
+          const items = await response.json();
+          document.getElementById('node-count').textContent = String(items.length || 0);
+          document.getElementById('stream-count').textContent = String((items.reduce((sum, item) => sum + (item.streams || []).length, 0)) || 0);
+          document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+          if (!items.length) {
+            root.innerHTML = '<div class="empty">No drones reported yet.</div>';
+            return;
+          }
+
+          const rows = items.map(item => {
+            const streams = item.streams || [];
+            const streamHtml = streams.length
+              ? streams.map(s => '<div>' + escapeHtml(s.name || s.id || 'stream') + ' · ' + (s.status || 'unknown') + '</div>').join('')
+              : '<span class="muted">none</span>';
+            return `
+              <tr>
+                <td><a href="/dashboard/drones/${encodeURIComponent(item.id || item.stream_id || item.name || 'unknown')}">${escapeHtml(item.id || item.stream_id || 'unknown')}</a></td>
+                <td>${escapeHtml(item.name || item.id || 'unknown')}</td>
+                <td>${escapeHtml(item.kind || 'stream')}</td>
+                <td><span class="status ${statusClass(item.status)}">${escapeHtml(item.status || 'offline')}</span></td>
+                <td>${streamHtml}</td>
+              </tr>
+            `;
+          }).join('');
+
+          root.innerHTML = `
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th>Status</th>
+                  <th>Streams</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        } catch (error) {
+          root.innerHTML = '<div class="empty">Failed to load dashboard data.</div>';
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      const token = prompt('Enter gateway bearer token');
+      if (token) {
+        localStorage.setItem('yukki_token', token);
+      }
+      loadFleet();
+      setInterval(loadFleet, 15000);
+    </script>
+  </body>
+</html>
