@@ -199,7 +199,6 @@ impl BrokerTask {
         }
         Ok(())
     }
-
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

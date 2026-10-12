@@ -8,6 +8,7 @@ pub mod exec_policy;
 pub mod gpu_adapter;
 pub mod media_codec;
 pub mod nxr1;
+pub mod origin_client;
 pub mod stream_gateway;
 pub mod stream_registry;
 pub mod stream_relay;
@@ -37,6 +38,7 @@ pub use gpu_adapter::{
     DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS, WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
 
+pub use origin_client::OriginChunkClient;
 pub use stream_relay::{ChunkSource, RelayError, StreamRelay};
 
 pub use nxr1::{

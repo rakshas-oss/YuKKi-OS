@@ -67,7 +67,10 @@ fn relay_mirrors_remote_stream_with_shared_upstream_pull() {
 
     let local = store();
     let registry = StreamRegistry::new("node-b", local.clone()).unwrap();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     registry
         .accept_announcement(
             StreamAnnouncement {

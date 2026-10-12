@@ -138,3 +138,24 @@ async fn authenticated_http_and_websocket_stream_with_ack() {
     ));
     server.abort();
 }
+
+#[tokio::test]
+async fn dashboard_page_is_public_but_data_routes_stay_protected() {
+    let streams = Arc::new(LiveMediaStreams::new(MediaStreamConfig::default()).unwrap());
+    let registry = StreamRegistry::new("node-a", streams.clone()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(serve(
+        listener,
+        streams,
+        registry,
+        GatewayAuth::Bearer(TOKEN.into()),
+    ));
+    let page = http_get(address, "/dashboard", false).await;
+    assert!(page.starts_with("HTTP/1.1 200"));
+    assert!(page.to_lowercase().contains("content-security-policy"));
+    assert!(page.contains("YuKKi-OS Gateway Dashboard"));
+    assert!(http_get(address, "/v1/streams", false)
+        .await
+        .starts_with("HTTP/1.1 401"));
+}

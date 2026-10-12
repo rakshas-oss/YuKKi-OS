@@ -39,6 +39,7 @@ use crate::{
     stream_relay::{RelayError, StreamRelay},
 };
 
+const DASHBOARD_HTML: &str = include_str!("dashboard.html");
 const MAX_HTTP_BODY_BYTES: usize = 1024;
 const MAX_RANGE_CHUNKS: u64 = 8;
 const MAX_CONNECTIONS: usize = 128;
@@ -113,6 +114,7 @@ pub async fn serve_with_relay(
         relay,
     };
     let app = Router::new()
+        .route("/dashboard", get(dashboard))
         .route("/v1/streams", get(list_streams))
         .route("/v1/streams/{id}", get(describe_stream))
         .route("/v1/streams/{id}/chunks", get(read_chunks))
@@ -211,7 +213,8 @@ async fn authenticate_and_limit(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if !authorized(request.headers(), &state.auth) {
+    // The dashboard page is static and carries no data; every data route stays authenticated.
+    if request.uri().path() != "/dashboard" && !authorized(request.headers(), &state.auth) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ErrorBody {
@@ -247,6 +250,22 @@ fn constant_time_token_eq(expected: &[u8], actual: &[u8]) -> bool {
         difference |= u64::from(left ^ right);
     }
     difference == 0
+}
+
+async fn dashboard() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            ),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        DASHBOARD_HTML,
+    )
+        .into_response()
 }
 
 async fn list_streams(State(state): State<GatewayState>) -> Response {

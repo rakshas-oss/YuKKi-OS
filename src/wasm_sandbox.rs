@@ -81,7 +81,9 @@ impl RustasmSandbox {
 
     pub fn with_gpu_client(mut self, client: Arc<GpuBrokerClient>) -> Self {
         if client.config().use_wsm1 && self.lifecycle_client.is_none() {
-            self.lifecycle_client = Some(Arc::new(LifecycleClient::from_broker_client(client.clone())));
+            self.lifecycle_client = Some(Arc::new(LifecycleClient::from_broker_client(
+                client.clone(),
+            )));
         }
         self.gpu_client = Some(client);
         self
@@ -245,11 +247,22 @@ impl RustasmSandbox {
         for backend in policy.chain(profile, avail) {
             match backend {
                 ExecutionBackend::Gpu => match self
-                    .submit_gpu_task(module_id, module_version, task_id, payload, priority, timeout_ms)
+                    .submit_gpu_task(
+                        module_id,
+                        module_version,
+                        task_id,
+                        payload,
+                        priority,
+                        timeout_ms,
+                    )
                     .await
                 {
                     Ok(output) => {
-                        return Ok(PolicyOutcome { output, backend, fallback_reason });
+                        return Ok(PolicyOutcome {
+                            output,
+                            backend,
+                            fallback_reason,
+                        });
                     }
                     Err(err) if profile.cpu_retry_safe => {
                         fallback_reason = Some(err.to_string());

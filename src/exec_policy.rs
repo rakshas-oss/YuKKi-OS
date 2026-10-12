@@ -97,7 +97,11 @@ impl BackendPolicy {
 
     /// Ordered attempt chain; always ends with `Cpu` unless a CPU retry is unsafe
     /// after an accelerator was chosen (then the accelerator is the only attempt).
-    pub fn chain(&self, profile: &TaskProfile, avail: BackendAvailability) -> Vec<ExecutionBackend> {
+    pub fn chain(
+        &self,
+        profile: &TaskProfile,
+        avail: BackendAvailability,
+    ) -> Vec<ExecutionBackend> {
         match self.select(profile, avail) {
             ExecutionBackend::Cpu => vec![ExecutionBackend::Cpu],
             primary if profile.cpu_retry_safe => vec![primary, ExecutionBackend::Cpu],
@@ -130,22 +134,42 @@ mod tests {
     #[test]
     fn cpu_when_no_accelerators() {
         let p = BackendPolicy::default();
-        assert_eq!(p.select(&parallel(), BackendAvailability::default()), ExecutionBackend::Cpu);
+        assert_eq!(
+            p.select(&parallel(), BackendAvailability::default()),
+            ExecutionBackend::Cpu
+        );
     }
 
     #[test]
     fn gpu_for_large_parallel_and_cpu_for_small() {
         let p = BackendPolicy::default();
-        let a = BackendAvailability { gpu: true, ..Default::default() };
+        let a = BackendAvailability {
+            gpu: true,
+            ..Default::default()
+        };
         assert_eq!(p.select(&parallel(), a), ExecutionBackend::Gpu);
-        let small = TaskProfile { estimated_bytes: 8, ..parallel() };
+        let small = TaskProfile {
+            estimated_bytes: 8,
+            ..parallel()
+        };
         assert_eq!(p.select(&small, a), ExecutionBackend::Cpu);
     }
 
     #[test]
     fn exact_precision_never_offloads() {
-        let a = BackendAvailability { gpu: true, npu: true, remote: true };
-        let t = TaskProfile { requires_exact_precision: true, is_inference: true, ..parallel() };
-        assert_eq!(BackendPolicy::default().chain(&t, a), vec![ExecutionBackend::Cpu]);
+        let a = BackendAvailability {
+            gpu: true,
+            npu: true,
+            remote: true,
+        };
+        let t = TaskProfile {
+            requires_exact_precision: true,
+            is_inference: true,
+            ..parallel()
+        };
+        assert_eq!(
+            BackendPolicy::default().chain(&t, a),
+            vec![ExecutionBackend::Cpu]
+        );
     }
 }
