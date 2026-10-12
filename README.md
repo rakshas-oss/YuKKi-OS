@@ -144,6 +144,8 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 ## Documentation
 
 - [docs/RELEASE_v6.9.6.md](docs/RELEASE_v6.9.6.md)
+- [docs/DRONE_DASHBOARD.md](docs/DRONE_DASHBOARD.md)
+- [docs/DRONE_INTEROP.md](docs/DRONE_INTEROP.md)
 - [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md)

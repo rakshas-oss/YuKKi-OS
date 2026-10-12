@@ -1,0 +1,8 @@
+## Documentation additions: Drone dashboard and interoperability guides
+
+This file adds two new docs and updates README links to cover an optional drone dashboard and a short interoperability guide for drones.
+
+Files added/updated:
+- docs/DRONE_DASHBOARD.md
+- docs/DRONE_INTEROP.md
+- README.md (documentation links updated)
