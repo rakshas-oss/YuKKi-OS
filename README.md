@@ -1,16 +1,26 @@
-# YuKKi OS v6.9.6
+# YuKKi OS v6.9.8
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
-> Current stable release: v6.9.6. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Current stable release: v6.9.8. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.9.6**
+- Release line: **v6.9.8**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
 - Status: **stable release**
+
+## What's new in v6.9.8
+
+Release v6.9.8 brings the latest stability, deployability, and interoperability updates for the mesh and broker boundary.
+
+- Stability improvements for the authenticated peer mesh and stream registry
+- Improved broker interoperability compatibility and clearer timeout validation
+- Additional guardrails for GPU-adapter fallback behavior and CPU-first execution safety
+- Documentation refresh across deployment, API, and release notes for the current stable line
+- Updated release metadata and links to the latest release notes page
 
 ## CLI and stream gateway
 
@@ -137,13 +147,13 @@ CPU is the always-available correctness baseline; accelerators are optional, bes
 2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
 3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
 
-Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the[...]
+Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the request fails.
 
 See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
 
 ## Documentation
 
-- [docs/RELEASE_v6.9.6.md](docs/RELEASE_v6.9.6.md)
+- [docs/RELEASE_v6.9.8.md](docs/RELEASE_v6.9.8.md)
 - [docs/DRONE_DASHBOARD.md](docs/DRONE_DASHBOARD.md)
 - [docs/DRONE_INTEROP.md](docs/DRONE_INTEROP.md)
 - [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
@@ -162,7 +172,7 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.9.6 .
+docker build -t yukkios:6.9.8 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
