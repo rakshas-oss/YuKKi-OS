@@ -16,6 +16,7 @@ path = "src/main.rs"
 default = []
 mesh_dashboard = ["dep:rstar", "dep:serde_cbor"]
 interop_encryption = []
+native-crypto = []
 
 [dependencies]
 byteorder = "1.5"
