@@ -6,6 +6,7 @@ pub mod arcgis;
 pub mod broker_client;
 pub mod exec_policy;
 pub mod gpu_adapter;
+pub mod interop_encryption;
 pub mod media_codec;
 pub mod nxr1;
 pub mod origin_client;
@@ -38,6 +39,9 @@ pub use gpu_adapter::{
     DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS, WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
 
+pub use interop_encryption::{
+    derive_hybrid_key, generate_interop_secret, InteropAead, InteropSession,
+};
 pub use origin_client::OriginChunkClient;
 pub use stream_relay::{ChunkSource, RelayError, StreamRelay};
 
