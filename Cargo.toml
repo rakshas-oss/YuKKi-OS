@@ -15,6 +15,7 @@ path = "src/main.rs"
 [features]
 default = []
 mesh_dashboard = ["dep:rstar", "dep:serde_cbor"]
+interop_encryption = []
 
 [dependencies]
 byteorder = "1.5"
