@@ -57,12 +57,44 @@ big-endian sequence prefix followed by a YKMC frame. A client must acknowledge
 each sequence using `{"type":"ack","sequence":N}`. Finished streams close
 cleanly, and slow consumers receive an explicit lagged signal.
 
+## UI interoperability and system integration
+
+The built-in dashboard is part of the system's HTTP surface and is designed to
+interoperate with the rest of YuKKi-OS without a separate custom client stack.
+The static UI is intentionally thin: it consumes the same authenticated JSON
+and WebSocket contracts that external programs do.
+
+Common UI/system contracts:
+
+- `/dashboard` — browser-facing control panel
+- `/v1/mesh` — mesh topology snapshot
+- `/v1/mesh/ws` — JSON mesh telemetry stream when `mesh_dashboard` is enabled
+- `/v1/streams/{id}/ws` — live stream subscription for media clients
+- `/dashboard/drones` — optional drone-oriented view when enabled
+
+A browser can authenticate with the bearer token from the gateway and then call
+these same endpoints using standard JavaScript `fetch()` and `WebSocket` APIs.
+The token is held only in page memory and is not persisted by the dashboard.
+
+```bash
+curl -H "Authorization: Bearer $YUKKI_GATEWAY_TOKEN" \
+  http://127.0.0.1:7670/v1/mesh
+
+curl -H "Authorization: Bearer $YUKKI_GATEWAY_TOKEN" \
+  http://127.0.0.1:7670/v1/streams
+```
+
 The dashboard is available at `/dashboard`. The static page does not require
 authentication, but enter the bearer token in the page to access the protected
 stream API; the token remains in page memory. Discovery descriptors are
 announced through the authenticated peer mesh and periodic digest summaries
 repair missed announcements. There is no built-in TLS; use a trusted reverse
 proxy for any non-loopback deployment.
+
+For `mesh_dashboard` builds, the UI is expected to be compatible with the same
+mesh snapshot and live update semantics as external tooling. The front-end does
+not reimplement the network or stream stack; it reads the system's live API
+state.
 
 ## Stream media and data chunks
 
@@ -104,7 +136,7 @@ streams.remove_stream("camera-1")?; // releases remaining retained chunks
 ```
 
 Ranges have inclusive endpoints and are limited by `max_chunks_per_stream`.
-Acknowledgement is also inclusive and only accepts an ingested sequence.
+A acknowledgement is also inclusive and only accepts an ingested sequence.
 Closing prevents further appends but leaves unacknowledged chunks readable;
 removing a stream frees all of its retained chunks.
 
@@ -237,15 +269,16 @@ Use a trusted network or TLS-terminating proxy for origin traffic.
 ## Limitations and security
 
 - `LiveMediaStreams` is in-process memory only; the mesh shares bounded
-  discovery metadata, not media chunks or persistence.
+discovery metadata, not media chunks or persistence.
 - Remote tune-in requires an application-wired `StreamRelay`; the standard CLI
-  does not configure the relay. A relayed stream is reported as locally owned
-  once mirrored.
+does not configure the relay. A relayed stream is reported as locally owned
+once mirrored.
 - The standalone gateway owns an empty in-memory store unless an application
-  embeds it alongside its producer and shared stream store.
+embeds it alongside its producer and shared stream store.
 - Media payloads are passed through unchanged; there is no transcoding.
 - Peer mesh and broker links do not provide built-in TLS. Broker
-  `authenticated-proxy` configuration is documentary metadata, not TLS
-  enablement.
+`authenticated-proxy` configuration is documentary metadata, not TLS
+enablement.
 - These APIs are part of research/demo software, not a production-ready
-  streaming service.
+streaming service.
+
