@@ -33,6 +33,7 @@ use tracing::warn;
 
 use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
+    mesh::{demo_mesh_nodes, MeshStore, MeshSnapshot},
     stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
     stream_relay::{RelayError, StreamRelay},
 };
@@ -64,6 +65,8 @@ struct GatewayState {
     registry: StreamRegistry,
     auth: GatewayAuth,
     relay: Option<Arc<StreamRelay>>,
+    #[cfg(feature = "mesh_dashboard")]
+    mesh: Arc<MeshStore>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +91,14 @@ struct ErrorBody {
     error: &'static str,
 }
 
+#[cfg(feature = "mesh_dashboard")]
+#[derive(Deserialize)]
+struct MeshQuery {
+    bbox: Option<String>,
+    limit: Option<usize>,
+    since: Option<u64>,
+}
+
 pub async fn serve(
     listener: TcpListener,
     streams: Arc<LiveMediaStreams>,
@@ -106,11 +117,22 @@ pub async fn serve_with_relay(
     auth: GatewayAuth,
     relay: Option<Arc<StreamRelay>>,
 ) -> std::io::Result<()> {
+    #[cfg(feature = "mesh_dashboard")]
+    let mesh = {
+        let mesh = Arc::new(MeshStore::new());
+        for node in demo_mesh_nodes() {
+            mesh.upsert_node(node);
+        }
+        mesh
+    };
+
     let state = GatewayState {
         streams,
         registry,
         auth,
         relay,
+        #[cfg(feature = "mesh_dashboard")]
+        mesh,
     };
     let app = Router::new()
         .route("/dashboard", get(dashboard))
@@ -120,6 +142,10 @@ pub async fn serve_with_relay(
         .route("/v1/streams/{id}", get(describe_stream))
         .route("/v1/streams/{id}/chunks", get(read_chunks))
         .route("/v1/streams/{id}/ws", get(websocket_tune_in))
+        #[cfg(feature = "mesh_dashboard")]
+        .route("/v1/mesh", get(mesh_state))
+        #[cfg(feature = "mesh_dashboard")]
+        .route("/v1/mesh/ws", get(mesh_ws))
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(middleware::from_fn_with_state(
@@ -199,6 +225,55 @@ fn constant_time_token_eq(expected: &[u8], actual: &[u8]) -> bool {
         difference |= u64::from(left ^ right);
     }
     difference == 0
+}
+
+#[cfg(feature = "mesh_dashboard")]
+async fn mesh_state(State(state): State<GatewayState>, Query(query): Query<MeshQuery>) -> Response {
+    if let Some(bbox) = query.bbox {
+        let mut parts = bbox.split(',');
+        let (Some(min_lon), Some(min_lat), Some(max_lon), Some(max_lat)) = (
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+            parts.next().and_then(|v| v.parse::<f64>().ok()),
+        ) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        let limit = query.limit.unwrap_or(500).min(5000);
+        let nodes = state.mesh.query_bbox(min_lon, min_lat, max_lon, max_lat, limit, query.since);
+        return Json(MeshSnapshot {
+            nodes,
+            generated_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        })
+        .into_response();
+    }
+    Json(state.mesh.snapshot()).into_response()
+}
+
+#[cfg(feature = "mesh_dashboard")]
+async fn mesh_ws(State(state): State<GatewayState>, websocket: WebSocketUpgrade) -> Response {
+    let mesh = state.mesh.clone();
+    websocket.on_upgrade(move |socket| mesh_ws_session(socket, mesh))
+}
+
+#[cfg(feature = "mesh_dashboard")]
+async fn mesh_ws_session(mut socket: WebSocket, mesh: Arc<MeshStore>) {
+    let mut tick = interval(Duration::from_secs(2));
+    loop {
+        tick.tick().await;
+        let snapshot = mesh.snapshot();
+        match serde_json::to_string(&snapshot) {
+            Ok(payload) => {
+                if futures_util::SinkExt::send(&mut socket, Message::Text(payload.into())).await.is_err() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
 }
 
 async fn dashboard() -> Response {
