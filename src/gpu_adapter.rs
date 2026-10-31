@@ -137,6 +137,9 @@ pub const MAX_CONFIG_TIMEOUT: Duration = Duration::from_secs(600);
 pub const WSM1_MAGIC: u32 = 0x57534D31;
 /// Protocol version for WSM1 messages.
 pub const WSM1_PROTOCOL_VERSION: u16 = 1;
+pub const OVERHAULED_MAX_STRING_BYTES: usize = 1024;
+pub const OVERHAULED_MAX_PAYLOAD_BYTES: usize = 512 * 1024;
+pub const OVERHAULED_MAX_BUFFERS: usize = 64;
 
 /// Magic byte constant for BRK1 binary frame envelope ("BRK1" in big-endian: 0x42524B31).
 pub const BRK1_MAGIC: u32 = 0x42524B31;
@@ -1475,10 +1478,11 @@ fn write_u64(buf: &mut Vec<u8>, val: u64) {
 
 fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     let bytes = s.as_bytes();
-    if bytes.len() > u16::MAX as usize {
+    if bytes.len() > OVERHAULED_MAX_STRING_BYTES {
         return Err(GpuAdapterError::Wsm1Codec(format!(
-            "string is {} bytes; length prefix is uint16",
-            bytes.len()
+            "string is {} bytes; overhauled limit is {}",
+            bytes.len(),
+            OVERHAULED_MAX_STRING_BYTES
         )));
     }
     write_u16(buf, bytes.len() as u16);
@@ -1486,10 +1490,19 @@ fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     Ok(())
 }
 
-fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
-    let len = data.len().min(u32::MAX as usize) as u32;
+fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) -> Result<(), GpuAdapterError> {
+    if data.len() > OVERHAULED_MAX_PAYLOAD_BYTES {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "payload is {} bytes; overhauled limit is {}",
+            data.len(),
+            OVERHAULED_MAX_PAYLOAD_BYTES
+        )));
+    }
+    let len = u32::try_from(data.len())
+        .map_err(|_| GpuAdapterError::Wsm1Codec("payload length exceeds uint32".into()))?;
     write_u32(buf, len);
-    buf.extend_from_slice(&data[..len as usize]);
+    buf.extend_from_slice(data);
+    Ok(())
 }
 
 struct ByteReader<'a> {
@@ -1568,6 +1581,11 @@ impl<'a> ByteReader<'a> {
 
     fn read_str(&mut self) -> Result<String, GpuAdapterError> {
         let len = self.read_u16()? as usize;
+        if len > OVERHAULED_MAX_STRING_BYTES {
+            return Err(GpuAdapterError::Wsm1Codec(format!(
+                "string length {len} exceeds overhauled limit {OVERHAULED_MAX_STRING_BYTES}"
+            )));
+        }
         if self.offset + len > self.data.len() {
             return Err(GpuAdapterError::Wsm1Codec(format!(
                 "unexpected EOF reading string of length {len}"
@@ -1582,6 +1600,11 @@ impl<'a> ByteReader<'a> {
 
     fn read_bytes(&mut self) -> Result<Vec<u8>, GpuAdapterError> {
         let len = self.read_u32()? as usize;
+        if len > OVERHAULED_MAX_PAYLOAD_BYTES {
+            return Err(GpuAdapterError::Wsm1Codec(format!(
+                "payload length {len} exceeds overhauled limit {OVERHAULED_MAX_PAYLOAD_BYTES}"
+            )));
+        }
         if self.offset + len > self.data.len() {
             return Err(GpuAdapterError::Wsm1Codec(format!(
                 "unexpected EOF reading bytes of length {len}"
@@ -1609,7 +1632,7 @@ pub fn encode_wsm1_lifecycle_request(
     write_i32(&mut buf, req.target_gpu);
     write_u32(&mut buf, req.grace_period_ms);
     write_str(&mut buf, &req.ack_token)?;
-    write_bytes(&mut buf, &req.payload);
+    write_bytes(&mut buf, &req.payload)?;
     Ok(buf)
 }
 
@@ -1684,7 +1707,7 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, Gpu
         write_u64(&mut buf, b.length);
         write_str(&mut buf, &b.name)?;
     }
-    write_bytes(&mut buf, &resp.result);
+    write_bytes(&mut buf, &resp.result)?;
     Ok(buf)
 }
 
@@ -1856,7 +1879,7 @@ pub fn encode_brk1_frame(frame: &Brk1Frame) -> Result<Vec<u8>, GpuAdapterError> 
     write_str(&mut buf, &frame.kind)?;
     write_u8(&mut buf, frame.priority);
     write_u32(&mut buf, frame.timeout_ms);
-    write_bytes(&mut buf, &frame.payload);
+    write_bytes(&mut buf, &frame.payload)?;
     Ok(buf)
 }
 
