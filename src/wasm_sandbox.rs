@@ -173,7 +173,10 @@ impl RustasmSandbox {
                     // The overhauled BRK1 server is binary-only. Never send a JSON
                     // fallback to that listener after a BRK1/WSM1 attempt fails.
                     if matches!(err, GpuAdapterError::Disabled)
-                        || matches!(lc.wire_mode(), LifecycleWireMode::Brk1 | LifecycleWireMode::Auto)
+                        || matches!(
+                            lc.wire_mode(),
+                            LifecycleWireMode::Brk1 | LifecycleWireMode::Auto
+                        )
                     {
                         return Err(err);
                     }
