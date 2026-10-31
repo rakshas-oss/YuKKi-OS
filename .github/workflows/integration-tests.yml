@@ -121,3 +121,46 @@ jobs:
     needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter]
     steps:
       - run: echo "All integration tests passed"
+
+  overhauled-live-cpp:
+    name: Live C++ overhauled BRK1/WSM1 interoperability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: rakshas-oss/overhauled
+          path: overhauled
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: Install C++ build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake g++
+      - name: Build the real CPU-only broker
+        run: |
+          cmake -S overhauled -B overhauled/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_CUDA=OFF \
+            -DENABLE_TENSORRT=OFF \
+            -DBUILD_BROKER=ON \
+            -DBUILD_EXAMPLES=OFF
+          cmake --build overhauled/build --target broker_server --parallel 2
+      - name: Run live Rust-to-C++ lifecycle and task round trip
+        env:
+          OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
+        run: |
+          set -euo pipefail
+          overhauled/build/broker_server 19090 --cpu-only > /tmp/overhauled-broker.log 2>&1 &
+          broker_pid=$!
+          trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if (echo > /dev/tcp/127.0.0.1/19090) >/dev/null 2>&1; then
+              break
+            fi
+            if ! kill -0 "$broker_pid" 2>/dev/null; then
+              cat /tmp/overhauled-broker.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+          cargo test --locked --test test_overhauled_live -- --nocapture
