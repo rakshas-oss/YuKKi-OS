@@ -150,10 +150,13 @@ impl RustasmSandbox {
             match lc.submit_wsm1_task(&wsm_req).await {
                 Ok(resp) => match resp.status {
                     WasmTaskStatus::Ok => return Ok(resp.result),
-                    WasmTaskStatus::Rejected => {
+                    WasmTaskStatus::Rejected
+                    | WasmTaskStatus::ModuleDraining
+                    | WasmTaskStatus::ModuleNotFound
+                    | WasmTaskStatus::VersionMismatch => {
                         return Err(GpuAdapterError::BrokerRejected {
                             task_id: resp.task_id,
-                            code: "REJECTED".to_string(),
+                            code: format!("{:?}", resp.status),
                             message: resp.error,
                             retryable: false,
                         });
