@@ -1,6 +1,6 @@
 use yukkios_6_8_0_inet3::gpu_adapter::{
     decode_brk1_response_frame, encode_brk1_frame, Brk1Frame, GpuAdapterError, BRK1_MAGIC,
-    BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST,
+    BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST, WasmTaskStatus,
 };
 
 fn sample_response() -> Vec<u8> {
@@ -82,4 +82,16 @@ fn rejects_invalid_status() {
         decode_brk1_response_frame(&frame),
         Err(GpuAdapterError::Wsm1Codec(_))
     ));
+}
+
+#[test]
+fn accepts_all_overhauled_wsm1_task_status_codes() {
+    assert_eq!(WasmTaskStatus::try_from(0).unwrap(), WasmTaskStatus::Ok);
+    assert_eq!(WasmTaskStatus::try_from(1).unwrap(), WasmTaskStatus::Rejected);
+    assert_eq!(WasmTaskStatus::try_from(2).unwrap(), WasmTaskStatus::Failed);
+    assert_eq!(WasmTaskStatus::try_from(3).unwrap(), WasmTaskStatus::Timeout);
+    assert_eq!(WasmTaskStatus::try_from(4).unwrap(), WasmTaskStatus::ModuleDraining);
+    assert_eq!(WasmTaskStatus::try_from(5).unwrap(), WasmTaskStatus::ModuleNotFound);
+    assert_eq!(WasmTaskStatus::try_from(6).unwrap(), WasmTaskStatus::VersionMismatch);
+    assert!(WasmTaskStatus::try_from(7).is_err());
 }
