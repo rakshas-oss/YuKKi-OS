@@ -81,8 +81,8 @@ use tokio::{
 
 pub const CURRENT_PROTOCOL_VERSION: &str = "overhauled.wasm.gpu.v1";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["overhauled.wasm.gpu.v1"];
-pub const DEFAULT_GPU_BROKER_ENDPOINT: &str = "127.0.0.1:9000";
-pub const DEFAULT_GPU_MAX_FRAME_BYTES: usize = 64 * 1024;
+pub const DEFAULT_GPU_BROKER_ENDPOINT: &str = "127.0.0.1:9090";
+pub const DEFAULT_GPU_MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_GPU_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const DEFAULT_GPU_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_GPU_MAX_RETRIES: usize = 3;
@@ -625,6 +625,21 @@ pub struct Brk1Frame {
     pub priority: u8,
     pub timeout_ms: u32,
     pub payload: Vec<u8>,
+}
+
+/// BRK1 response envelope emitted by overhauled's C++ broker.
+///
+/// This layout is intentionally distinct from `Brk1Frame`: responses carry
+/// status, placement, latency, result bytes, and an error string rather than
+/// the request routing fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Brk1ResponseFrame {
+    pub task_id: String,
+    pub status: u8,
+    pub selected_gpu: i32,
+    pub latency_ms: u64,
+    pub result: Vec<u8>,
+    pub error: String,
 }
 
 /// Framing and wire format mode for lifecycle operations.
@@ -1880,6 +1895,52 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     })
 }
 
+/// Decode the response layout implemented by
+/// `overhauled/src/broker_protocol.cpp::decode_response_frame`.
+pub fn decode_brk1_response_frame(data: &[u8]) -> Result<Brk1ResponseFrame, GpuAdapterError> {
+    if data.len() < 8 {
+        return Err(GpuAdapterError::Wsm1Codec("BRK1 response too short".to_string()));
+    }
+    let mut r = ByteReader::new(data);
+    let magic = r.read_u32()?;
+    if magic != BRK1_MAGIC {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response magic: 0x{magic:08X}"
+        )));
+    }
+    let version = r.read_u16()?;
+    if version != BRK1_PROTOCOL_VERSION {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "unsupported BRK1 response version: {version}"
+        )));
+    }
+    let msg_type = r.read_u8()?;
+    if msg_type != BRK1_MSG_RESPONSE {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "expected BRK1 response type {BRK1_MSG_RESPONSE}, got {msg_type}"
+        )));
+    }
+    let reserved = r.read_u8()?;
+    if reserved != 0 {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response reserved byte: {reserved}"
+        )));
+    }
+    let task_id = r.read_str()?;
+    let status = r.read_u8()?;
+    if status > 3 {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response status: {status}"
+        )));
+    }
+    let selected_gpu = r.read_i32()?;
+    let latency_ms = r.read_u64()?;
+    let result = r.read_bytes()?;
+    let error = r.read_str()?;
+    r.ensure_exhausted()?;
+    Ok(Brk1ResponseFrame { task_id, status, selected_gpu, latency_ms, result, error })
+}
+
 async fn write_raw_frame(
     stream: &mut TcpStream,
     data: &[u8],
@@ -1924,8 +1985,21 @@ fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAda
     if body.len() >= 4 {
         let magic = u32::from_be_bytes(body[0..4].try_into().unwrap());
         if magic == BRK1_MAGIC {
-            let brk_frame = decode_brk1_frame(body)?;
-            return parse_lifecycle_response(&brk_frame.payload);
+            let response = decode_brk1_response_frame(body)?;
+            if response.result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "overhauled BRK1 status {} for lifecycle request '{}': {}",
+                    response.status, response.task_id, response.error
+                )));
+            }
+            let decoded = parse_lifecycle_response(&response.result)?;
+            if decoded.request_id != response.task_id {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 task_id '{}' did not match WSM1 request_id '{}'",
+                    response.task_id, decoded.request_id
+                )));
+            }
+            return Ok(decoded);
         } else if magic == WSM1_MAGIC {
             let msg = decode_wsm1_message(body)?;
             if let Wsm1Message::LifecycleResponse(resp) = msg {
@@ -1956,8 +2030,21 @@ fn parse_task_response(body: &[u8]) -> Result<WasmTaskResponse, GpuAdapterError>
     if body.len() >= 4 {
         let magic = u32::from_be_bytes(body[0..4].try_into().unwrap());
         if magic == BRK1_MAGIC {
-            let brk_frame = decode_brk1_frame(body)?;
-            return parse_task_response(&brk_frame.payload);
+            let response = decode_brk1_response_frame(body)?;
+            if response.result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "overhauled BRK1 status {} for task '{}': {}",
+                    response.status, response.task_id, response.error
+                )));
+            }
+            let decoded = parse_task_response(&response.result)?;
+            if decoded.task_id != response.task_id {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 task_id '{}' did not match WSM1 task_id '{}'",
+                    response.task_id, decoded.task_id
+                )));
+            }
+            return Ok(decoded);
         } else if magic == WSM1_MAGIC {
             let msg = decode_wsm1_message(body)?;
             if let Wsm1Message::TaskResponse(resp) = msg {
@@ -2096,7 +2183,7 @@ impl LifecycleClient {
                     task_id: request.request_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: "wasm.lifecycle".to_string(),
+                    kind: match request.action {\n                        WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",\n                        WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",\n                        WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",\n                        WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",\n                    }.to_string(),
                     priority: 1,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
@@ -2265,7 +2352,7 @@ impl LifecycleClient {
                     task_id: task.task_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: "wasm.task".to_string(),
+                    kind: "wasm.task.v1".to_string(),
                     priority: task.priority,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
