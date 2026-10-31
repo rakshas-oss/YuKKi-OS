@@ -511,8 +511,9 @@ impl TryFrom<u8> for WasmLifecycleStatus {
     }
 }
 
-/// Status code for a task execution response from the broker. Discriminants 0..=6
-/// match overhauled/include/wasm_sandbox.h exactly (wire value 2 is named Error there).
+/// Status code for a task execution response from the broker.
+/// Discriminants 0..=6 match overhauled/include/wasm_sandbox.h exactly
+/// (wire value 2 is named Error by the C++ implementation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum WasmTaskStatus {
@@ -1910,7 +1911,9 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
 /// `overhauled/src/broker_protocol.cpp::decode_response_frame`.
 pub fn decode_brk1_response_frame(data: &[u8]) -> Result<Brk1ResponseFrame, GpuAdapterError> {
     if data.len() < 8 {
-        return Err(GpuAdapterError::Wsm1Codec("BRK1 response too short".to_string()));
+        return Err(GpuAdapterError::Wsm1Codec(
+            "BRK1 response too short".to_string(),
+        ));
     }
     let mut r = ByteReader::new(data);
     let magic = r.read_u32()?;
@@ -1949,7 +1952,14 @@ pub fn decode_brk1_response_frame(data: &[u8]) -> Result<Brk1ResponseFrame, GpuA
     let result = r.read_bytes()?;
     let error = r.read_str()?;
     r.ensure_exhausted()?;
-    Ok(Brk1ResponseFrame { task_id, status, selected_gpu, latency_ms, result, error })
+    Ok(Brk1ResponseFrame {
+        task_id,
+        status,
+        selected_gpu,
+        latency_ms,
+        result,
+        error,
+    })
 }
 
 async fn write_raw_frame(
@@ -2236,7 +2246,8 @@ impl LifecycleClient {
                         WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",
                         WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",
                         WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",
-                    }.to_string(),
+                    }
+                    .to_string(),
                     priority: 1,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
@@ -2431,20 +2442,24 @@ impl LifecycleClient {
             Some(Ok(Ok(response))) => response,
             Some(Ok(Err(error))) => {
                 cancellation.cancel();
-                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; closing the client socket");
+                tracing::debug!(
+                    task_id = %task.task_id,
+                    "overhauled BRK1 has no remote cancel operation; closing the client socket"
+                );
                 return Err(error);
             }
             Some(Err(_)) => {
                 cancellation.cancel();
-                // The broker's GPU kernel cannot be forcibly interrupted from here;
-                // ask it to cooperatively stop the task on a best-effort basis
-                // without blocking the caller any further than request_timeout
-                // already incurred.
+                // The overhauled broker has no remote cancellation operation.
+                // Dropping this connection does not preempt a running GPU kernel.
                 tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; closing the client socket");
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
             }
             None => {
-                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; local cancellation only");
+                tracing::debug!(
+                    task_id = %task.task_id,
+                    "overhauled BRK1 has no remote cancel operation; local cancellation only"
+                );
                 return Err(GpuAdapterError::TaskCancelled {
                     task_id: task.task_id.clone(),
                     reason: "client shutdown or explicit cancellation".to_string(),
