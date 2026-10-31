@@ -2378,14 +2378,7 @@ impl LifecycleClient {
             Some(Ok(Ok(response))) => response,
             Some(Ok(Err(error))) => {
                 cancellation.cancel();
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "client disconnected while awaiting response",
-                    )
-                    .await;
+                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; closing the client socket");
                 return Err(error);
             }
             Some(Err(_)) => {
@@ -2394,25 +2387,11 @@ impl LifecycleClient {
                 // ask it to cooperatively stop the task on a best-effort basis
                 // without blocking the caller any further than request_timeout
                 // already incurred.
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "client request timeout",
-                    )
-                    .await;
+                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; closing the client socket");
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
             }
             None => {
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "task cancellation requested",
-                    )
-                    .await;
+                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; local cancellation only");
                 return Err(GpuAdapterError::TaskCancelled {
                     task_id: task.task_id.clone(),
                     reason: "client shutdown or explicit cancellation".to_string(),
