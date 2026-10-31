@@ -1,7 +1,7 @@
 use yukkios_6_8_0_inet3::gpu_adapter::{
     decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame,
-    encode_wsm1_task_response, Brk1Frame, GpuAdapterConfig, GpuAdapterError, LifecycleClient,
-    LifecycleWireMode, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC,
+    encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame, GpuAdapterConfig, GpuAdapterError, LifecycleClient,
+    LifecycleWireMode, WasmBufferDescriptor, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC,
     BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST,
 };
 use tokio::{
@@ -203,4 +203,39 @@ async fn lifecycle_client_round_trips_brk1_with_wsm1_payload() {
     assert_eq!(response.status, WasmTaskStatus::Ok);
     assert_eq!(response.result, vec![0xaa, 0xbb]);
     server.await.expect("mock broker task");
+}
+
+#[test]
+fn rejects_wsm1_values_over_overhauled_limits() {
+    let mut request = WasmTaskRequest {
+        task_id: "t".into(),
+        sandbox_id: "s".into(),
+        module_id: "m".into(),
+        module_version: "1".into(),
+        task_kind: "compute".into(),
+        priority: 0,
+        deadline_ms: 0,
+        buffers: Vec::new(),
+        payload: Vec::new(),
+    };
+
+    request.task_id = "x".repeat(1025);
+    assert!(encode_wsm1_task_request(&request).is_err());
+
+    request.task_id = "t".into();
+    request.payload = vec![0; 512 * 1024 + 1];
+    assert!(encode_wsm1_task_request(&request).is_err());
+
+    request.payload.clear();
+    request.buffers = vec![
+        WasmBufferDescriptor {
+            buffer_id: 1,
+            flags: 1,
+            offset: 0,
+            length: 1,
+            name: "buffer".into(),
+        };
+        65
+    ];
+    assert!(encode_wsm1_task_request(&request).is_err());
 }
