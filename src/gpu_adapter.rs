@@ -517,8 +517,11 @@ impl TryFrom<u8> for WasmLifecycleStatus {
 pub enum WasmTaskStatus {
     Ok = 0,
     Rejected = 1,
-    Failed = 2,
+    Failed = 2, // overhauled wire name: Error
     Timeout = 3,
+    ModuleDraining = 4,
+    ModuleNotFound = 5,
+    VersionMismatch = 6,
 }
 
 impl TryFrom<u8> for WasmTaskStatus {
@@ -530,6 +533,9 @@ impl TryFrom<u8> for WasmTaskStatus {
             1 => Ok(Self::Rejected),
             2 => Ok(Self::Failed),
             3 => Ok(Self::Timeout),
+            4 => Ok(Self::ModuleDraining),
+            5 => Ok(Self::ModuleNotFound),
+            6 => Ok(Self::VersionMismatch),
             other => Err(GpuAdapterError::Wsm1Codec(format!(
                 "unknown WasmTaskStatus: {other}"
             ))),
@@ -2042,6 +2048,25 @@ fn parse_task_response(body: &[u8]) -> Result<WasmTaskResponse, GpuAdapterError>
                 return Err(GpuAdapterError::MalformedResponse(format!(
                     "BRK1 task_id '{}' did not match WSM1 task_id '{}'",
                     response.task_id, decoded.task_id
+                )));
+            }
+            let status_matches = match response.status {
+                0 => decoded.status == WasmTaskStatus::Ok,
+                1 => matches!(
+                    decoded.status,
+                    WasmTaskStatus::Rejected
+                        | WasmTaskStatus::ModuleDraining
+                        | WasmTaskStatus::ModuleNotFound
+                        | WasmTaskStatus::VersionMismatch
+                ),
+                2 => decoded.status == WasmTaskStatus::Failed,
+                3 => decoded.status == WasmTaskStatus::Timeout,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 status {} conflicts with WSM1 task status {:?}",
+                    response.status, decoded.status
                 )));
             }
             return Ok(decoded);
