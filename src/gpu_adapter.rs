@@ -2010,6 +2010,24 @@ fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAda
                     response.task_id, decoded.request_id
                 )));
             }
+            let status_matches = match response.status {
+                0 => decoded.status == WasmLifecycleStatus::Ok,
+                1 => matches!(
+                    decoded.status,
+                    WasmLifecycleStatus::Rejected
+                        | WasmLifecycleStatus::Busy
+                        | WasmLifecycleStatus::NotFound
+                ),
+                2 => decoded.status == WasmLifecycleStatus::Error,
+                3 => false,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 status {} conflicts with WSM1 lifecycle status {:?}",
+                    response.status, decoded.status
+                )));
+            }
             return Ok(decoded);
         } else if magic == WSM1_MAGIC {
             let msg = decode_wsm1_message(body)?;
