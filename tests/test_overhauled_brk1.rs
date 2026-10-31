@@ -1,5 +1,6 @@
 use yukkios_6_8_0_inet3::gpu_adapter::{
-    decode_brk1_response_frame, GpuAdapterError, BRK1_MAGIC, BRK1_PROTOCOL_VERSION,
+    decode_brk1_response_frame, encode_brk1_frame, Brk1Frame, GpuAdapterError, BRK1_MAGIC,
+    BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST,
 };
 
 fn sample_response() -> Vec<u8> {
@@ -17,6 +18,28 @@ fn sample_response() -> Vec<u8> {
     frame.extend_from_slice(b"abc");
     frame.extend_from_slice(&0u16.to_be_bytes());
     frame
+}
+
+#[test]
+fn request_encoder_matches_overhauled_brk1_field_order() {
+    let encoded = encode_brk1_frame(&Brk1Frame {
+        msg_type: BRK1_MSG_REQUEST,
+        task_id: "t".into(),
+        source: "y".into(),
+        destination: "o".into(),
+        kind: "k".into(),
+        priority: 1,
+        timeout_ms: 3000,
+        payload: vec![0xaa, 0xbb],
+    })
+    .expect("encode BRK1 request");
+
+    let expected = [
+        b'B', b'R', b'K', b'1', 0, 1, 1, 0,
+        0, 1, b't', 0, 1, b'y', 0, 1, b'o', 0, 1, b'k',
+        1, 0, 0, 0x0b, 0xb8, 0, 0, 0, 2, 0xaa, 0xbb,
+    ];
+    assert_eq!(encoded, expected);
 }
 
 #[test]
