@@ -170,12 +170,15 @@ impl RustasmSandbox {
                     }
                 },
                 Err(err) => {
-                    // If the adapter is disabled, fail fast without attempting fallback.
-                    if matches!(err, GpuAdapterError::Disabled) {
+                    // The overhauled BRK1 server is binary-only. Never send a JSON
+                    // fallback to that listener after a BRK1/WSM1 attempt fails.
+                    if matches!(err, GpuAdapterError::Disabled)
+                        || matches!(lc.wire_mode(), LifecycleWireMode::Brk1 | LifecycleWireMode::Auto)
+                    {
                         return Err(err);
                     }
-                    // For protocol mismatches or legacy brokers that fail binary WSM1,
-                    // proceed to the JSON fallback below.
+                    // Explicit legacy modes may fall through to the JSON-compatible path.
+                    tracing::warn!(%err, "WSM1 broker path failed; trying legacy JSON broker path");
                 }
             }
         }
