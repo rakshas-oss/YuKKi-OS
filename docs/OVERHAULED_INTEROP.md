@@ -71,6 +71,11 @@ TaskResponse (message type 2) or LifecycleResponse (message type 4). YuKKi-OS
 validates that the outer BRK1 `task_id` equals the inner WSM1 `task_id` or
 `request_id`.
 
+The WSM1 task status byte is: 0=Ok, 1=Rejected, 2=Error, 3=Timeout,
+4=ModuleDraining, 5=ModuleNotFound, 6=VersionMismatch. YuKKi-OS now accepts
+all seven values; the Rust variant `Failed` represents wire value 2 (named
+`Error` by the C++ implementation).
+
 The WSM1 field layouts, status enums, and buffer descriptor formats are
 specified in [overhauled/docs/WASM_INTEROP.md](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 The outer BRK1 format is specified in
