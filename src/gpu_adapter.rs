@@ -511,7 +511,7 @@ impl TryFrom<u8> for WasmLifecycleStatus {
     }
 }
 
-/// Status code for a task execution response from the broker.
+/// Status code for a task execution response from the broker. Discriminants 0..=6\n/// match overhauled/include/wasm_sandbox.h exactly (wire value 2 is named Error there).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum WasmTaskStatus {
@@ -1081,7 +1081,7 @@ impl Default for CancellationToken {
 // Client Transport & Version Negotiation
 // ============================================================================
 
-/// Asynchronous client communicating with the `overhauled` broker over TCP.
+/// Asynchronous client for the legacy JSON broker message protocol.\n/// The current `overhauled` TCP listener requires BRK1/WSM1; use `LifecycleClient`.
 pub struct GpuBrokerClient {
     config: GpuAdapterConfig,
     /// Tasks currently awaiting a broker response, keyed by task_id, so that
@@ -1189,7 +1189,7 @@ impl GpuBrokerClient {
         }
     }
 
-    /// Negotiate protocol version with the overhauled broker.
+    /// Legacy JSON handshake for brokers that implement YuKKi's JSON handshake.\n    /// The current overhauled BRK1/v1 server does not implement this operation.
     pub async fn negotiate_protocol(&self) -> Result<String, GpuAdapterError> {
         if !self.config.enabled {
             return Err(GpuAdapterError::Disabled);
@@ -1240,7 +1240,7 @@ impl GpuBrokerClient {
         }
     }
 
-    /// Submit a GPU task to the broker with automatic retry and idempotency protection.
+    /// Submit a GPU task to a legacy JSON-compatible broker with automatic retry.\n    /// This method does not speak the current overhauled BRK1/WSM1 protocol; use\n    /// `LifecycleClient::submit_wsm1_task` for overhauled.
     pub async fn submit_task(
         &self,
         task: &GpuTaskRequest,
