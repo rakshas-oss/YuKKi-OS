@@ -180,3 +180,28 @@ Current limitation: no built-in TLS termination for peer or broker links.
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
+
+## BRK2 binary codec (reference implementation)
+
+YuKKi-OS now exposes a standalone BRK2 codec in `src/brk2.rs` without changing
+the existing JSON, BRK1, or WSM1 transports. BRK2 is intentionally opt-in at
+this stage; it is **not** automatically negotiated by the existing broker
+client, because that requires a matching broker-side HELLO/HELLO_ACK
+implementation.
+
+Wire framing is a 4-byte big-endian body length (excluding the prefix), a
+32-byte fixed header, and 8-byte-header TLV fields. The codec enforces frame,
+payload, and field-count limits; validates reserved bits, flags, fixed-width
+values, UTF-8 and booleans; rejects duplicate singular fields; and preserves
+unknown optional fields. Schema validation rejects unknown critical fields.
+
+Public API exports: `encode_brk2_frame`, `decode_brk2_frame`,
+`validate_brk2_schema`, `Brk2Message`, `Brk2Header`, `Brk2Field`,
+`Brk2WireType`, `Brk2Limits`, and `Brk2BrokerRequest`.
+
+The initial BrokerRequest schema uses field IDs 1–9 for task_id, source,
+destination, kind, priority, timeout_ms, payload, optional UUID idempotency
+key, and optional Unix-nanosecond deadline. Freeze the schema and publish the
+normative protocol document before independent implementations depend on it.
+
+Run the codec tests with `cargo test brk2` or the full suite with `cargo test`.

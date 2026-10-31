@@ -4,6 +4,7 @@
 pub mod adi_auto_tune;
 pub mod arcgis;
 pub mod broker_client;
+pub mod brk2;
 pub mod exec_policy;
 pub mod gpu_adapter;
 pub mod interop_encryption;
@@ -15,6 +16,12 @@ pub mod stream_registry;
 pub mod stream_relay;
 pub mod wasm_ingest;
 pub mod wasm_sandbox;
+
+pub use brk2::{
+    decode as decode_brk2_frame, encode as encode_brk2_frame, validate_known_fields as validate_brk2_schema,
+    BrokerRequest as Brk2BrokerRequest, Error as Brk2Error, Field as Brk2Field, Header as Brk2Header,
+    Limits as Brk2Limits, Message as Brk2Message, WireType as Brk2WireType,
+};
 
 pub use broker_client::{
     BrokerClient, BrokerClientConfig, BrokerClientError, BrokerResult, BrokerTask,
