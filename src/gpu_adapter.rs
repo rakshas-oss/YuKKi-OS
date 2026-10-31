@@ -24,7 +24,7 @@
 //! │   │ GpuBrokerClient       │                      │ Draining │ │
 //! │   └──────────┬────────────┘                      └──────────┘ │
 //! └──────────────┼────────────────────────────────────────────────┘
-//!                │ 4-byte big-endian length-prefixed JSON over TCP
+//!                │ 4-byte big-endian length-prefixed BRK1/v1 binary over TCP
 //!                ▼
 //! ┌───────────────────────────────────────────────────────────────┐
 //! │                 overhauled Broker (C++/CUDA)                  │
@@ -54,10 +54,13 @@
 //! 6. **Rollback on Failure**: If preparation, validation, or state handoff fails,
 //!    activation is aborted and the existing active module continues serving uninterrupted.
 //!
-//! ## Wire Protocol Contract (Versioned Broker Contract)
+//! ## Wire Protocol Contract
 //!
-//! Transport is TCP with 4-byte big-endian length framing. All messages are JSON encoded.
-//! Supported protocol version: `overhauled.wasm.gpu.v1`.
+//! The current overhauled broker transport is TCP with a 4-byte big-endian
+//! length prefix, a BRK1/v1 binary request/response envelope, and WSM1/v1
+//! binary payloads for WASM task and lifecycle operations. The JSON broker
+//! APIs in this module are legacy compatibility paths and are not accepted
+//! by the current overhauled listener.
 
 use std::{
     collections::HashMap,
