@@ -8,7 +8,7 @@ use zeroize::Zeroize;
 use crate::exec_policy::{BackendAvailability, BackendPolicy, ExecutionBackend, TaskProfile};
 use crate::gpu_adapter::{
     BufferAccess, BufferDescriptor, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
-    LifecycleClient, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
+    LifecycleClient, LifecycleWireMode, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
     CURRENT_PROTOCOL_VERSION,
 };
 
@@ -150,10 +150,13 @@ impl RustasmSandbox {
             match lc.submit_wsm1_task(&wsm_req).await {
                 Ok(resp) => match resp.status {
                     WasmTaskStatus::Ok => return Ok(resp.result),
-                    WasmTaskStatus::Rejected => {
+                    WasmTaskStatus::Rejected
+                    | WasmTaskStatus::ModuleDraining
+                    | WasmTaskStatus::ModuleNotFound
+                    | WasmTaskStatus::VersionMismatch => {
                         return Err(GpuAdapterError::BrokerRejected {
                             task_id: resp.task_id,
-                            code: "REJECTED".to_string(),
+                            code: format!("{:?}", resp.status),
                             message: resp.error,
                             retryable: false,
                         });
@@ -167,12 +170,18 @@ impl RustasmSandbox {
                     }
                 },
                 Err(err) => {
-                    // If the adapter is disabled, fail fast without attempting fallback.
-                    if matches!(err, GpuAdapterError::Disabled) {
+                    // The overhauled BRK1 server is binary-only. Never send a JSON
+                    // fallback to that listener after a BRK1/WSM1 attempt fails.
+                    if matches!(err, GpuAdapterError::Disabled)
+                        || matches!(
+                            lc.wire_mode(),
+                            LifecycleWireMode::Brk1 | LifecycleWireMode::Auto
+                        )
+                    {
                         return Err(err);
                     }
-                    // For protocol mismatches or legacy brokers that fail binary WSM1,
-                    // proceed to the JSON fallback below.
+                    // Explicit legacy modes may fall through to the JSON-compatible path.
+                    tracing::warn!(%err, "WSM1 broker path failed; trying legacy JSON broker path");
                 }
             }
         }

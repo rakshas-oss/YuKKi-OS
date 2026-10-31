@@ -81,8 +81,8 @@ use tokio::{
 
 pub const CURRENT_PROTOCOL_VERSION: &str = "overhauled.wasm.gpu.v1";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["overhauled.wasm.gpu.v1"];
-pub const DEFAULT_GPU_BROKER_ENDPOINT: &str = "127.0.0.1:9000";
-pub const DEFAULT_GPU_MAX_FRAME_BYTES: usize = 64 * 1024;
+pub const DEFAULT_GPU_BROKER_ENDPOINT: &str = "127.0.0.1:9090";
+pub const DEFAULT_GPU_MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_GPU_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const DEFAULT_GPU_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_GPU_MAX_RETRIES: usize = 3;
@@ -137,6 +137,9 @@ pub const MAX_CONFIG_TIMEOUT: Duration = Duration::from_secs(600);
 pub const WSM1_MAGIC: u32 = 0x57534D31;
 /// Protocol version for WSM1 messages.
 pub const WSM1_PROTOCOL_VERSION: u16 = 1;
+pub const OVERHAULED_MAX_STRING_BYTES: usize = 1024;
+pub const OVERHAULED_MAX_PAYLOAD_BYTES: usize = 512 * 1024;
+pub const OVERHAULED_MAX_BUFFERS: usize = 64;
 
 /// Magic byte constant for BRK1 binary frame envelope ("BRK1" in big-endian: 0x42524B31).
 pub const BRK1_MAGIC: u32 = 0x42524B31;
@@ -512,13 +515,18 @@ impl TryFrom<u8> for WasmLifecycleStatus {
 }
 
 /// Status code for a task execution response from the broker.
+/// Discriminants 0..=6 match overhauled/include/wasm_sandbox.h exactly
+/// (wire value 2 is named Error by the C++ implementation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum WasmTaskStatus {
     Ok = 0,
     Rejected = 1,
-    Failed = 2,
+    Failed = 2, // overhauled wire name: Error
     Timeout = 3,
+    ModuleDraining = 4,
+    ModuleNotFound = 5,
+    VersionMismatch = 6,
 }
 
 impl TryFrom<u8> for WasmTaskStatus {
@@ -530,6 +538,9 @@ impl TryFrom<u8> for WasmTaskStatus {
             1 => Ok(Self::Rejected),
             2 => Ok(Self::Failed),
             3 => Ok(Self::Timeout),
+            4 => Ok(Self::ModuleDraining),
+            5 => Ok(Self::ModuleNotFound),
+            6 => Ok(Self::VersionMismatch),
             other => Err(GpuAdapterError::Wsm1Codec(format!(
                 "unknown WasmTaskStatus: {other}"
             ))),
@@ -625,6 +636,21 @@ pub struct Brk1Frame {
     pub priority: u8,
     pub timeout_ms: u32,
     pub payload: Vec<u8>,
+}
+
+/// BRK1 response envelope emitted by overhauled's C++ broker.
+///
+/// This layout is intentionally distinct from `Brk1Frame`: responses carry
+/// status, placement, latency, result bytes, and an error string rather than
+/// the request routing fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Brk1ResponseFrame {
+    pub task_id: String,
+    pub status: u8,
+    pub selected_gpu: i32,
+    pub latency_ms: u64,
+    pub result: Vec<u8>,
+    pub error: String,
 }
 
 /// Framing and wire format mode for lifecycle operations.
@@ -1060,7 +1086,8 @@ impl Default for CancellationToken {
 // Client Transport & Version Negotiation
 // ============================================================================
 
-/// Asynchronous client communicating with the `overhauled` broker over TCP.
+/// Asynchronous client for the legacy JSON broker message protocol.
+/// The current `overhauled` TCP listener requires BRK1/WSM1; use `LifecycleClient`.
 pub struct GpuBrokerClient {
     config: GpuAdapterConfig,
     /// Tasks currently awaiting a broker response, keyed by task_id, so that
@@ -1168,7 +1195,8 @@ impl GpuBrokerClient {
         }
     }
 
-    /// Negotiate protocol version with the overhauled broker.
+    /// Legacy JSON handshake for brokers that implement YuKKi's JSON handshake.
+    /// The current overhauled BRK1/v1 server does not implement this operation.
     pub async fn negotiate_protocol(&self) -> Result<String, GpuAdapterError> {
         if !self.config.enabled {
             return Err(GpuAdapterError::Disabled);
@@ -1219,7 +1247,9 @@ impl GpuBrokerClient {
         }
     }
 
-    /// Submit a GPU task to the broker with automatic retry and idempotency protection.
+    /// Submit a GPU task to a legacy JSON-compatible broker with automatic retry.
+    /// This method does not speak the current overhauled BRK1/WSM1 protocol; use
+    /// `LifecycleClient::submit_wsm1_task` for overhauled.
     pub async fn submit_task(
         &self,
         task: &GpuTaskRequest,
@@ -1448,10 +1478,11 @@ fn write_u64(buf: &mut Vec<u8>, val: u64) {
 
 fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     let bytes = s.as_bytes();
-    if bytes.len() > u16::MAX as usize {
+    if bytes.len() > OVERHAULED_MAX_STRING_BYTES {
         return Err(GpuAdapterError::Wsm1Codec(format!(
-            "string is {} bytes; length prefix is uint16",
-            bytes.len()
+            "string is {} bytes; overhauled limit is {}",
+            bytes.len(),
+            OVERHAULED_MAX_STRING_BYTES
         )));
     }
     write_u16(buf, bytes.len() as u16);
@@ -1459,10 +1490,30 @@ fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     Ok(())
 }
 
-fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) {
-    let len = data.len().min(u32::MAX as usize) as u32;
+fn ensure_wsm1_frame_size(buf: Vec<u8>) -> Result<Vec<u8>, GpuAdapterError> {
+    if buf.len() > OVERHAULED_MAX_PAYLOAD_BYTES {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "encoded WSM1 frame is {} bytes; overhauled broker payload limit is {}",
+            buf.len(),
+            OVERHAULED_MAX_PAYLOAD_BYTES
+        )));
+    }
+    Ok(buf)
+}
+
+fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) -> Result<(), GpuAdapterError> {
+    if data.len() > OVERHAULED_MAX_PAYLOAD_BYTES {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "payload is {} bytes; overhauled limit is {}",
+            data.len(),
+            OVERHAULED_MAX_PAYLOAD_BYTES
+        )));
+    }
+    let len = u32::try_from(data.len())
+        .map_err(|_| GpuAdapterError::Wsm1Codec("payload length exceeds uint32".into()))?;
     write_u32(buf, len);
-    buf.extend_from_slice(&data[..len as usize]);
+    buf.extend_from_slice(data);
+    Ok(())
 }
 
 struct ByteReader<'a> {
@@ -1541,6 +1592,11 @@ impl<'a> ByteReader<'a> {
 
     fn read_str(&mut self) -> Result<String, GpuAdapterError> {
         let len = self.read_u16()? as usize;
+        if len > OVERHAULED_MAX_STRING_BYTES {
+            return Err(GpuAdapterError::Wsm1Codec(format!(
+                "string length {len} exceeds overhauled limit {OVERHAULED_MAX_STRING_BYTES}"
+            )));
+        }
         if self.offset + len > self.data.len() {
             return Err(GpuAdapterError::Wsm1Codec(format!(
                 "unexpected EOF reading string of length {len}"
@@ -1555,6 +1611,11 @@ impl<'a> ByteReader<'a> {
 
     fn read_bytes(&mut self) -> Result<Vec<u8>, GpuAdapterError> {
         let len = self.read_u32()? as usize;
+        if len > OVERHAULED_MAX_PAYLOAD_BYTES {
+            return Err(GpuAdapterError::Wsm1Codec(format!(
+                "payload length {len} exceeds overhauled limit {OVERHAULED_MAX_PAYLOAD_BYTES}"
+            )));
+        }
         if self.offset + len > self.data.len() {
             return Err(GpuAdapterError::Wsm1Codec(format!(
                 "unexpected EOF reading bytes of length {len}"
@@ -1582,8 +1643,8 @@ pub fn encode_wsm1_lifecycle_request(
     write_i32(&mut buf, req.target_gpu);
     write_u32(&mut buf, req.grace_period_ms);
     write_str(&mut buf, &req.ack_token)?;
-    write_bytes(&mut buf, &req.payload);
-    Ok(buf)
+    write_bytes(&mut buf, &req.payload)?;
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmLifecycleResponse` into WSM1 binary format.
@@ -1606,11 +1667,18 @@ pub fn encode_wsm1_lifecycle_response(
     write_u32(&mut buf, resp.active_tasks);
     write_str(&mut buf, &resp.lease_token)?;
     write_str(&mut buf, &resp.error)?;
-    Ok(buf)
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmTaskRequest` into WSM1 binary format.
 pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAdapterError> {
+    if req.buffers.len() > OVERHAULED_MAX_BUFFERS {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "buffer count {} exceeds overhauled limit {}",
+            req.buffers.len(),
+            OVERHAULED_MAX_BUFFERS
+        )));
+    }
     let mut buf = Vec::with_capacity(128 + req.payload.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, WSM1_PROTOCOL_VERSION);
@@ -1623,7 +1691,7 @@ pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAda
     write_str(&mut buf, &req.task_kind)?;
     write_u8(&mut buf, req.priority);
     write_u64(&mut buf, req.deadline_ms);
-    let buf_count = req.buffers.len().min(u16::MAX as usize) as u16;
+    let buf_count = req.buffers.len() as u16;
     write_u16(&mut buf, buf_count);
     for b in &req.buffers[..buf_count as usize] {
         write_u32(&mut buf, b.buffer_id);
@@ -1632,12 +1700,19 @@ pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAda
         write_u64(&mut buf, b.length);
         write_str(&mut buf, &b.name)?;
     }
-    write_bytes(&mut buf, &req.payload);
-    Ok(buf)
+    write_bytes(&mut buf, &req.payload)?;
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmTaskResponse` into WSM1 binary format.
 pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, GpuAdapterError> {
+    if resp.buffers.len() > OVERHAULED_MAX_BUFFERS {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "buffer count {} exceeds overhauled limit {}",
+            resp.buffers.len(),
+            OVERHAULED_MAX_BUFFERS
+        )));
+    }
     let mut buf = Vec::with_capacity(128 + resp.result.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, resp.protocol_version);
@@ -1648,7 +1723,7 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, Gpu
     write_i32(&mut buf, resp.selected_gpu);
     write_u64(&mut buf, resp.latency_ms);
     write_str(&mut buf, &resp.error)?;
-    let buf_count = resp.buffers.len().min(u16::MAX as usize) as u16;
+    let buf_count = resp.buffers.len() as u16;
     write_u16(&mut buf, buf_count);
     for b in &resp.buffers[..buf_count as usize] {
         write_u32(&mut buf, b.buffer_id);
@@ -1657,8 +1732,8 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, Gpu
         write_u64(&mut buf, b.length);
         write_str(&mut buf, &b.name)?;
     }
-    write_bytes(&mut buf, &resp.result);
-    Ok(buf)
+    write_bytes(&mut buf, &resp.result)?;
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Decode any WSM1 binary message from byte slice.
@@ -1695,6 +1770,11 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
             let priority = r.read_u8()?;
             let deadline_ms = r.read_u64()?;
             let buf_count = r.read_u16()? as usize;
+            if buf_count > OVERHAULED_MAX_BUFFERS {
+                return Err(GpuAdapterError::Wsm1Codec(format!(
+                    "buffer count {buf_count} exceeds overhauled limit {OVERHAULED_MAX_BUFFERS}"
+                )));
+            }
             let mut buffers = Vec::with_capacity(buf_count);
             for _ in 0..buf_count {
                 let buffer_id = r.read_u32()?;
@@ -1731,6 +1811,11 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
             let latency_ms = r.read_u64()?;
             let error = r.read_str()?;
             let buf_count = r.read_u16()? as usize;
+            if buf_count > OVERHAULED_MAX_BUFFERS {
+                return Err(GpuAdapterError::Wsm1Codec(format!(
+                    "buffer count {buf_count} exceeds overhauled limit {OVERHAULED_MAX_BUFFERS}"
+                )));
+            }
             let mut buffers = Vec::with_capacity(buf_count);
             for _ in 0..buf_count {
                 let buffer_id = r.read_u32()?;
@@ -1829,7 +1914,7 @@ pub fn encode_brk1_frame(frame: &Brk1Frame) -> Result<Vec<u8>, GpuAdapterError> 
     write_str(&mut buf, &frame.kind)?;
     write_u8(&mut buf, frame.priority);
     write_u32(&mut buf, frame.timeout_ms);
-    write_bytes(&mut buf, &frame.payload);
+    write_bytes(&mut buf, &frame.payload)?;
     Ok(buf)
 }
 
@@ -1880,6 +1965,61 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     })
 }
 
+/// Decode the response layout implemented by
+/// `overhauled/src/broker_protocol.cpp::decode_response_frame`.
+pub fn decode_brk1_response_frame(data: &[u8]) -> Result<Brk1ResponseFrame, GpuAdapterError> {
+    if data.len() < 8 {
+        return Err(GpuAdapterError::Wsm1Codec(
+            "BRK1 response too short".to_string(),
+        ));
+    }
+    let mut r = ByteReader::new(data);
+    let magic = r.read_u32()?;
+    if magic != BRK1_MAGIC {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response magic: 0x{magic:08X}"
+        )));
+    }
+    let version = r.read_u16()?;
+    if version != BRK1_PROTOCOL_VERSION {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "unsupported BRK1 response version: {version}"
+        )));
+    }
+    let msg_type = r.read_u8()?;
+    if msg_type != BRK1_MSG_RESPONSE {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "expected BRK1 response type {BRK1_MSG_RESPONSE}, got {msg_type}"
+        )));
+    }
+    let reserved = r.read_u8()?;
+    if reserved != 0 {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response reserved byte: {reserved}"
+        )));
+    }
+    let task_id = r.read_str()?;
+    let status = r.read_u8()?;
+    if status > 3 {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "invalid BRK1 response status: {status}"
+        )));
+    }
+    let selected_gpu = r.read_i32()?;
+    let latency_ms = r.read_u64()?;
+    let result = r.read_bytes()?;
+    let error = r.read_str()?;
+    r.ensure_exhausted()?;
+    Ok(Brk1ResponseFrame {
+        task_id,
+        status,
+        selected_gpu,
+        latency_ms,
+        result,
+        error,
+    })
+}
+
 async fn write_raw_frame(
     stream: &mut TcpStream,
     data: &[u8],
@@ -1924,8 +2064,39 @@ fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAda
     if body.len() >= 4 {
         let magic = u32::from_be_bytes(body[0..4].try_into().unwrap());
         if magic == BRK1_MAGIC {
-            let brk_frame = decode_brk1_frame(body)?;
-            return parse_lifecycle_response(&brk_frame.payload);
+            let response = decode_brk1_response_frame(body)?;
+            if response.result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "overhauled BRK1 status {} for lifecycle request '{}': {}",
+                    response.status, response.task_id, response.error
+                )));
+            }
+            let decoded = parse_lifecycle_response(&response.result)?;
+            if decoded.request_id != response.task_id {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 task_id '{}' did not match WSM1 request_id '{}'",
+                    response.task_id, decoded.request_id
+                )));
+            }
+            let status_matches = match response.status {
+                0 => decoded.status == WasmLifecycleStatus::Ok,
+                1 => matches!(
+                    decoded.status,
+                    WasmLifecycleStatus::Rejected
+                        | WasmLifecycleStatus::Busy
+                        | WasmLifecycleStatus::NotFound
+                ),
+                2 => decoded.status == WasmLifecycleStatus::Error,
+                3 => false,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 status {} conflicts with WSM1 lifecycle status {:?}",
+                    response.status, decoded.status
+                )));
+            }
+            return Ok(decoded);
         } else if magic == WSM1_MAGIC {
             let msg = decode_wsm1_message(body)?;
             if let Wsm1Message::LifecycleResponse(resp) = msg {
@@ -1956,8 +2127,40 @@ fn parse_task_response(body: &[u8]) -> Result<WasmTaskResponse, GpuAdapterError>
     if body.len() >= 4 {
         let magic = u32::from_be_bytes(body[0..4].try_into().unwrap());
         if magic == BRK1_MAGIC {
-            let brk_frame = decode_brk1_frame(body)?;
-            return parse_task_response(&brk_frame.payload);
+            let response = decode_brk1_response_frame(body)?;
+            if response.result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "overhauled BRK1 status {} for task '{}': {}",
+                    response.status, response.task_id, response.error
+                )));
+            }
+            let decoded = parse_task_response(&response.result)?;
+            if decoded.task_id != response.task_id {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 task_id '{}' did not match WSM1 task_id '{}'",
+                    response.task_id, decoded.task_id
+                )));
+            }
+            let status_matches = match response.status {
+                0 => decoded.status == WasmTaskStatus::Ok,
+                1 => matches!(
+                    decoded.status,
+                    WasmTaskStatus::Rejected
+                        | WasmTaskStatus::ModuleDraining
+                        | WasmTaskStatus::ModuleNotFound
+                        | WasmTaskStatus::VersionMismatch
+                ),
+                2 => decoded.status == WasmTaskStatus::Failed,
+                3 => decoded.status == WasmTaskStatus::Timeout,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "BRK1 status {} conflicts with WSM1 task status {:?}",
+                    response.status, decoded.status
+                )));
+            }
+            return Ok(decoded);
         } else if magic == WSM1_MAGIC {
             let msg = decode_wsm1_message(body)?;
             if let Wsm1Message::TaskResponse(resp) = msg {
@@ -2096,7 +2299,13 @@ impl LifecycleClient {
                     task_id: request.request_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: "wasm.lifecycle".to_string(),
+                    kind: match request.action {
+                        WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",
+                        WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",
+                        WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",
+                        WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",
+                    }
+                    .to_string(),
                     priority: 1,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
@@ -2265,7 +2474,7 @@ impl LifecycleClient {
                     task_id: task.task_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: "wasm.task".to_string(),
+                    kind: "wasm.task.v1".to_string(),
                     priority: task.priority,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
@@ -2291,41 +2500,24 @@ impl LifecycleClient {
             Some(Ok(Ok(response))) => response,
             Some(Ok(Err(error))) => {
                 cancellation.cancel();
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "client disconnected while awaiting response",
-                    )
-                    .await;
+                tracing::debug!(
+                    task_id = %task.task_id,
+                    "overhauled BRK1 has no remote cancel operation; closing the client socket"
+                );
                 return Err(error);
             }
             Some(Err(_)) => {
                 cancellation.cancel();
-                // The broker's GPU kernel cannot be forcibly interrupted from here;
-                // ask it to cooperatively stop the task on a best-effort basis
-                // without blocking the caller any further than request_timeout
-                // already incurred.
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "client request timeout",
-                    )
-                    .await;
+                // The overhauled broker has no remote cancellation operation.
+                // Dropping this connection does not preempt a running GPU kernel.
+                tracing::debug!(task_id = %task.task_id, "overhauled BRK1 has no remote cancel operation; closing the client socket");
                 return Err(GpuAdapterError::RequestTimeout(config.request_timeout));
             }
             None => {
-                self.broker_client
-                    .request_broker_cancel_once(
-                        &cancellation,
-                        &task.task_id,
-                        &task.sandbox_id,
-                        "task cancellation requested",
-                    )
-                    .await;
+                tracing::debug!(
+                    task_id = %task.task_id,
+                    "overhauled BRK1 has no remote cancel operation; local cancellation only"
+                );
                 return Err(GpuAdapterError::TaskCancelled {
                     task_id: task.task_id.clone(),
                     reason: "client shutdown or explicit cancellation".to_string(),

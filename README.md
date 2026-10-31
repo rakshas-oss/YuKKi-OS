@@ -66,7 +66,7 @@ export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
 YuKKi-OS peer mesh transport and broker transport are separate:
 
 - Peer mesh: X25519 + PSK + HKDF + ChaCha20-Poly1305
-- Broker client (`src/broker_client.rs`): raw TCP + 4-byte big-endian length-prefixed JSON
+- Generic broker client (`src/broker_client.rs`): raw TCP + 4-byte big-endian length-prefixed JSON; this is not the `overhauled` wire protocol
 
 Default broker endpoint: `127.0.0.1:9000`
 
@@ -125,14 +125,16 @@ and media streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
 
 YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
 
-- Communicates over raw TCP via version-negotiated length-prefixed JSON (`overhauled.wasm.gpu.v1`).
+- Interoperates with `overhauled` over raw TCP using a 4-byte big-endian length prefix, BRK1/v1 binary request/response envelopes, and WSM1 binary task/lifecycle payloads.
+- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the current C++ broker does not implement JSON handshake negotiation, BRK2, or remote cancellation.
+- Use `LifecycleClient` with `LifecycleWireMode::Brk1` (or its default `Auto` mode) and `submit_wsm1_task` for the current `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON message path and is not wire-compatible with `overhauled`.
 - Preserves sandbox isolation with host-mediated execution and bounded buffer descriptors.
 - Provides module lifecycle management with atomic routing switches, quiescing/draining, drain-before-release ordering, and rollback on activation failure.
 - Optional / configurable: disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`) so existing deployments run without GPU hardware or external brokers.
 
 Environment variables:
 - `YUKKI_GPU_ADAPTER_ENABLED` (`true` / `false`, default `false`)
-- `YUKKI_GPU_BROKER_ENDPOINT` (default `127.0.0.1:9000`)
+- `YUKKI_GPU_BROKER_ENDPOINT` (default `127.0.0.1:9090`)
 - `YUKKI_GPU_CONNECT_TIMEOUT_MS` (default `2000`, must be `1..=600000` ms)
 - `YUKKI_GPU_REQUEST_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
 - `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
@@ -149,7 +151,7 @@ CPU is the always-available correctness baseline; accelerators are optional, bes
 
 Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the request fails.
 
-See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for protocol specifications and lifecycle documentation.
+See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/WSM1 cross-repository contract, and [docs/API.md](docs/API.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for API and lifecycle documentation.
 
 ## Documentation
 
