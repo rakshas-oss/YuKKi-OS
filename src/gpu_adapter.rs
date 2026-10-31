@@ -2183,7 +2183,12 @@ impl LifecycleClient {
                     task_id: request.request_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: match request.action {\n                        WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",\n                        WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",\n                        WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",\n                        WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",\n                    }.to_string(),
+                    kind: match request.action {
+                        WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",
+                        WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",
+                        WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",
+                        WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",
+                    }.to_string(),
                     priority: 1,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
