@@ -1,6 +1,12 @@
 use yukkios_6_8_0_inet3::gpu_adapter::{
-    decode_brk1_response_frame, encode_brk1_frame, Brk1Frame, GpuAdapterError, BRK1_MAGIC,
-    BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST, WasmTaskStatus,
+    decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame,
+    encode_wsm1_task_response, Brk1Frame, GpuAdapterConfig, GpuAdapterError, GpuTaskStatus,
+    LifecycleClient, LifecycleWireMode, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus,
+    Wsm1Message, BRK1_MAGIC, BRK1_PROTOCOL_VERSION, BRK1_MSG_REQUEST,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
 };
 
 fn sample_response() -> Vec<u8> {
@@ -103,4 +109,95 @@ fn accepts_all_overhauled_wsm1_task_status_codes() {
         WasmTaskStatus::VersionMismatch
     );
     assert!(WasmTaskStatus::try_from(7).is_err());
+}
+
+fn append_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u16).to_be_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn append_blob(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    out.extend_from_slice(value);
+}
+
+fn wrap_brk1_response(task_id: &str, status: u8, result: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&BRK1_MAGIC.to_be_bytes());
+    frame.extend_from_slice(&BRK1_PROTOCOL_VERSION.to_be_bytes());
+    frame.push(2);
+    frame.push(0);
+    append_string(&mut frame, task_id);
+    frame.push(status);
+    frame.extend_from_slice(&1i32.to_be_bytes());
+    frame.extend_from_slice(&9u64.to_be_bytes());
+    append_blob(&mut frame, result);
+    append_string(&mut frame, "");
+    frame
+}
+
+#[tokio::test]
+async fn lifecycle_client_round_trips_brk1_with_wsm1_payload() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock broker");
+    let endpoint = listener.local_addr().expect("local address").to_string();
+
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept client");
+        let mut length = [0u8; 4];
+        socket.read_exact(&mut length).await.expect("read length");
+        let length = u32::from_be_bytes(length) as usize;
+        let mut body = vec![0u8; length];
+        socket.read_exact(&mut body).await.expect("read request");
+
+        let request = decode_brk1_frame(&body).expect("decode BRK1 request");
+        assert_eq!(request.msg_type, BRK1_MSG_REQUEST);
+        assert_eq!(request.kind, "wasm.task.v1");
+        assert_eq!(request.task_id, "t-42");
+        assert!(matches!(
+            decode_wsm1_message(&request.payload).expect("decode WSM1 request"),
+            Wsm1Message::TaskRequest(_)
+        ));
+
+        let wsm1_response = encode_wsm1_task_response(&WasmTaskResponse {
+            task_id: "t-42".into(),
+            status: WasmTaskStatus::Ok,
+            protocol_version: 1,
+            selected_gpu: 1,
+            latency_ms: 9,
+            error: String::new(),
+            buffers: Vec::new(),
+            result: vec![0xaa, 0xbb],
+        })
+        .expect("encode WSM1 response");
+        let response = wrap_brk1_response("t-42", 0, &wsm1_response);
+        socket
+            .write_all(&(response.len() as u32).to_be_bytes())
+            .await
+            .expect("write response length");
+        socket.write_all(&response).await.expect("write response");
+    });
+
+    let mut config = GpuAdapterConfig::new(endpoint);
+    config.enabled = true;
+    config.max_retries = 0;
+    let client = LifecycleClient::new(config)
+        .expect("create lifecycle client")
+        .with_wire_mode(LifecycleWireMode::Brk1);
+    let request = WasmTaskRequest {
+        task_id: "t-42".into(),
+        sandbox_id: "sandbox-1".into(),
+        module_id: "module-1".into(),
+        module_version: "1.0.0".into(),
+        task_kind: "compute".into(),
+        priority: 3,
+        deadline_ms: 5000,
+        buffers: Vec::new(),
+        payload: vec![1, 2, 3],
+    };
+
+    let response = client.submit_wsm1_task(&request).await.expect("BRK1/WSM1 round trip");
+    assert_eq!(response.task_id, "t-42");
+    assert_eq!(response.status, WasmTaskStatus::Ok);
+    assert_eq!(response.result, vec![0xaa, 0xbb]);
+    server.await.expect("mock broker task");
 }
