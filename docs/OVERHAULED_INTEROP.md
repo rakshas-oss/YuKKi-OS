@@ -104,6 +104,8 @@ and implemented by `overhauled/src/broker_protocol.cpp`.
 - BRK1 frame limit: 1 MiB in the YuKKi-OS GPU adapter default.
 - Broker default payload limit: 512 KiB.
 - Broker default string limit: 1024 bytes.
+- WSM1 buffer descriptor limit: 64 per task.
+- Encoded WSM1 payload limit: 512 KiB.
 - Broker task timeout: 1..=300000 ms.
 
 The actual server-side limits are configured by `ProtocolLimits`; client
