@@ -40,7 +40,7 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
 
     // An odd-length payload exercises the broker's opaque-byte echo path,
     // avoiding architecture-specific floating-point compute behavior.
-    let payload = b"live-cpp-interop";
+    let payload = b"live-cpp-interop!";
     let task = WasmTaskRequest {
         task_id: "ci-live-task-1".into(),
         sandbox_id: sandbox_id.into(),
