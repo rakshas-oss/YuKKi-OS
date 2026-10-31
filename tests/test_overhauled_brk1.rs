@@ -35,9 +35,9 @@ fn request_encoder_matches_overhauled_brk1_field_order() {
     .expect("encode BRK1 request");
 
     let expected = [
-        b'B', b'R', b'K', b'1', 0, 1, 1, 0,
-        0, 1, b't', 0, 1, b'y', 0, 1, b'o', 0, 1, b'k',
-        1, 0, 0, 0x0b, 0xb8, 0, 0, 0, 2, 0xaa, 0xbb,
+        b'B', b'R', b'K', b'1', 0, 1, 1, 0, 0, 1, b't',
+        0, 1, b'y', 0, 1, b'o', 0, 1, b'k', 1, 0, 0,
+        0x0b, 0xb8, 0, 0, 0, 2, 0xaa, 0xbb,
     ];
     assert_eq!(encoded, expected);
 }
@@ -90,8 +90,17 @@ fn accepts_all_overhauled_wsm1_task_status_codes() {
     assert_eq!(WasmTaskStatus::try_from(1).unwrap(), WasmTaskStatus::Rejected);
     assert_eq!(WasmTaskStatus::try_from(2).unwrap(), WasmTaskStatus::Failed);
     assert_eq!(WasmTaskStatus::try_from(3).unwrap(), WasmTaskStatus::Timeout);
-    assert_eq!(WasmTaskStatus::try_from(4).unwrap(), WasmTaskStatus::ModuleDraining);
-    assert_eq!(WasmTaskStatus::try_from(5).unwrap(), WasmTaskStatus::ModuleNotFound);
-    assert_eq!(WasmTaskStatus::try_from(6).unwrap(), WasmTaskStatus::VersionMismatch);
+    assert_eq!(
+        WasmTaskStatus::try_from(4).unwrap(),
+        WasmTaskStatus::ModuleDraining
+    );
+    assert_eq!(
+        WasmTaskStatus::try_from(5).unwrap(),
+        WasmTaskStatus::ModuleNotFound
+    );
+    assert_eq!(
+        WasmTaskStatus::try_from(6).unwrap(),
+        WasmTaskStatus::VersionMismatch
+    );
     assert!(WasmTaskStatus::try_from(7).is_err());
 }
