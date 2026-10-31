@@ -61,10 +61,10 @@ The outer BRK1 `kind` selects the broker handler:
 | Kind | WSM1 payload |
 |---|---|
 | `wasm.task.v1` | WSM1 TaskRequest (message type 1) |
-| `wasm.lifecycle.prepare.v1` | WSM1 LifecycleRequest, action Prepare (3) |
-| `wasm.lifecycle.drain.v1` | WSM1 LifecycleRequest, action Drain (3) |
+| `wasm.lifecycle.prepare.v1` | WSM1 LifecycleRequest, action Prepare (1) |
+| `wasm.lifecycle.drain.v1` | WSM1 LifecycleRequest, action Drain (2) |
 | `wasm.lifecycle.release.v1` | WSM1 LifecycleRequest, action Release (3) |
-| `wasm.lifecycle.query.v1` | WSM1 LifecycleRequest, action Query (3) |
+| `wasm.lifecycle.query.v1` | WSM1 LifecycleRequest, action Query (4) |
 
 The broker returns a BRK1 response whose `result` is the corresponding WSM1
 TaskResponse (message type 2) or LifecycleResponse (message type 4). YuKKi-OS
@@ -113,9 +113,9 @@ limits should be set no higher than the server's configured values.
 
 ## Interoperability tests
 
-YuKKi-OS includes a byte-level BRK1 response decoder test using the exact field
-order and big-endian representation from the C++ implementation. End-to-end
-acceptance still requires running the Rust client against an overhauled
-`broker_server --cpu-only` instance and validating WSM1 task and lifecycle
-round trips. A codec unit test alone is not evidence of live network
-interoperability.
+YuKKi-OS includes byte-level BRK1 codec tests and a mock TCP round-trip test.
+The `overhauled-live-cpp` CI job builds the real C++ `broker_server` in CPU-only
+mode, starts it, and runs a Rust `LifecycleClient` against it. That live test
+covers WSM1 Prepare, Task, Drain, and Release operations over the actual TCP
+listener. A successful run is the evidence for cross-language interoperability;
+the mock test remains useful for isolated client behavior.
