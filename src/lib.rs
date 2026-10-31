@@ -31,7 +31,7 @@ pub use broker_client::{
 };
 
 pub use gpu_adapter::{
-    decode_brk1_frame, decode_wsm1_message, encode_brk1_frame, encode_wsm1_lifecycle_request,
+    decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame, encode_wsm1_lifecycle_request,
     encode_wsm1_lifecycle_response, encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame,
     BrokerMessage, BrokerTaskError, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
     CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
