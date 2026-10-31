@@ -1490,6 +1490,17 @@ fn write_str(buf: &mut Vec<u8>, s: &str) -> Result<(), GpuAdapterError> {
     Ok(())
 }
 
+fn ensure_wsm1_frame_size(buf: Vec<u8>) -> Result<Vec<u8>, GpuAdapterError> {
+    if buf.len() > OVERHAULED_MAX_PAYLOAD_BYTES {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "encoded WSM1 frame is {} bytes; overhauled broker payload limit is {}",
+            buf.len(),
+            OVERHAULED_MAX_PAYLOAD_BYTES
+        )));
+    }
+    Ok(buf)
+}
+
 fn write_bytes(buf: &mut Vec<u8>, data: &[u8]) -> Result<(), GpuAdapterError> {
     if data.len() > OVERHAULED_MAX_PAYLOAD_BYTES {
         return Err(GpuAdapterError::Wsm1Codec(format!(
@@ -1633,7 +1644,7 @@ pub fn encode_wsm1_lifecycle_request(
     write_u32(&mut buf, req.grace_period_ms);
     write_str(&mut buf, &req.ack_token)?;
     write_bytes(&mut buf, &req.payload)?;
-    Ok(buf)
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmLifecycleResponse` into WSM1 binary format.
@@ -1656,11 +1667,18 @@ pub fn encode_wsm1_lifecycle_response(
     write_u32(&mut buf, resp.active_tasks);
     write_str(&mut buf, &resp.lease_token)?;
     write_str(&mut buf, &resp.error)?;
-    Ok(buf)
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmTaskRequest` into WSM1 binary format.
 pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAdapterError> {
+    if req.buffers.len() > OVERHAULED_MAX_BUFFERS {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "buffer count {} exceeds overhauled limit {}",
+            req.buffers.len(),
+            OVERHAULED_MAX_BUFFERS
+        )));
+    }
     let mut buf = Vec::with_capacity(128 + req.payload.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, WSM1_PROTOCOL_VERSION);
@@ -1673,7 +1691,7 @@ pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAda
     write_str(&mut buf, &req.task_kind)?;
     write_u8(&mut buf, req.priority);
     write_u64(&mut buf, req.deadline_ms);
-    let buf_count = req.buffers.len().min(u16::MAX as usize) as u16;
+    let buf_count = req.buffers.len() as u16;
     write_u16(&mut buf, buf_count);
     for b in &req.buffers[..buf_count as usize] {
         write_u32(&mut buf, b.buffer_id);
@@ -1682,12 +1700,19 @@ pub fn encode_wsm1_task_request(req: &WasmTaskRequest) -> Result<Vec<u8>, GpuAda
         write_u64(&mut buf, b.length);
         write_str(&mut buf, &b.name)?;
     }
-    write_bytes(&mut buf, &req.payload);
-    Ok(buf)
+    write_bytes(&mut buf, &req.payload)?;
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Encode a `WasmTaskResponse` into WSM1 binary format.
 pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, GpuAdapterError> {
+    if resp.buffers.len() > OVERHAULED_MAX_BUFFERS {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "buffer count {} exceeds overhauled limit {}",
+            resp.buffers.len(),
+            OVERHAULED_MAX_BUFFERS
+        )));
+    }
     let mut buf = Vec::with_capacity(128 + resp.result.len());
     write_u32(&mut buf, WSM1_MAGIC);
     write_u16(&mut buf, resp.protocol_version);
@@ -1698,7 +1723,7 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, Gpu
     write_i32(&mut buf, resp.selected_gpu);
     write_u64(&mut buf, resp.latency_ms);
     write_str(&mut buf, &resp.error)?;
-    let buf_count = resp.buffers.len().min(u16::MAX as usize) as u16;
+    let buf_count = resp.buffers.len() as u16;
     write_u16(&mut buf, buf_count);
     for b in &resp.buffers[..buf_count as usize] {
         write_u32(&mut buf, b.buffer_id);
@@ -1708,7 +1733,7 @@ pub fn encode_wsm1_task_response(resp: &WasmTaskResponse) -> Result<Vec<u8>, Gpu
         write_str(&mut buf, &b.name)?;
     }
     write_bytes(&mut buf, &resp.result)?;
-    Ok(buf)
+    ensure_wsm1_frame_size(buf)
 }
 
 /// Decode any WSM1 binary message from byte slice.
@@ -1745,6 +1770,11 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
             let priority = r.read_u8()?;
             let deadline_ms = r.read_u64()?;
             let buf_count = r.read_u16()? as usize;
+            if buf_count > OVERHAULED_MAX_BUFFERS {
+                return Err(GpuAdapterError::Wsm1Codec(format!(
+                    "buffer count {buf_count} exceeds overhauled limit {OVERHAULED_MAX_BUFFERS}"
+                )));
+            }
             let mut buffers = Vec::with_capacity(buf_count);
             for _ in 0..buf_count {
                 let buffer_id = r.read_u32()?;
@@ -1781,6 +1811,11 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
             let latency_ms = r.read_u64()?;
             let error = r.read_str()?;
             let buf_count = r.read_u16()? as usize;
+            if buf_count > OVERHAULED_MAX_BUFFERS {
+                return Err(GpuAdapterError::Wsm1Codec(format!(
+                    "buffer count {buf_count} exceeds overhauled limit {OVERHAULED_MAX_BUFFERS}"
+                )));
+            }
             let mut buffers = Vec::with_capacity(buf_count);
             for _ in 0..buf_count {
                 let buffer_id = r.read_u32()?;
