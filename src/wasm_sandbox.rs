@@ -8,7 +8,7 @@ use zeroize::Zeroize;
 use crate::exec_policy::{BackendAvailability, BackendPolicy, ExecutionBackend, TaskProfile};
 use crate::gpu_adapter::{
     BufferAccess, BufferDescriptor, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
-    LifecycleClient, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
+    LifecycleClient, LifecycleWireMode, WasmBufferDescriptor, WasmTaskRequest, WasmTaskStatus,
     CURRENT_PROTOCOL_VERSION,
 };
 
