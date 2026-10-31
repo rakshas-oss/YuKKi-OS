@@ -118,7 +118,7 @@ jobs:
   all-integration:
     name: All Integration Tests
     runs-on: ubuntu-latest
-    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter]
+    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp]
     steps:
       - run: echo "All integration tests passed"
 
