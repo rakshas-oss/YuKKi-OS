@@ -19,7 +19,7 @@ jobs:
         with:
           toolchain: 1.98.1
       - name: Regenerate lockfile from the manifest
-        run: cargo generate-lockfile
+        run: cargo check --features mesh_dashboard --lib
       - name: Commit the regenerated lockfile
         run: |
           if git diff --quiet -- Cargo.lock; then
