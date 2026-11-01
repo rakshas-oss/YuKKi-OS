@@ -112,7 +112,9 @@ fn encode_brk1_response_frame(
 fn brk1_lifecycle_status(status: WasmLifecycleStatus) -> u8 {
     match status {
         WasmLifecycleStatus::Ok => 0,
-        WasmLifecycleStatus::Rejected | WasmLifecycleStatus::Busy | WasmLifecycleStatus::NotFound => 1,
+        WasmLifecycleStatus::Rejected
+        | WasmLifecycleStatus::Busy
+        | WasmLifecycleStatus::NotFound => 1,
         WasmLifecycleStatus::Error => 2,
     }
 }
@@ -1627,7 +1629,12 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
                         let wsm_resp_bytes = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
                         let encoded_resp_frame = encode_brk1_response_frame(
-                            &brk_frame.task_id, brk1_lifecycle_status(resp.status), resp.assigned_gpu, 0, &wsm_resp_bytes, &resp.error,
+                            &brk_frame.task_id,
+                            brk1_lifecycle_status(resp.status),
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp_bytes,
+                            &resp.error,
                         );
                         write_raw_prefixed(&mut stream, &encoded_resp_frame).await;
                     } else {
@@ -1770,7 +1777,12 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
                         let wsm_resp = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
                         let enc = encode_brk1_response_frame(
-                            &brk_frame.task_id, brk1_lifecycle_status(resp.status), resp.assigned_gpu, 0, &wsm_resp, &resp.error,
+                            &brk_frame.task_id,
+                            brk1_lifecycle_status(resp.status),
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp,
+                            &resp.error,
                         );
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
@@ -2089,8 +2101,12 @@ async fn test_sandbox_submit_gpu_task_wsm1_success() {
                 };
                 let wsm_resp = encode_wsm1_task_response(&task_resp).expect("encode task response");
                 let enc = encode_brk1_response_frame(
-                    &brk_frame.task_id, 0, task_resp.selected_gpu, task_resp.latency_ms,
-                    &wsm_resp, &task_resp.error,
+                    &brk_frame.task_id,
+                    0,
+                    task_resp.selected_gpu,
+                    task_resp.latency_ms,
+                    &wsm_resp,
+                    &task_resp.error,
                 );
                 write_raw_prefixed(&mut stream, &enc).await;
             }
