@@ -2069,7 +2069,7 @@ fn decode_brk2_response_fields(
     body: &[u8],
     expected_request_id: u64,
     expected_task_id: &str,
-) -> Result<(u8, Vec<u8>, String), GpuAdapterError> {
+) -> Result<(u8, Vec<u8>, String, Option<String>), GpuAdapterError> {
     let length = u32::try_from(body.len()).map_err(|_| {
         GpuAdapterError::MalformedResponse("BRK2 response body exceeds uint32".into())
     })?;
@@ -2095,6 +2095,7 @@ fn decode_brk2_response_fields(
         (4, WireType::U64, true),
         (5, WireType::Bytes, true),
         (6, WireType::Utf8, true),
+        (7, WireType::Utf8, false),
     ];
     crate::brk2::validate_known_fields(&message, &schema)
         .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
@@ -2110,7 +2111,16 @@ fn decode_brk2_response_fields(
     let error = std::str::from_utf8(&message.field(6).unwrap().value)
         .map_err(|e| GpuAdapterError::MalformedResponse(format!("BRK2 error is not UTF-8: {e}")))?
         .to_owned();
-    Ok((status, result, error))
+    // Optional field 7: backend ("cpu"/"gpu"/"npu"). Old servers omit it.
+    let backend = message
+        .field(7)
+        .map(|f| {
+            std::str::from_utf8(&f.value)
+                .map_err(|e| GpuAdapterError::MalformedResponse(format!("BRK2 backend is not UTF-8: {e}")))
+                .map(|s| s.to_owned())
+        })
+        .transpose()?;
+    Ok((status, result, error, backend))
 }
 
 fn brk2_request_id() -> u64 {
@@ -2125,6 +2135,17 @@ fn encode_brk2_broker_request(
     timeout_ms: u32,
     payload: Vec<u8>,
 ) -> Result<(u64, Vec<u8>), GpuAdapterError> {
+    encode_brk2_broker_request_with_device(task_id, kind, priority, timeout_ms, payload, None)
+}
+
+fn encode_brk2_broker_request_with_device(
+    task_id: &str,
+    kind: &str,
+    priority: u8,
+    timeout_ms: u32,
+    payload: Vec<u8>,
+    device_preference: Option<&str>,
+) -> Result<(u64, Vec<u8>), GpuAdapterError> {
     let request_id = brk2_request_id();
     let request = crate::brk2::BrokerRequest {
         task_id: task_id.to_owned(),
@@ -2136,6 +2157,7 @@ fn encode_brk2_broker_request(
         payload,
         idempotency_key: None,
         deadline_unix_ns: None,
+        device_preference: device_preference.map(|s| s.to_owned()),
     };
     let frame = crate::brk2::encode(&request.to_message(request_id), crate::brk2::Limits::default())
         .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
@@ -2423,7 +2445,7 @@ impl LifecycleClient {
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
 
         if let Some(id) = brk2_id {
-            let (status, result, error) = decode_brk2_response_fields(
+            let (status, result, error, _backend) = decode_brk2_response_fields(
                 &response_bytes, id, &request.request_id,
             )?;
             if result.is_empty() {
@@ -2663,7 +2685,7 @@ impl LifecycleClient {
         };
 
         if let Some(id) = brk2_id {
-            let (status, result, error) = decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
+            let (status, result, error, _backend) = decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
             }
@@ -2681,6 +2703,82 @@ impl LifecycleClient {
             Ok(decoded)
         } else {
             parse_task_response(&response_bytes)
+        }
+    }
+
+    /// Submit a generic inference task to the overhauled broker over BRK2,
+    /// requesting the NPU backend explicitly (BRK2 field 10).
+    ///
+    /// Unlike `submit_wsm1_task`, this does not go through the WASM manager:
+    /// kind "inference" reaches BrokerService's backend dispatch, which
+    /// maps device_preference "npu" to an inference profile. The broker's
+    /// BRK2 response backend field (field 7) is verified when present:
+    /// a CPU fallback is returned as an error here instead of silently
+    /// being reported as an NPU result. Callers that allow CPU fallback
+    /// should handle that error via their policy chain.
+    pub async fn submit_npu_task(
+        &self,
+        task_id: &str,
+        payload: &[u8],
+        priority: u8,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, GpuAdapterError> {
+        let config = self.broker_client.config();
+        if !config.enabled {
+            return Err(GpuAdapterError::Disabled);
+        }
+        let (request_id, frame) = encode_brk2_broker_request_with_device(
+            task_id,
+            "inference",
+            priority,
+            timeout_ms,
+            payload.to_vec(),
+            Some("npu"),
+        )?;
+        if frame.len() > config.max_frame_size {
+            return Err(GpuAdapterError::FrameTooLarge {
+                size: frame.len(),
+                max: config.max_frame_size,
+            });
+        }
+        let mut stream = timeout(
+            config.connect_timeout,
+            TcpStream::connect(&config.endpoint),
+        )
+        .await
+        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        stream.write_all(&frame).await?;
+        stream.flush().await?;
+        let response_bytes = timeout(
+            config.request_timeout,
+            read_raw_frame(&mut stream, config.max_frame_size),
+        )
+        .await
+        .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
+        let (status, result, error, backend) =
+            decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
+        match status {
+            0 => {
+                if let Some(backend) = backend {
+                    if backend != "npu" {
+                        return Err(GpuAdapterError::MalformedResponse(format!(
+                            "broker ran task on backend '{backend}', not 'npu'"
+                        )));
+                    }
+                }
+                Ok(result)
+            }
+            1 => Err(GpuAdapterError::BrokerRejected {
+                task_id: task_id.to_owned(),
+                code: "REJECTED".to_string(),
+                message: error,
+                retryable: false,
+            }),
+            _ => Err(GpuAdapterError::TaskExecutionFailed {
+                task_id: task_id.to_owned(),
+                code: format!("BRK2 status {status}"),
+                message: error,
+            }),
         }
     }
 }

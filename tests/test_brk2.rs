@@ -14,6 +14,7 @@ fn request() -> Brk2BrokerRequest {
         payload: vec![0, 1, 2, 255],
         idempotency_key: None,
         deadline_unix_ns: Some(1_900_000_000_000_000_000),
+        device_preference: Some("npu".into()),
     }
 }
 
