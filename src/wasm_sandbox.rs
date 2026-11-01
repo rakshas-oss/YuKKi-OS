@@ -175,7 +175,7 @@ impl RustasmSandbox {
                     if matches!(err, GpuAdapterError::Disabled)
                         || matches!(
                             lc.wire_mode(),
-                            LifecycleWireMode::Brk1 | LifecycleWireMode::Auto
+                            LifecycleWireMode::Brk1 | LifecycleWireMode::Brk2 | LifecycleWireMode::Auto
                         )
                     {
                         return Err(err);
