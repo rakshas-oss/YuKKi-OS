@@ -123,7 +123,7 @@ jobs:
       - run: echo "All integration tests passed"
 
   overhauled-live-cpp:
-    name: Live C++ overhauled BRK1/WSM1 interoperability
+    name: Live C++ overhauled BRK1/BRK2 WSM1 interoperability
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -163,4 +163,5 @@ jobs:
             fi
             sleep 0.25
           done
-          cargo test --locked --test test_overhauled_live -- --nocapture
+          OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
+          OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
