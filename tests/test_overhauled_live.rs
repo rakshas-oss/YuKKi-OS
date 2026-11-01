@@ -31,12 +31,13 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
         .expect("construct LifecycleClient")
         .with_wire_mode(wire_mode);
 
-    let sandbox_id = "ci-live-sandbox";
-    let module_id = "ci-live-module";
+    let mode_suffix = if wire_mode == LifecycleWireMode::Brk2 { "brk2" } else { "brk1" };
+    let sandbox_id = format!("ci-live-{mode_suffix}-sandbox");
+    let module_id = format!("ci-live-{mode_suffix}-module");
     let version = "1.0.0";
 
     let prepared = client
-        .prepare(sandbox_id, module_id, version, -1)
+        .prepare(&sandbox_id, &module_id, version, -1)
         .await
         .expect("broker WSM1 Prepare request");
     assert_eq!(prepared.status, WasmLifecycleStatus::Ok);
@@ -46,9 +47,9 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     // avoiding architecture-specific floating-point compute behavior.
     let payload = b"live-cpp-interop!";
     let task = WasmTaskRequest {
-        task_id: "ci-live-task-1".into(),
-        sandbox_id: sandbox_id.into(),
-        module_id: module_id.into(),
+        task_id: format!("ci-live-{mode_suffix}-task-1"),
+        sandbox_id: sandbox_id.clone(),
+        module_id: module_id.clone(),
         module_version: version.into(),
         task_kind: "interop-echo".into(),
         priority: 1,
@@ -65,13 +66,13 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     assert_eq!(response.result, payload);
 
     let drained = client
-        .drain(sandbox_id, module_id, version, 1_000)
+        .drain(&sandbox_id, &module_id, version, 1_000)
         .await
         .expect("broker WSM1 Drain request");
     assert_eq!(drained.status, WasmLifecycleStatus::Ok);
 
     let released = client
-        .release(sandbox_id, module_id, version, &prepared.lease_token)
+        .release(&sandbox_id, &module_id, version, &prepared.lease_token)
         .await
         .expect("broker WSM1 Release request");
     assert_eq!(released.status, WasmLifecycleStatus::Ok);
