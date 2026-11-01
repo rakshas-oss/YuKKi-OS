@@ -2,8 +2,8 @@ use yukkios_6_8_0_inet3::gpu_adapter::{
     decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame,
     encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame, GpuAdapterConfig,
     GpuAdapterError, LifecycleClient, LifecycleWireMode, WasmBufferDescriptor, WasmTaskRequest,
-    WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC, BRK1_PROTOCOL_VERSION,
-    BRK1_MSG_REQUEST,
+    WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST,
+    BRK1_PROTOCOL_VERSION,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -42,9 +42,8 @@ fn request_encoder_matches_overhauled_brk1_field_order() {
     .expect("encode BRK1 request");
 
     let expected = [
-        b'B', b'R', b'K', b'1', 0, 1, 1, 0, 0, 1, b't',
-        0, 1, b'y', 0, 1, b'o', 0, 1, b'k', 1, 0, 0,
-        0x0b, 0xb8, 0, 0, 0, 2, 0xaa, 0xbb,
+        b'B', b'R', b'K', b'1', 0, 1, 1, 0, 0, 1, b't', 0, 1, b'y', 0, 1, b'o', 0, 1, b'k', 1, 0,
+        0, 0x0b, 0xb8, 0, 0, 0, 2, 0xaa, 0xbb,
     ];
     assert_eq!(encoded, expected);
 }
@@ -94,9 +93,15 @@ fn rejects_invalid_status() {
 #[test]
 fn accepts_all_overhauled_wsm1_task_status_codes() {
     assert_eq!(WasmTaskStatus::try_from(0).unwrap(), WasmTaskStatus::Ok);
-    assert_eq!(WasmTaskStatus::try_from(1).unwrap(), WasmTaskStatus::Rejected);
+    assert_eq!(
+        WasmTaskStatus::try_from(1).unwrap(),
+        WasmTaskStatus::Rejected
+    );
     assert_eq!(WasmTaskStatus::try_from(2).unwrap(), WasmTaskStatus::Failed);
-    assert_eq!(WasmTaskStatus::try_from(3).unwrap(), WasmTaskStatus::Timeout);
+    assert_eq!(
+        WasmTaskStatus::try_from(3).unwrap(),
+        WasmTaskStatus::Timeout
+    );
     assert_eq!(
         WasmTaskStatus::try_from(4).unwrap(),
         WasmTaskStatus::ModuleDraining
@@ -139,7 +144,9 @@ fn wrap_brk1_response(task_id: &str, status: u8, result: &[u8]) -> Vec<u8> {
 
 #[tokio::test]
 async fn lifecycle_client_round_trips_brk1_with_wsm1_payload() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock broker");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock broker");
     let endpoint = listener.local_addr().expect("local address").to_string();
 
     let server = tokio::spawn(async move {
