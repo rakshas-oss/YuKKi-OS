@@ -185,4 +185,34 @@ mod tests {
  #[test]fn rejects_unknown_critical_but_preserves_optional(){let mut m=sample();m.push(Field::u8(99,1));assert!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]).is_ok());m.fields.last_mut().unwrap().flags|=FIELD_CRITICAL;assert_eq!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]),Err(Error::UnknownCriticalField(99)))}
  #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let mut l=Limits::default();l.max_frame_bytes=32;assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut m=sample();m.field(6);m.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&m),Err(Error::InvalidValue("timeout_ms must be nonzero")))}
  #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok())}
+ #[test]
+ fn deterministic_malformed_corpus_never_panics() {
+     use std::panic::{catch_unwind, AssertUnwindSafe};
+     let seed = encode(&sample(), Limits::default()).unwrap();
+     for cut in 0..seed.len() {
+         let result = catch_unwind(AssertUnwindSafe(|| decode(&seed[..cut], Limits::default())));
+         assert!(result.is_ok(), "decoder panicked on truncation at {cut}");
+     }
+     for index in 0..seed.len() {
+         for bit in 0..8 {
+             let mut mutated = seed.clone();
+             mutated[index] ^= 1 << bit;
+             let result = catch_unwind(AssertUnwindSafe(|| decode(&mutated, Limits::default())));
+             assert!(result.is_ok(), "decoder panicked at byte {index}, bit {bit}");
+         }
+     }
+     // Deterministic arbitrary byte strings cover invalid prefixes and headers.
+     let mut state = 0x9e3779b97f4a7c15u64;
+     for len in 0..256usize {
+         let mut bytes = vec![0u8; len];
+         for byte in &mut bytes {
+             state ^= state << 7;
+             state ^= state >> 9;
+             state ^= state << 8;
+             *byte = state as u8;
+         }
+         let result = catch_unwind(AssertUnwindSafe(|| decode(&bytes, Limits::default())));
+         assert!(result.is_ok(), "decoder panicked on arbitrary input of length {len}");
+     }
+ }
 }
