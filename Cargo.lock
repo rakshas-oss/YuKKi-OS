@@ -2816,6 +2816,7 @@ dependencies = [
 name = "yukkios_6_8_0_inet3"
 version = "6.9.3"
 dependencies = [
+ "getrandom 0.4.3",
  "axum",
  "byteorder",
  "cc",
