@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use yukkios_6_8_0_inet3::gpu_adapter::{
     GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus,
@@ -27,9 +27,11 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
         "brk2" => LifecycleWireMode::Brk2,
         _ => LifecycleWireMode::Brk1,
     };
-    let client = LifecycleClient::new(config)
-        .expect("construct LifecycleClient")
-        .with_wire_mode(wire_mode);
+    let client = Arc::new(
+        LifecycleClient::new(config)
+            .expect("construct LifecycleClient")
+            .with_wire_mode(wire_mode),
+    );
 
     let mode_suffix = if wire_mode == LifecycleWireMode::Brk2 { "brk2" } else { "brk1" };
     let sandbox_id = format!("ci-live-{mode_suffix}-sandbox");
@@ -64,6 +66,38 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     assert_eq!(response.task_id, task.task_id);
     assert_eq!(response.status, WasmTaskStatus::Ok);
     assert_eq!(response.result, payload);
+
+    // Exercise independent concurrent TCP requests and verify each response
+    // remains correlated with its own task ID and opaque payload.
+    let mut joins = tokio::task::JoinSet::new();
+    for index in 0..12u8 {
+        let client = Arc::clone(&client);
+        let sandbox_id = sandbox_id.clone();
+        let module_id = module_id.clone();
+        joins.spawn(async move {
+            let task_id = format!("ci-live-{mode_suffix}-parallel-{index}");
+            let payload = format!("parallel-payload-{index}").into_bytes();
+            let task = WasmTaskRequest {
+                task_id: task_id.clone(),
+                sandbox_id,
+                module_id,
+                module_version: version.into(),
+                task_kind: "interop-echo".into(),
+                priority: index,
+                deadline_ms: 5_000,
+                buffers: Vec::new(),
+                payload: payload.clone(),
+            };
+            let response = client.submit_wsm1_task(&task).await
+                .expect("concurrent broker task request");
+            assert_eq!(response.task_id, task_id);
+            assert_eq!(response.status, WasmTaskStatus::Ok);
+            assert_eq!(response.result, payload);
+        });
+    }
+    while let Some(result) = joins.join_next().await {
+        result.expect("concurrent task join");
+    }
 
     let drained = client
         .drain(&sandbox_id, &module_id, version, 1_000)
