@@ -33,6 +33,9 @@ pub struct RustasmSandbox {
     max_fuel: u64,
     gpu_client: Option<Arc<GpuBrokerClient>>,
     lifecycle_client: Option<Arc<LifecycleClient>>,
+    // Explicit operator opt-in: an NPU is never assumed present. Set via
+    // with_npu_available(true) or YUKKI_NPU_AVAILABLE=1/true/yes.
+    npu_available: bool,
 }
 
 struct SandboxState {
@@ -76,6 +79,9 @@ impl RustasmSandbox {
             max_fuel,
             gpu_client: None,
             lifecycle_client: None,
+            npu_available: env::var("YUKKI_NPU_AVAILABLE")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
         })
     }
 
@@ -228,6 +234,40 @@ impl RustasmSandbox {
             .unwrap_or(false)
     }
 
+    pub fn with_npu_available(mut self, available: bool) -> Self {
+        self.npu_available = available;
+        self
+    }
+
+    /// True only when an NPU has been explicitly advertised (opt-in) and a
+    /// broker client is configured. Previously this was always false, so
+    /// exec_policy could select Npu but execute_with_policy never ran it.
+    pub fn npu_available(&self) -> bool {
+        self.npu_available
+            && self
+                .lifecycle_client
+                .as_ref()
+                .map(|l| l.broker_client().config().enabled)
+                .unwrap_or(false)
+    }
+
+    /// Submit an inference task to the overhauled broker requesting NPU.
+    pub async fn submit_npu_task(
+        &self,
+        task_id: &str,
+        payload: &[u8],
+        priority: u8,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, GpuAdapterError> {
+        let client = self
+            .lifecycle_client
+            .as_ref()
+            .ok_or(GpuAdapterError::Disabled)?;
+        client
+            .submit_npu_task(task_id, payload, priority, timeout_ms)
+            .await
+    }
+
     /// CPU-first execution: `cpu` is the correctness baseline and is used unless
     /// `policy` selects an accelerator for `profile`. Accelerator failures fall back
     /// to `cpu` only when `profile.cpu_retry_safe`; otherwise the accelerator error
@@ -248,9 +288,9 @@ impl RustasmSandbox {
     where
         F: FnOnce(&[u8]) -> Result<Vec<u8>, String>,
     {
-        // Only the GPU tier has an executor here; NPU/Remote are never advertised.
         let avail = BackendAvailability {
             gpu: self.gpu_available(),
+            npu: self.npu_available(),
             ..BackendAvailability::default()
         };
         let mut fallback_reason = None;
@@ -265,6 +305,22 @@ impl RustasmSandbox {
                         priority,
                         timeout_ms,
                     )
+                    .await
+                {
+                    Ok(output) => {
+                        return Ok(PolicyOutcome {
+                            output,
+                            backend,
+                            fallback_reason,
+                        });
+                    }
+                    Err(err) if profile.cpu_retry_safe => {
+                        fallback_reason = Some(err.to_string());
+                    }
+                    Err(err) => return Err(PolicyExecError::Accelerator(err)),
+                },
+                ExecutionBackend::Npu => match self
+                    .submit_npu_task(task_id, payload, priority, timeout_ms)
                     .await
                 {
                     Ok(output) => {

@@ -152,31 +152,31 @@ pub fn validate_known_fields(m:&Message,known:&[(u16,WireType,bool)])->Result<()
     for (id,_,required) in known{if *required&&m.field(*id).is_none(){return Err(Error::MissingField(*id))}}Ok(())
 }
 
-pub mod request_field {pub const TASK_ID:u16=1;pub const SOURCE:u16=2;pub const DESTINATION:u16=3;pub const KIND:u16=4;pub const PRIORITY:u16=5;pub const TIMEOUT_MS:u16=6;pub const PAYLOAD:u16=7;pub const IDEMPOTENCY_KEY:u16=8;pub const DEADLINE_UNIX_NS:u16=9;}
+pub mod request_field {pub const TASK_ID:u16=1;pub const SOURCE:u16=2;pub const DESTINATION:u16=3;pub const KIND:u16=4;pub const PRIORITY:u16=5;pub const TIMEOUT_MS:u16=6;pub const PAYLOAD:u16=7;pub const IDEMPOTENCY_KEY:u16=8;pub const DEADLINE_UNIX_NS:u16=9;pub const DEVICE_PREFERENCE:u16=10;}
 #[derive(Debug,Clone,PartialEq,Eq)]
-pub struct BrokerRequest {pub task_id:String,pub source:String,pub destination:String,pub kind:String,pub priority:u8,pub timeout_ms:u32,pub payload:Vec<u8>,pub idempotency_key:Option<[u8;16]>,pub deadline_unix_ns:Option<u64>}
+pub struct BrokerRequest {pub task_id:String,pub source:String,pub destination:String,pub kind:String,pub priority:u8,pub timeout_ms:u32,pub payload:Vec<u8>,pub idempotency_key:Option<[u8;16]>,pub deadline_unix_ns:Option<u64>,pub device_preference:Option<String>}
 impl BrokerRequest {
     pub fn to_message(&self,request_id:u64)->Message{let mut m=Message::new(Header::new(MSG_REQUEST,request_id,SCHEMA_BROKER_REQUEST,1));
         m.push(Field::utf8(1,&self.task_id).critical());m.push(Field::utf8(2,&self.source).critical());m.push(Field::utf8(3,&self.destination).critical());m.push(Field::utf8(4,&self.kind).critical());
         m.push(Field::u8(5,self.priority).critical());m.push(Field::u32(6,self.timeout_ms).critical());m.push(Field::bytes(7,&self.payload).critical());
-        if let Some(v)=self.idempotency_key{m.push(Field::uuid(8,v))}if let Some(v)=self.deadline_unix_ns{m.push(Field::u64(9,v))}m}
+        if let Some(v)=self.idempotency_key{m.push(Field::uuid(8,v))}if let Some(v)=self.deadline_unix_ns{m.push(Field::u64(9,v))}if let Some(v)=&self.device_preference{m.push(Field::utf8(10,v))}m}
     pub fn from_message(m:&Message)->Result<Self,Error>{
         if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("not a BrokerRequest"))}
-        let schema=[(1,WireType::Utf8,true),(2,WireType::Utf8,true),(3,WireType::Utf8,true),(4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),(7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false)];
+        let schema=[(1,WireType::Utf8,true),(2,WireType::Utf8,true),(3,WireType::Utf8,true),(4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),(7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false),(10,WireType::Utf8,false)];
         validate_known_fields(m,&schema)?;
         let s=|id:u16|->Result<String,Error>{Ok(std::str::from_utf8(&m.field(id).unwrap().value).map_err(|_|Error::InvalidUtf8(id))?.to_owned())};
         let task_id=s(1)?;let source=s(2)?;let destination=s(3)?;let kind=s(4)?;
         for (name,v) in [("task_id",&task_id),("source",&source),("destination",&destination),("kind",&kind)]{if v.trim().is_empty(){return Err(Error::InvalidValue(name))}}
         let timeout_ms=u32::from_be_bytes(m.field(6).unwrap().value[..4].try_into().unwrap());if timeout_ms==0{return Err(Error::InvalidValue("timeout_ms must be nonzero"))}
         Ok(Self{task_id,source,destination,kind,priority:m.field(5).unwrap().value[0],timeout_ms,payload:m.field(7).unwrap().value.clone(),
-            idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),deadline_unix_ns:m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap()))})
+            idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),deadline_unix_ns:m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap())),device_preference:m.field(10).map(|f|std::str::from_utf8(&f.value).map_err(|_|Error::InvalidUtf8(10))?.to_owned())})
     }
 }
 
 #[cfg(test)]
 mod tests {
  use super::*;
- fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:Some(42)}.to_message(0x0102030405060708)}
+ fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:Some(42),device_preference:Some("npu".into())}.to_message(0x0102030405060708)}
  #[test]fn round_trip_and_endian(){let m=sample();let b=encode(&m,Limits::default()).unwrap();assert_eq!(&b[4..8],b"BRK2");assert_eq!(&b[16..24],&0x0102030405060708u64.to_be_bytes());assert_eq!(decode(&b,Limits::default()).unwrap(),m)}
  #[test]fn request_schema_round_trip(){let m=sample();let r=BrokerRequest::from_message(&m).unwrap();assert_eq!(r.task_id,"t-1");assert_eq!(r.payload,vec![0,1,255])}
  #[test]fn rejects_truncation_and_trailing_bytes(){let mut b=encode(&sample(),Limits::default()).unwrap();b.pop();assert!(matches!(decode(&b,Limits::default()),Err(Error::Truncated(_))));b=encode(&sample(),Limits::default()).unwrap();b.push(0);assert_eq!(decode(&b,Limits::default()),Err(Error::TrailingBytes))}
