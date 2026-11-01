@@ -52,6 +52,74 @@ const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const DEFAULT_DRONE_DASHBOARD_MAX_CHUNKS: u64 = 256;
+struct CappedListener {
+    listener: TcpListener,
+    permits: Arc<Semaphore>,
+}
+
+struct CappedStream {
+    stream: TcpStream,
+    // Keep the connection permit alive for the entire accepted connection.
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl AsyncRead for CappedStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.stream).poll_read(cx, buffer)
+    }
+}
+
+impl AsyncWrite for CappedStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.stream).poll_write(cx, buffer)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.stream).poll_shutdown(cx)
+    }
+}
+
+impl Listener for CappedListener {
+    type Io = CappedStream;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        let permit = self.permits.clone().acquire_owned().await
+            .expect("connection semaphore remains open");
+        loop {
+            match self.listener.accept().await {
+                Ok((stream, address)) => {
+                    return (CappedStream { stream, _permit: permit }, address);
+                }
+                Err(error) => {
+                    warn!("stream gateway accept error: {error}");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<Self::Addr> {
+        self.listener.local_addr()
+    }
+}
+
 
 #[derive(Clone)]
 pub enum GatewayAuth {
