@@ -1761,10 +1761,11 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
 
                         let wsm_resp = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
-                        let enc = encode_brk1_response_frame(
-                            &brk_frame.task_id, 0, resp.assigned_gpu, 0, &wsm_resp, &resp.error,
-                        );
-                        write_raw_prefixed(&mut stream, &enc).await;
+                let enc = encode_brk1_response_frame(
+                    &brk_frame.task_id, 0, task_resp.selected_gpu, task_resp.latency_ms,
+                    &wsm_resp, &task_resp.error,
+                );
+                write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
             });
