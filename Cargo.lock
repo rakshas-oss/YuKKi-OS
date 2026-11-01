@@ -920,9 +920,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2816,13 +2818,13 @@ dependencies = [
 name = "yukkios_6_8_0_inet3"
 version = "6.9.3"
 dependencies = [
- "getrandom 0.4.3",
  "axum",
  "byteorder",
  "cc",
  "chacha20poly1305",
  "criterion",
  "futures-util",
+ "getrandom 0.4.3",
  "hkdf",
  "rand_core 0.6.4",
  "rstar",
