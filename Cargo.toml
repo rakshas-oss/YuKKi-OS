@@ -40,6 +40,11 @@ tokio-tungstenite = "0.29.0"
 rstar = { version = "0.12", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 
+# Enable getrandom's JavaScript backend only for wasm32 builds.
+# This satisfies getrandom 0.4 users without changing native targets.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 wat = "1"
