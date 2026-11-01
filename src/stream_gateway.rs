@@ -141,11 +141,12 @@ pub async fn serve_with_relay(
         .route("/v1/streams", get(list_streams))
         .route("/v1/streams/{id}", get(describe_stream))
         .route("/v1/streams/{id}/chunks", get(read_chunks))
-        .route("/v1/streams/{id}/ws", get(websocket_tune_in))
-        #[cfg(feature = "mesh_dashboard")]
+        .route("/v1/streams/{id}/ws", get(websocket_tune_in));
+    #[cfg(feature = "mesh_dashboard")]
+    let app = app
         .route("/v1/mesh", get(mesh_state))
-        #[cfg(feature = "mesh_dashboard")]
-        .route("/v1/mesh/ws", get(mesh_ws))
+        .route("/v1/mesh/ws", get(mesh_ws));
+    let app = app
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(middleware::from_fn_with_state(
