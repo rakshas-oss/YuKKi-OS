@@ -3,7 +3,6 @@
 
 pub mod adi_auto_tune;
 pub mod arcgis;
-#[rustfmt::skip]
 pub mod broker_client;
 #[rustfmt::skip]
 pub mod brk2;
