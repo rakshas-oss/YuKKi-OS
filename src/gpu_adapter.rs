@@ -56,8 +56,8 @@
 //!
 //! ## Wire Protocol Contract
 //!
-//! The current overhauled broker transport is TCP with a 4-byte big-endian
-//! length prefix, a BRK1/v1 binary request/response envelope, and WSM1/v1
+//! The overhauled broker transport is TCP with a 4-byte big-endian length
+//! prefix, a BRK1/v1 or BRK2/v2 binary request/response envelope, and WSM1/v1
 //! binary payloads for WASM task and lifecycle operations. The JSON broker
 //! APIs in this module are legacy compatibility paths and are not accepted
 //! by the current overhauled listener.
@@ -661,6 +661,8 @@ pub struct Brk1ResponseFrame {
 pub enum LifecycleWireMode {
     /// Framed within BRK1 envelope over TCP with 4-byte length prefix.
     Brk1,
+    /// BRK2/v2 envelope with TLV request/response fields over TCP.
+    Brk2,
     /// Raw WSM1 binary framed over TCP with 4-byte length prefix.
     RawWsm1,
     /// JSON-encoded framed over TCP with 4-byte length prefix.
@@ -2063,6 +2065,83 @@ async fn read_raw_frame(
     Ok(body)
 }
 
+fn decode_brk2_response_fields(
+    body: &[u8],
+    expected_request_id: u64,
+    expected_task_id: &str,
+) -> Result<(u8, Vec<u8>, String), GpuAdapterError> {
+    let length = u32::try_from(body.len()).map_err(|_| {
+        GpuAdapterError::MalformedResponse("BRK2 response body exceeds uint32".into())
+    })?;
+    let mut framed = Vec::with_capacity(body.len() + 4);
+    framed.extend_from_slice(&length.to_be_bytes());
+    framed.extend_from_slice(body);
+    let message = crate::brk2::decode(&framed, crate::brk2::Limits::default())
+        .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
+    if message.header.message_type != crate::brk2::MSG_RESPONSE
+        || message.header.schema_id != crate::brk2::SCHEMA_BROKER_RESPONSE
+        || message.header.schema_version != 1
+        || message.header.request_id != expected_request_id
+    {
+        return Err(GpuAdapterError::MalformedResponse(
+            "BRK2 response type, schema, version, or request_id mismatch".into(),
+        ));
+    }
+    use crate::brk2::WireType;
+    let schema = [
+        (1, WireType::Utf8, true),
+        (2, WireType::U8, true),
+        (3, WireType::I64, true),
+        (4, WireType::U64, true),
+        (5, WireType::Bytes, true),
+        (6, WireType::Utf8, true),
+    ];
+    crate::brk2::validate_known_fields(&message, &schema)
+        .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
+    let task_id = std::str::from_utf8(&message.field(1).unwrap().value)
+        .map_err(|e| GpuAdapterError::MalformedResponse(format!("BRK2 task_id is not UTF-8: {e}")))?;
+    if task_id != expected_task_id {
+        return Err(GpuAdapterError::MalformedResponse(format!(
+            "BRK2 task_id '{task_id}' did not match expected '{expected_task_id}'"
+        )));
+    }
+    let status = message.field(2).unwrap().value[0];
+    let result = message.field(5).unwrap().value.clone();
+    let error = std::str::from_utf8(&message.field(6).unwrap().value)
+        .map_err(|e| GpuAdapterError::MalformedResponse(format!("BRK2 error is not UTF-8: {e}")))?
+        .to_owned();
+    Ok((status, result, error))
+}
+
+fn brk2_request_id() -> u64 {
+    let bytes = *uuid::Uuid::new_v4().as_bytes();
+    u64::from_be_bytes(bytes[..8].try_into().expect("UUID prefix is eight bytes"))
+}
+
+fn encode_brk2_broker_request(
+    task_id: &str,
+    kind: &str,
+    priority: u8,
+    timeout_ms: u32,
+    payload: Vec<u8>,
+) -> Result<(u64, Vec<u8>), GpuAdapterError> {
+    let request_id = brk2_request_id();
+    let request = crate::brk2::BrokerRequest {
+        task_id: task_id.to_owned(),
+        source: "yukki-os".to_owned(),
+        destination: "overhauled".to_owned(),
+        kind: kind.to_owned(),
+        priority,
+        timeout_ms,
+        payload,
+        idempotency_key: None,
+        deadline_unix_ns: None,
+    };
+    let frame = crate::brk2::encode(&request.to_message(request_id), crate::brk2::Limits::default())
+        .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
+    Ok((request_id, frame))
+}
+
 fn parse_lifecycle_response(body: &[u8]) -> Result<WasmLifecycleResponse, GpuAdapterError> {
     if body.len() >= 4 {
         let magic = u32::from_be_bytes(body[0..4].try_into().unwrap());
@@ -2289,11 +2368,27 @@ impl LifecycleClient {
             .await
             .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
+        let lifecycle_kind = match request.action {
+            WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",
+            WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",
+            WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",
+            WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",
+        };
+        let mut brk2_id = None;
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_lifecycle_request(request)?,
             LifecycleWireMode::Json => {
                 let msg = BrokerMessage::LifecycleRequest(request.clone());
                 serde_json::to_vec(&msg).map_err(GpuAdapterError::Serialization)?
+            }
+            LifecycleWireMode::Brk2 => {
+                let wsm1_bytes = encode_wsm1_lifecycle_request(request)?;
+                let (id, frame) = encode_brk2_broker_request(
+                    &request.request_id, lifecycle_kind, 1,
+                    broker_deadline_ms(config.request_timeout), wsm1_bytes,
+                )?;
+                brk2_id = Some(id);
+                frame
             }
             LifecycleWireMode::Brk1 | LifecycleWireMode::Auto => {
                 let wsm1_bytes = encode_wsm1_lifecycle_request(request)?;
@@ -2302,13 +2397,7 @@ impl LifecycleClient {
                     task_id: request.request_id.clone(),
                     source: "yukki-os".to_string(),
                     destination: "overhauled".to_string(),
-                    kind: match request.action {
-                        WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",
-                        WasmLifecycleAction::Drain => "wasm.lifecycle.drain.v1",
-                        WasmLifecycleAction::Release => "wasm.lifecycle.release.v1",
-                        WasmLifecycleAction::Query => "wasm.lifecycle.query.v1",
-                    }
-                    .to_string(),
+                    kind: lifecycle_kind.to_string(),
                     priority: 1,
                     timeout_ms: broker_deadline_ms(config.request_timeout),
                     payload: wsm1_bytes,
@@ -2316,7 +2405,15 @@ impl LifecycleClient {
             }
         };
 
-        write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+        if self.wire_mode == LifecycleWireMode::Brk2 {
+            if frame_bytes.len() > config.max_frame_size {
+                return Err(GpuAdapterError::FrameTooLarge { size: frame_bytes.len(), max: config.max_frame_size });
+            }
+            stream.write_all(&frame_bytes).await?;
+            stream.flush().await?;
+        } else {
+            write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+        }
 
         let response_bytes = timeout(
             config.request_timeout,
@@ -2325,7 +2422,28 @@ impl LifecycleClient {
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
 
-        parse_lifecycle_response(&response_bytes)
+        if let Some(id) = brk2_id {
+            let (status, result, error) = decode_brk2_response_fields(
+                &response_bytes, id, &request.request_id,
+            )?;
+            if result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
+            }
+            let decoded = parse_lifecycle_response(&result)?;
+            let status_matches = match status {
+                0 => decoded.status == WasmLifecycleStatus::Ok,
+                1 => matches!(decoded.status, WasmLifecycleStatus::Rejected | WasmLifecycleStatus::Busy | WasmLifecycleStatus::NotFound),
+                2 => decoded.status == WasmLifecycleStatus::Error,
+                3 => false,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse("BRK2 outer status conflicts with WSM1 lifecycle status".into()));
+            }
+            Ok(decoded)
+        } else {
+            parse_lifecycle_response(&response_bytes)
+        }
     }
 
     /// Prepare a module version on the broker.
@@ -2465,10 +2583,18 @@ impl LifecycleClient {
             .await
             .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
 
+        let mut brk2_id = None;
         let frame_bytes = match self.wire_mode {
             LifecycleWireMode::RawWsm1 => encode_wsm1_task_request(task)?,
-            LifecycleWireMode::Json => {
-                serde_json::to_vec(task).map_err(GpuAdapterError::Serialization)?
+            LifecycleWireMode::Json => serde_json::to_vec(task).map_err(GpuAdapterError::Serialization)?,
+            LifecycleWireMode::Brk2 => {
+                let wsm1_bytes = encode_wsm1_task_request(task)?;
+                let (id, frame) = encode_brk2_broker_request(
+                    &task.task_id, "wasm.task.v1", task.priority,
+                    broker_deadline_ms(config.request_timeout), wsm1_bytes,
+                )?;
+                brk2_id = Some(id);
+                frame
             }
             LifecycleWireMode::Brk1 | LifecycleWireMode::Auto => {
                 let wsm1_bytes = encode_wsm1_task_request(task)?;
@@ -2485,7 +2611,15 @@ impl LifecycleClient {
             }
         };
 
-        write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+        if self.wire_mode == LifecycleWireMode::Brk2 {
+            if frame_bytes.len() > config.max_frame_size {
+                return Err(GpuAdapterError::FrameTooLarge { size: frame_bytes.len(), max: config.max_frame_size });
+            }
+            stream.write_all(&frame_bytes).await?;
+            stream.flush().await?;
+        } else {
+            write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+        }
 
         // Track as in-flight so a local timeout, a dropped connection, or process
         // shutdown can request cooperative cancellation of this task on the broker.
@@ -2528,7 +2662,26 @@ impl LifecycleClient {
             }
         };
 
-        parse_task_response(&response_bytes)
+        if let Some(id) = brk2_id {
+            let (status, result, error) = decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
+            if result.is_empty() {
+                return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
+            }
+            let decoded = parse_task_response(&result)?;
+            let status_matches = match status {
+                0 => decoded.status == WasmTaskStatus::Ok,
+                1 => matches!(decoded.status, WasmTaskStatus::Rejected | WasmTaskStatus::ModuleDraining | WasmTaskStatus::ModuleNotFound | WasmTaskStatus::VersionMismatch),
+                2 => decoded.status == WasmTaskStatus::Failed,
+                3 => decoded.status == WasmTaskStatus::Timeout,
+                _ => false,
+            };
+            if !status_matches {
+                return Err(GpuAdapterError::MalformedResponse("BRK2 outer status conflicts with WSM1 task status".into()));
+            }
+            Ok(decoded)
+        } else {
+            parse_task_response(&response_bytes)
+        }
     }
 }
 

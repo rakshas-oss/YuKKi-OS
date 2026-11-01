@@ -24,6 +24,7 @@ pub const MSG_GOAWAY: u16 = 10;
 pub const MSG_WINDOW_UPDATE: u16 = 11;
 
 pub const SCHEMA_BROKER_REQUEST: u32 = 1;
+pub const SCHEMA_BROKER_RESPONSE: u32 = 2;
 pub const FLAG_RESPONSE: u16 = 1;
 pub const FLAG_ERROR: u16 = 2;
 pub const FLAG_END_STREAM: u16 = 4;

@@ -9,7 +9,7 @@ path. The overhauled repository is authoritative for the broker envelope.
 ```text
 TCP connection
 └── uint32_be frame length (body bytes only)
-    └── BRK1/v1 request or response body
+    └── BRK1/v1 or BRK2/v2 request/response body
         └── WSM1/v1 task or lifecycle payload (inside request.payload /
             response.result)
 ```
@@ -82,9 +82,24 @@ The outer BRK1 format is specified in
 [overhauled/docs/BROKER_PROTOCOL.md](https://github.com/rakshas-oss/overhauled/blob/main/docs/BROKER_PROTOCOL.md)
 and implemented by `overhauled/src/broker_protocol.cpp`.
 
+## BRK2/v2 envelope
+
+BRK2 uses the same TCP `uint32_be` body-length prefix, followed by a 32-byte
+header and 8-byte TLV field headers. All integer values are big-endian.
+The Rust reference codec and C++ broker share schema ID 1 for requests and
+schema ID 2 for responses. Request fields are task_id (1, UTF-8), source
+(2), destination (3), kind (4), priority (5, U8), timeout_ms (6, U32),
+payload (7, bytes), optional idempotency_key (8, UUID), and optional
+deadline_unix_ns (9, U64). Response fields are task_id (1), status (2, U8),
+selected_gpu (3, I64), latency_ms (4, U64), result (5, bytes), and error
+(6, UTF-8). BRK2 request_id is echoed unchanged in the response header.
+Unknown optional fields are ignored; unknown critical fields are rejected.
+The server dispatches BRK1 and BRK2 per frame, without changing the existing
+BRK1 wire format.
+
 ## Compatibility boundary
 
-- The current overhauled broker accepts BRK1/v1, not BRK2.
+- The overhauled broker accepts BRK1/v1 and BRK2/v2 on the same TCP listener.
 - The current overhauled broker does not implement a JSON protocol handshake.
   BRK1/v1 is selected by the client configuration; do not send a JSON
   `HandshakeRequest` to this server.
@@ -115,7 +130,8 @@ limits should be set no higher than the server's configured values.
 
 YuKKi-OS includes byte-level BRK1 codec tests and a mock TCP round-trip test.
 The `overhauled-live-cpp` CI job builds the real C++ `broker_server` in CPU-only
-mode, starts it, and runs a Rust `LifecycleClient` against it. That live test
-covers WSM1 Prepare, Task, Drain, and Release operations over the actual TCP
-listener. A successful run is the evidence for cross-language interoperability;
+mode, starts it, and runs a Rust `LifecycleClient` against it in both BRK1 and
+BRK2 modes. The live test covers WSM1 Prepare, Task, Drain, and Release
+operations over the actual TCP listener in each mode. A successful BRK2 run
+is the evidence for cross-language interoperability;
 the mock test remains useful for isolated client behavior.
