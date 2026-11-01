@@ -26,7 +26,7 @@ fn shared_brk1_brk2_conformance_corpus() {
                     let r=decoded.as_ref().expect("valid BRK1 request");
                     assert_eq!(r.task_id,"t"); assert_eq!(r.source,"y"); assert_eq!(r.destination,"o");
                     assert_eq!(r.kind,"k"); assert_eq!(r.priority,1); assert_eq!(r.timeout_ms,3000);
-                    assert_eq!(r.payload,[0xaa,0xbb]);
+                    assert_eq!(r.payload,vec![0xaa,0xbb]);
                     let encoded=encode_brk1_frame(&Brk1Frame{msg_type:BRK1_MSG_REQUEST,task_id:"t".into(),
                         source:"y".into(),destination:"o".into(),kind:"k".into(),priority:1,
                         timeout_ms:3000,payload:vec![0xaa,0xbb]}).expect("encode BRK1");
@@ -39,7 +39,7 @@ fn shared_brk1_brk2_conformance_corpus() {
                 if id=="brk1-response-valid" {
                     let r=decoded.as_ref().expect("valid BRK1 response");
                     assert_eq!(r.task_id,"t-42"); assert_eq!(r.status,0); assert_eq!(r.selected_gpu,1);
-                    assert_eq!(r.latency_ms,9); assert_eq!(r.result,b"abc");
+                    assert_eq!(r.latency_ms,9); assert_eq!(r.result,b"abc".to_vec());
                 }
                 decoded.is_ok()
             }
@@ -54,7 +54,7 @@ fn shared_brk1_brk2_conformance_corpus() {
                         assert_eq!(r.task_id,"conformance-001"); assert_eq!(r.source,"yukki");
                         assert_eq!(r.destination,"overhauled"); assert_eq!(r.kind,"inference");
                         assert_eq!(r.priority,7); assert_eq!(r.timeout_ms,2500);
-                        assert_eq!(r.payload,[0,1,2,255]); assert_eq!(m.header.request_id,0x0102030405060708);
+                        assert_eq!(r.payload,vec![0,1,2,255]); assert_eq!(m.header.request_id,0x0102030405060708);
                     }
                     request.is_ok()
                 } else { false }
