@@ -23,9 +23,13 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     config.connect_timeout = Duration::from_secs(5);
     config.request_timeout = Duration::from_secs(10);
 
+    let wire_mode = match std::env::var("OVERHAULED_WIRE_MODE").unwrap_or_default().as_str() {
+        "brk2" => LifecycleWireMode::Brk2,
+        _ => LifecycleWireMode::Brk1,
+    };
     let client = LifecycleClient::new(config)
         .expect("construct LifecycleClient")
-        .with_wire_mode(LifecycleWireMode::Brk1);
+        .with_wire_mode(wire_mode);
 
     let sandbox_id = "ci-live-sandbox";
     let module_id = "ci-live-module";
@@ -34,7 +38,7 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     let prepared = client
         .prepare(sandbox_id, module_id, version, -1)
         .await
-        .expect("BRK1/WSM1 Prepare request");
+        .expect("broker WSM1 Prepare request");
     assert_eq!(prepared.status, WasmLifecycleStatus::Ok);
     assert!(!prepared.lease_token.is_empty());
 
@@ -55,7 +59,7 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     let response = client
         .submit_wsm1_task(&task)
         .await
-        .expect("BRK1/WSM1 Task request");
+        .expect("broker WSM1 Task request");
     assert_eq!(response.task_id, task.task_id);
     assert_eq!(response.status, WasmTaskStatus::Ok);
     assert_eq!(response.result, payload);
@@ -63,12 +67,12 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     let drained = client
         .drain(sandbox_id, module_id, version, 1_000)
         .await
-        .expect("BRK1/WSM1 Drain request");
+        .expect("broker WSM1 Drain request");
     assert_eq!(drained.status, WasmLifecycleStatus::Ok);
 
     let released = client
         .release(sandbox_id, module_id, version, &prepared.lease_token)
         .await
-        .expect("BRK1/WSM1 Release request");
+        .expect("broker WSM1 Release request");
     assert_eq!(released.status, WasmLifecycleStatus::Ok);
 }
