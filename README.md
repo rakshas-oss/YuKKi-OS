@@ -125,9 +125,9 @@ and media streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
 
 YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
 
-- Interoperates with `overhauled` over raw TCP using a 4-byte big-endian length prefix, BRK1/v1 binary request/response envelopes, and WSM1 binary task/lifecycle payloads.
-- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the current C++ broker does not implement JSON handshake negotiation, BRK2, or remote cancellation.
-- Use `LifecycleClient` with `LifecycleWireMode::Brk1` (or its default `Auto` mode) and `submit_wsm1_task` for the current `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON message path and is not wire-compatible with `overhauled`.
+- Interoperates with `overhauled` over raw TCP using a 4-byte big-endian length prefix, BRK1/v1 or BRK2/v2 binary request/response envelopes, and WSM1 binary task/lifecycle payloads.
+- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the C++ broker accepts BRK1 and BRK2 but does not implement JSON handshake negotiation or remote cancellation.
+- Use `LifecycleClient` with `LifecycleWireMode::Brk1` or `LifecycleWireMode::Brk2` and `submit_wsm1_task` for the `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON message path and is not wire-compatible with `overhauled`.
 - Preserves sandbox isolation with host-mediated execution and bounded buffer descriptors.
 - Provides module lifecycle management with atomic routing switches, quiescing/draining, drain-before-release ordering, and rollback on activation failure.
 - Optional / configurable: disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`) so existing deployments run without GPU hardware or external brokers.
