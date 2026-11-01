@@ -1,10 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, time::timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    time::timeout,
+};
 
 use yukkios_6_8_0_inet3::gpu_adapter::{
-    GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus,
-    WasmTaskRequest, WasmTaskStatus,
+    GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus, WasmTaskRequest,
+    WasmTaskStatus,
 };
 
 /// This test is activated only by the CI job that starts the real C++ broker.
@@ -25,7 +29,10 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     config.connect_timeout = Duration::from_secs(5);
     config.request_timeout = Duration::from_secs(10);
 
-    let wire_mode = match std::env::var("OVERHAULED_WIRE_MODE").unwrap_or_default().as_str() {
+    let wire_mode = match std::env::var("OVERHAULED_WIRE_MODE")
+        .unwrap_or_default()
+        .as_str()
+    {
         "brk2" => LifecycleWireMode::Brk2,
         _ => LifecycleWireMode::Brk1,
     };
@@ -35,7 +42,11 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
             .with_wire_mode(wire_mode),
     );
 
-    let mode_suffix = if wire_mode == LifecycleWireMode::Brk2 { "brk2" } else { "brk1" };
+    let mode_suffix = if wire_mode == LifecycleWireMode::Brk2 {
+        "brk2"
+    } else {
+        "brk1"
+    };
     let sandbox_id = format!("ci-live-{mode_suffix}-sandbox");
     let module_id = format!("ci-live-{mode_suffix}-module");
     let version = "1.0.0";
@@ -90,7 +101,9 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
                 buffers: Vec::new(),
                 payload: payload.clone(),
             };
-            let response = client.submit_wsm1_task(&task).await
+            let response = client
+                .submit_wsm1_task(&task)
+                .await
                 .expect("concurrent broker task request");
             assert_eq!(response.task_id, task_id);
             assert_eq!(response.status, WasmTaskStatus::Ok);
@@ -114,7 +127,6 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
     assert_eq!(released.status, WasmLifecycleStatus::Ok);
 }
 
-
 /// The C++ listener must close a peer that stalls halfway through a frame,
 /// and must also release the session promptly when the peer disconnects mid-body.
 #[tokio::test]
@@ -129,8 +141,13 @@ async fn live_broker_enforces_partial_frame_timeout_and_disconnect_cleanup() {
 
     // Send only half of the 4-byte frame prefix. The broker's configured
     // socket read timeout is 5 seconds; the peer should then be closed.
-    let mut stalled = TcpStream::connect(&endpoint).await.expect("connect stalled peer");
-    stalled.write_all(&[0, 0]).await.expect("write partial prefix");
+    let mut stalled = TcpStream::connect(&endpoint)
+        .await
+        .expect("connect stalled peer");
+    stalled
+        .write_all(&[0, 0])
+        .await
+        .expect("write partial prefix");
     let mut byte = [0u8; 1];
     let read = timeout(Duration::from_secs(7), stalled.read(&mut byte))
         .await
@@ -140,10 +157,21 @@ async fn live_broker_enforces_partial_frame_timeout_and_disconnect_cleanup() {
 
     // A peer that disconnects after a valid length prefix but incomplete body
     // must not leave a worker/session waiting for the rest of the frame.
-    let mut dropped = TcpStream::connect(&endpoint).await.expect("connect disconnect peer");
-    dropped.write_all(&100u32.to_be_bytes()).await.expect("write body length");
-    dropped.write_all(b"BRK2").await.expect("write partial body");
-    dropped.shutdown().await.expect("half-close peer write side");
+    let mut dropped = TcpStream::connect(&endpoint)
+        .await
+        .expect("connect disconnect peer");
+    dropped
+        .write_all(&100u32.to_be_bytes())
+        .await
+        .expect("write body length");
+    dropped
+        .write_all(b"BRK2")
+        .await
+        .expect("write partial body");
+    dropped
+        .shutdown()
+        .await
+        .expect("half-close peer write side");
     let read = timeout(Duration::from_secs(2), dropped.read(&mut byte))
         .await
         .expect("broker should clean up disconnected peer promptly")
