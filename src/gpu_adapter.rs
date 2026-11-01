@@ -56,8 +56,8 @@
 //!
 //! ## Wire Protocol Contract
 //!
-//! The current overhauled broker transport is TCP with a 4-byte big-endian
-//! length prefix, a BRK1/v1 binary request/response envelope, and WSM1/v1
+//! The overhauled broker transport is TCP with a 4-byte big-endian length
+//! prefix, a BRK1/v1 or BRK2/v2 binary request/response envelope, and WSM1/v1
 //! binary payloads for WASM task and lifecycle operations. The JSON broker
 //! APIs in this module are legacy compatibility paths and are not accepted
 //! by the current overhauled listener.
