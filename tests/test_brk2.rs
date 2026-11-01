@@ -41,8 +41,12 @@ fn brk2_unknown_optional_field_is_preserved() {
 
 #[test]
 fn brk2_schema_rejects_unknown_critical_field() {
-    let mut message = request().to_message(8);
+    // Keep the message limited to one recognized field and the unknown critical
+    // extension so validation reports the intended field deterministically.
+    let mut message = Brk2Message::new(Brk2Header::new(3, 8, 1, 1));
+    message.push(Brk2Field::utf8(1, "known").critical());
     message.push(Brk2Field::u8(600, 1).critical());
+
     let err = validate_brk2_schema(&message, &[(1, Brk2WireType::Utf8, true)]).unwrap_err();
     assert_eq!(err, Brk2Error::UnknownCriticalField(600));
 }
