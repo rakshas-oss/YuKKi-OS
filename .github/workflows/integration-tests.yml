@@ -155,7 +155,7 @@ jobs:
       - name: Run Rust shared BRK conformance corpus
         run: cargo test --locked --test brk_conformance -- --nocapture
       - name: Run C++ BRK conformance tests
-        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|brk_conformance_test)      - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
+        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|brk_conformance_test)$'
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
         run: |
