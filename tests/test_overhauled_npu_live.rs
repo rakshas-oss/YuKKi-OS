@@ -68,8 +68,8 @@ async fn raw_brk2_inference(
     let message = brk2::decode(&response, Limits::default()).expect("decode BRK2 response");
     assert_eq!(message.header.message_type, MSG_RESPONSE);
     assert_eq!(message.header.request_id, request_id);
-    assert_eq!(message.field(1).unwrap().value, task_id.as_bytes());
-    assert_eq!(message.field(2).unwrap().value, [0]);
+    assert_eq!(message.field(1).unwrap().value.as_slice(), task_id.as_bytes());
+    assert_eq!(message.field(2).unwrap().value.as_slice(), &[0]);
     message
 }
 
