@@ -78,7 +78,7 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
         let module_id = module_id.clone();
         joins.spawn(async move {
             let task_id = format!("ci-live-{mode_suffix}-parallel-{index}");
-            let payload = format!("parallel-payload-{index}").into_bytes();
+            let payload = format!("parallel-payload-{index}!").into_bytes();
             let task = WasmTaskRequest {
                 task_id: task_id.clone(),
                 sandbox_id,
