@@ -151,7 +151,7 @@ jobs:
             -DBUILD_EXAMPLES=OFF
           cmake --build overhauled/build --target broker_server brk2_protocol_test backend_dispatch_test --parallel 2
       - name: Run C++ BRK2 and backend-dispatch tests
-        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|backend_dispatch_test)
+        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|backend_dispatch_test)$'
       - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
