@@ -1,6 +1,6 @@
 use yukkios_6_8_0_inet3::{
-    decode_brk2_frame, encode_brk2_frame, validate_brk2_schema, Brk2BrokerRequest,
-    Brk2Error, Brk2Field, Brk2Header, Brk2Limits, Brk2Message, Brk2WireType,
+    decode_brk2_frame, encode_brk2_frame, validate_brk2_schema, Brk2BrokerRequest, Brk2Error,
+    Brk2Field, Brk2Header, Brk2Limits, Brk2Message, Brk2WireType,
 };
 
 fn request() -> Brk2BrokerRequest {
@@ -34,7 +34,8 @@ fn brk2_unknown_optional_field_is_preserved() {
     let decoded = decode_brk2_frame(
         &encode_brk2_frame(&message, Brk2Limits::default()).unwrap(),
         Brk2Limits::default(),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(decoded.field(500).unwrap().value, b"extension");
 }
 
@@ -42,10 +43,7 @@ fn brk2_unknown_optional_field_is_preserved() {
 fn brk2_schema_rejects_unknown_critical_field() {
     let mut message = request().to_message(8);
     message.push(Brk2Field::u8(600, 1).critical());
-    let err = validate_brk2_schema(
-        &message,
-        &[(1, Brk2WireType::Utf8, true)],
-    ).unwrap_err();
+    let err = validate_brk2_schema(&message, &[(1, Brk2WireType::Utf8, true)]).unwrap_err();
     assert_eq!(err, Brk2Error::UnknownCriticalField(600));
 }
 

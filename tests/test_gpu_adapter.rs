@@ -81,6 +81,44 @@ async fn write_raw_prefixed(stream: &mut tokio::net::TcpStream, data: &[u8]) {
     stream.flush().await.expect("flush");
 }
 
+/// Encode the broker's response layout (distinct from the BRK1 request frame).
+/// Test servers must not use encode_brk1_frame for responses: the response
+/// omits request routing strings and carries status/GPU/latency/result/error.
+fn encode_brk1_response_frame(
+    task_id: &str,
+    status: u8,
+    selected_gpu: i32,
+    latency_ms: u64,
+    result: &[u8],
+    error: &str,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(32 + task_id.len() + result.len() + error.len());
+    out.extend_from_slice(&BRK1_MAGIC.to_be_bytes());
+    out.extend_from_slice(&1u16.to_be_bytes()); // BRK1 protocol version
+    out.push(BRK1_MSG_RESPONSE);
+    out.push(0); // reserved
+    out.extend_from_slice(&(task_id.len() as u16).to_be_bytes());
+    out.extend_from_slice(task_id.as_bytes());
+    out.push(status);
+    out.extend_from_slice(&selected_gpu.to_be_bytes());
+    out.extend_from_slice(&latency_ms.to_be_bytes());
+    out.extend_from_slice(&(result.len() as u32).to_be_bytes());
+    out.extend_from_slice(result);
+    out.extend_from_slice(&(error.len() as u16).to_be_bytes());
+    out.extend_from_slice(error.as_bytes());
+    out
+}
+
+fn brk1_lifecycle_status(status: WasmLifecycleStatus) -> u8 {
+    match status {
+        WasmLifecycleStatus::Ok => 0,
+        WasmLifecycleStatus::Rejected
+        | WasmLifecycleStatus::Busy
+        | WasmLifecycleStatus::NotFound => 1,
+        WasmLifecycleStatus::Error => 2,
+    }
+}
+
 fn sample_task_request(task_id: &str) -> GpuTaskRequest {
     GpuTaskRequest {
         protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
@@ -1590,18 +1628,14 @@ async fn test_lifecycle_client_prepare_query_drain_release() {
 
                         let wsm_resp_bytes = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
-                        let resp_brk = Brk1Frame {
-                            msg_type: BRK1_MSG_RESPONSE,
-                            task_id: brk_frame.task_id,
-                            source: "overhauled_broker".to_string(),
-                            destination: brk_frame.source,
-                            kind: brk_frame.kind,
-                            priority: brk_frame.priority,
-                            timeout_ms: brk_frame.timeout_ms,
-                            payload: wsm_resp_bytes,
-                        };
-                        let encoded_resp_frame =
-                            encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
+                        let encoded_resp_frame = encode_brk1_response_frame(
+                            &brk_frame.task_id,
+                            brk1_lifecycle_status(resp.status),
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp_bytes,
+                            &resp.error,
+                        );
                         write_raw_prefixed(&mut stream, &encoded_resp_frame).await;
                     } else {
                         panic!("expected LifecycleRequest in test");
@@ -1742,17 +1776,14 @@ async fn test_module_lifecycle_manager_coordinated_hotswap_with_lifecycle_client
 
                         let wsm_resp = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
-                        let resp_brk = Brk1Frame {
-                            msg_type: BRK1_MSG_RESPONSE,
-                            task_id: brk_frame.task_id,
-                            source: "overhauled_broker".to_string(),
-                            destination: brk_frame.source,
-                            kind: brk_frame.kind,
-                            priority: brk_frame.priority,
-                            timeout_ms: brk_frame.timeout_ms,
-                            payload: wsm_resp,
-                        };
-                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
+                        let enc = encode_brk1_response_frame(
+                            &brk_frame.task_id,
+                            brk1_lifecycle_status(resp.status),
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp,
+                            &resp.error,
+                        );
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -1887,17 +1918,14 @@ async fn test_module_lifecycle_manager_hotswap_rollback_on_broker_prepare_error(
 
                         let wsm_resp = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
-                        let resp_brk = Brk1Frame {
-                            msg_type: BRK1_MSG_RESPONSE,
-                            task_id: brk_frame.task_id,
-                            source: "overhauled_broker".to_string(),
-                            destination: brk_frame.source,
-                            kind: brk_frame.kind,
-                            priority: brk_frame.priority,
-                            timeout_ms: brk_frame.timeout_ms,
-                            payload: wsm_resp,
-                        };
-                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
+                        let enc = encode_brk1_response_frame(
+                            &brk_frame.task_id,
+                            brk1_lifecycle_status(resp.status),
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp,
+                            &resp.error,
+                        );
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -1997,17 +2025,14 @@ async fn test_module_lifecycle_manager_hotswap_broker_release_on_handoff_failure
 
                         let wsm_resp = encode_wsm1_lifecycle_response(&resp)
                             .expect("encode lifecycle response");
-                        let resp_brk = Brk1Frame {
-                            msg_type: BRK1_MSG_RESPONSE,
-                            task_id: brk_frame.task_id,
-                            source: "overhauled_broker".to_string(),
-                            destination: brk_frame.source,
-                            kind: brk_frame.kind,
-                            priority: brk_frame.priority,
-                            timeout_ms: brk_frame.timeout_ms,
-                            payload: wsm_resp,
-                        };
-                        let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
+                        let enc = encode_brk1_response_frame(
+                            &brk_frame.task_id,
+                            0,
+                            resp.assigned_gpu,
+                            0,
+                            &wsm_resp,
+                            &resp.error,
+                        );
                         write_raw_prefixed(&mut stream, &enc).await;
                     }
                 }
@@ -2085,17 +2110,14 @@ async fn test_sandbox_submit_gpu_task_wsm1_success() {
                     result: vec![99, 100, 101],
                 };
                 let wsm_resp = encode_wsm1_task_response(&task_resp).expect("encode task response");
-                let resp_brk = Brk1Frame {
-                    msg_type: BRK1_MSG_RESPONSE,
-                    task_id: brk_frame.task_id,
-                    source: "overhauled_broker".to_string(),
-                    destination: brk_frame.source,
-                    kind: brk_frame.kind,
-                    priority: brk_frame.priority,
-                    timeout_ms: brk_frame.timeout_ms,
-                    payload: wsm_resp,
-                };
-                let enc = encode_brk1_frame(&resp_brk).expect("encode BRK1 response");
+                let enc = encode_brk1_response_frame(
+                    &brk_frame.task_id,
+                    0,
+                    task_resp.selected_gpu,
+                    task_resp.latency_ms,
+                    &wsm_resp,
+                    &task_resp.error,
+                );
                 write_raw_prefixed(&mut stream, &enc).await;
             }
         }
