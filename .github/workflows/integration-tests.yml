@@ -137,7 +137,7 @@ jobs:
           toolchain: 1.98.1
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
-      - name: Build the real CPU-only broker
+      - name: Build the real CPU-only broker and BRK2 test
         run: |
           cmake -S overhauled -B overhauled/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -147,28 +147,8 @@ jobs:
             -DBUILD_EXAMPLES=OFF
           cmake --build overhauled/build --target broker_server brk2_protocol_test --parallel 2
       - name: Run C++ BRK2 codec tests
-        run: ctest --test-dir overhauled/build --output-on-failure -R '^brk2_protocol_test
-        env:
-          OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
-        run: |
-          set -euo pipefail
-          overhauled/build/broker_server 19090 --cpu-only > /tmp/overhauled-broker.log 2>&1 &
-          broker_pid=$!
-          trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 40); do
-            if (echo > /dev/tcp/127.0.0.1/19090) >/dev/null 2>&1; then
-              break
-            fi
-            if ! kill -0 "$broker_pid" 2>/dev/null; then
-              cat /tmp/overhauled-broker.log
-              exit 1
-            fi
-            sleep 0.25
-          done
-          OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
-          OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
-
-      - name: Run live Rust-to-C++ lifecycle and task round trip
+        run: ctest --test-dir overhauled/build --output-on-failure -R '^brk2_protocol_test$'
+      - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
         run: |
