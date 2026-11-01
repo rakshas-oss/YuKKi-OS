@@ -7,8 +7,10 @@ pub mod broker_client;
 pub mod brk2;
 pub mod exec_policy;
 pub mod gpu_adapter;
+#[cfg(feature = "interop_encryption")]
 pub mod interop_encryption;
 pub mod media_codec;
+pub mod mesh;
 pub mod nxr1;
 pub mod origin_client;
 pub mod stream_gateway;
@@ -47,6 +49,7 @@ pub use gpu_adapter::{
     DEFAULT_GPU_RETRY_BACKOFF, SUPPORTED_PROTOCOL_VERSIONS, WSM1_MAGIC, WSM1_PROTOCOL_VERSION,
 };
 
+#[cfg(feature = "interop_encryption")]
 pub use interop_encryption::{
     derive_hybrid_key, generate_interop_secret, InteropAead, InteropSession,
 };
