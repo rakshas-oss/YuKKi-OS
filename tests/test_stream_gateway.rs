@@ -154,6 +154,7 @@ async fn dashboard_page_is_public_but_data_routes_stay_protected() {
     let page = http_get(address, "/dashboard", false).await;
     assert!(page.starts_with("HTTP/1.1 200"));
     assert!(page.to_lowercase().contains("content-security-policy"));
+    assert!(page.contains("<!doctype html>"));
     assert!(page.contains("YuKKi-OS Gateway Dashboard"));
     assert!(http_get(address, "/v1/streams", false)
         .await
