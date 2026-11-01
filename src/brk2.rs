@@ -159,7 +159,17 @@ impl BrokerRequest {
     pub fn to_message(&self,request_id:u64)->Message{let mut m=Message::new(Header::new(MSG_REQUEST,request_id,SCHEMA_BROKER_REQUEST,1));
         m.push(Field::utf8(1,&self.task_id).critical());m.push(Field::utf8(2,&self.source).critical());m.push(Field::utf8(3,&self.destination).critical());m.push(Field::utf8(4,&self.kind).critical());
         m.push(Field::u8(5,self.priority).critical());m.push(Field::u32(6,self.timeout_ms).critical());m.push(Field::bytes(7,&self.payload).critical());
-        if let Some(v)=self.idempotency_key{m.push(Field::uuid(8,v))}if let Some(v)=self.deadline_unix_ns{m.push(Field::u64(9,v))}if let Some(v)=&self.device_preference{m.push(Field::utf8(10,v))}m}
+        if let Some(v) = self.idempotency_key {
+            m.push(Field::uuid(8, v));
+        }
+        if let Some(v) = self.deadline_unix_ns {
+            m.push(Field::u64(9, v));
+        }
+        if let Some(v) = &self.device_preference {
+            m.push(Field::utf8(10, v));
+        }
+        m
+    }
     pub fn from_message(m:&Message)->Result<Self,Error>{
         if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("not a BrokerRequest"))}
         let schema=[(1,WireType::Utf8,true),(2,WireType::Utf8,true),(3,WireType::Utf8,true),(4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),(7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false),(10,WireType::Utf8,false)];
