@@ -1,5 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream, time::timeout};
+
 use yukkios_6_8_0_inet3::gpu_adapter::{
     GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus,
     WasmTaskRequest, WasmTaskStatus,
@@ -110,4 +112,41 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
         .await
         .expect("broker WSM1 Release request");
     assert_eq!(released.status, WasmLifecycleStatus::Ok);
+}
+
+
+/// The C++ listener must close a peer that stalls halfway through a frame,
+/// and must also release the session promptly when the peer disconnects mid-body.
+#[tokio::test]
+async fn live_broker_enforces_partial_frame_timeout_and_disconnect_cleanup() {
+    let endpoint = match std::env::var("OVERHAULED_BROKER_ENDPOINT") {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("skipping live broker timeout test: OVERHAULED_BROKER_ENDPOINT is unset");
+            return;
+        }
+    };
+
+    // Send only half of the 4-byte frame prefix. The broker's configured
+    // socket read timeout is 5 seconds; the peer should then be closed.
+    let mut stalled = TcpStream::connect(&endpoint).await.expect("connect stalled peer");
+    stalled.write_all(&[0, 0]).await.expect("write partial prefix");
+    let mut byte = [0u8; 1];
+    let read = timeout(Duration::from_secs(7), stalled.read(&mut byte))
+        .await
+        .expect("broker must close stalled partial frame")
+        .expect("read after broker timeout");
+    assert_eq!(read, 0, "broker should close the timed-out peer");
+
+    // A peer that disconnects after a valid length prefix but incomplete body
+    // must not leave a worker/session waiting for the rest of the frame.
+    let mut dropped = TcpStream::connect(&endpoint).await.expect("connect disconnect peer");
+    dropped.write_all(&100u32.to_be_bytes()).await.expect("write body length");
+    dropped.write_all(b"BRK2").await.expect("write partial body");
+    dropped.shutdown().await.expect("half-close peer write side");
+    let read = timeout(Duration::from_secs(2), dropped.read(&mut byte))
+        .await
+        .expect("broker should clean up disconnected peer promptly")
+        .expect("read after disconnect");
+    assert_eq!(read, 0, "broker should close disconnected peer");
 }
