@@ -182,7 +182,19 @@ mod tests {
  #[test]fn rejects_truncation_and_trailing_bytes(){let mut b=encode(&sample(),Limits::default()).unwrap();b.pop();assert!(matches!(decode(&b,Limits::default()),Err(Error::Truncated(_))));b=encode(&sample(),Limits::default()).unwrap();b.push(0);assert_eq!(decode(&b,Limits::default()),Err(Error::TrailingBytes))}
  #[test]fn rejects_bad_magic_reserved_and_flags(){let mut b=encode(&sample(),Limits::default()).unwrap();b[4]=b'X';assert_eq!(decode(&b,Limits::default()),Err(Error::BadMagic));b=encode(&sample(),Limits::default()).unwrap();b[30]=1;assert_eq!(decode(&b,Limits::default()),Err(Error::ReservedNonZero))}
  #[test]fn rejects_duplicate_and_invalid_utf8(){let mut m=sample();m.push(Field::utf8(1,"dup"));assert_eq!(encode(&m,Limits::default()),Err(Error::DuplicateSingularField(1)));m=sample();m.fields[0].value=vec![255];assert_eq!(encode(&m,Limits::default()),Err(Error::InvalidUtf8(1)))}
- #[test]fn rejects_unknown_critical_but_preserves_optional(){let mut m=sample();m.push(Field::u8(99,1));assert!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]).is_ok());m.fields.last_mut().unwrap().flags|=FIELD_CRITICAL;assert_eq!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]),Err(Error::UnknownCriticalField(99)))}
+ #[test]
+ fn rejects_unknown_critical_but_preserves_optional() {
+     let mut m = Message::new(Header::new(MSG_REQUEST, 1, SCHEMA_BROKER_REQUEST, 1));
+     m.push(Field::utf8(1, "known").critical());
+     m.push(Field::u8(99, 1));
+     let schema = [(1, WireType::Utf8, true)];
+     assert!(validate_known_fields(&m, &schema).is_ok());
+     m.fields.last_mut().unwrap().flags |= FIELD_CRITICAL;
+     assert_eq!(
+         validate_known_fields(&m, &schema),
+         Err(Error::UnknownCriticalField(99))
+     );
+ }
  #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let mut l=Limits::default();l.max_frame_bytes=32;assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut m=sample();m.field(6);m.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&m),Err(Error::InvalidValue("timeout_ms must be nonzero")))}
  #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok())}
  #[test]
