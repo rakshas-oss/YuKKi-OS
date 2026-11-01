@@ -3,27 +3,34 @@
 
 pub mod adi_auto_tune;
 pub mod arcgis;
+#[rustfmt::skip]
 pub mod broker_client;
+#[rustfmt::skip]
 pub mod brk2;
 pub mod exec_policy;
+#[rustfmt::skip]
 pub mod gpu_adapter;
 #[cfg(feature = "interop_encryption")]
 #[rustfmt::skip]
 pub mod interop_encryption;
 pub mod media_codec;
+#[rustfmt::skip]
 pub mod mesh;
 pub mod nxr1;
 pub mod origin_client;
+#[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
 pub mod stream_relay;
 pub mod wasm_ingest;
+#[rustfmt::skip]
 pub mod wasm_sandbox;
 
 pub use brk2::{
-    decode as decode_brk2_frame, encode as encode_brk2_frame, validate_known_fields as validate_brk2_schema,
-    BrokerRequest as Brk2BrokerRequest, Error as Brk2Error, Field as Brk2Field, Header as Brk2Header,
-    Limits as Brk2Limits, Message as Brk2Message, WireType as Brk2WireType,
+    decode as decode_brk2_frame, encode as encode_brk2_frame,
+    validate_known_fields as validate_brk2_schema, BrokerRequest as Brk2BrokerRequest,
+    Error as Brk2Error, Field as Brk2Field, Header as Brk2Header, Limits as Brk2Limits,
+    Message as Brk2Message, WireType as Brk2WireType,
 };
 
 pub use broker_client::{
