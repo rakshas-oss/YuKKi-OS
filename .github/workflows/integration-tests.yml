@@ -130,8 +130,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
-          ref: feat/brk2-server-interop
+          ref: main
           path: overhauled
+      - name: Record canonical interoperability revisions
+        run: |
+          echo "YuKKi-OS: $(git rev-parse HEAD)"
+          echo "overhauled: $(git -C overhauled rev-parse HEAD)"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
