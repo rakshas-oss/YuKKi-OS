@@ -8,6 +8,7 @@ pub mod brk2;
 pub mod exec_policy;
 pub mod gpu_adapter;
 #[cfg(feature = "interop_encryption")]
+#[rustfmt::skip]
 pub mod interop_encryption;
 pub mod media_codec;
 pub mod mesh;
