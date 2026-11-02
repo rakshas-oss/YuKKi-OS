@@ -169,6 +169,10 @@ See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/
 - [docs/VERSIONING.md](docs/VERSIONING.md)
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
+## Platform deployment
+
+See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC build instructions and the WASI Preview 1 guest-worker deployment profile. The WebAssembly artifact is the isolated `guest-worker` module; it is not a WebAssembly build of the native node.
+
 ## Docker
 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
