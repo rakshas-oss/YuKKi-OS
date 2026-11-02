@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>YuKKi-OS Browser Gateway</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">YUKKI-OS · BROWSER CLIENT</p>
+      <h1>Stream gateway</h1>
+      <p class="muted">Browse authenticated stream metadata and bounded media-chunk ranges. YKMC frames are checked by the Rust WebAssembly core before display.</p>
+    </header>
+
+    <section class="panel" aria-labelledby="connection-heading">
+      <h2 id="connection-heading">Gateway connection</h2>
+      <form id="connect-form">
+        <label for="gateway-url">Gateway base URL</label>
+        <input id="gateway-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" required>
+        <label for="gateway-token">Bearer token</label>
+        <input id="gateway-token" type="password" autocomplete="off" spellcheck="false" required>
+        <div class="actions">
+          <button id="connect-button" type="submit">Connect and load streams</button>
+          <button id="disconnect-button" type="button" class="secondary" disabled>Disconnect</button>
+        </div>
+      </form>
+      <p id="connection-status" class="status" role="status" aria-live="polite">Loading browser verifier…</p>
+      <p class="hint">The token stays in page memory only. It is sent only in the Authorization header and is not written to a URL or browser storage.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="streams-heading">
+      <div class="section-heading">
+        <h2 id="streams-heading">Streams</h2>
+        <span id="stream-count" class="muted">Not connected</span>
+      </div>
+      <div id="stream-list" class="stream-list" aria-live="polite">
+        <p class="muted">Connect to a gateway to list streams.</p>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="chunks-heading">
+      <div class="section-heading">
+        <h2 id="chunks-heading">Chunk reader</h2>
+        <span id="selected-stream" class="muted">No stream selected</span>
+      </div>
+      <form id="chunk-form">
+        <label for="from-sequence">Start sequence</label>
+        <input id="from-sequence" type="text" inputmode="numeric" value="0" pattern="[0-9]+" required>
+        <label for="chunk-limit">Chunk limit (1–8)</label>
+        <input id="chunk-limit" type="number" min="1" max="8" value="1" required>
+        <div class="actions">
+          <button id="read-button" type="submit" disabled>Read chunk range</button>
+          <label class="check-label"><input id="auto-refresh" type="checkbox" disabled> Poll every 2 seconds</label>
+        </div>
+      </form>
+      <p id="chunk-status" class="status" role="status" aria-live="polite">Select a stream to inspect retained chunks.</p>
+      <ol id="chunk-list" class="chunk-list">
+        <li class="muted">No chunks loaded.</li>
+      </ol>
+    </section>
+
+    <footer>
+      <p>Browser transport: authenticated HTTP GET. The current gateway WebSocket endpoint requires a custom Authorization header, which the browser WebSocket API does not expose; this client does not place credentials in query strings.</p>
+      <p>Media payloads remain opaque. This client validates YKMC structure; it does not decode or transcode audio/video codecs.</p>
+    </footer>
+  </main>
+</body>
+</html>
