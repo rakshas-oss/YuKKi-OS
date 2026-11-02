@@ -148,7 +148,10 @@ async function gatewayFetch(path) {
       error.status = response.status;
       throw error;
     }
-    return await response.json();
+    const raw = await response.text();
+    // Preserve u64 protocol fields exactly; JSON.parse would round large values.
+    const losslessIntegers = raw.replace(/("(?:latest_seq|sequence_no|timestamp_ms)"\s*:\s*)(\d+)/g, '$1"$2"');
+    return JSON.parse(losslessIntegers);
   } catch (error) {
     if (error.name === "AbortError") throw new Error("Gateway request timed out after 12 seconds.");
     if (error instanceof TypeError) {
