@@ -43,6 +43,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Resolve root Cargo dependency graph
+        shell: bash
         run: cargo metadata --format-version=1 > /dev/null
       - name: Ensure Rust target is installed
         run: rustup target add ${{ matrix.target }}
@@ -83,6 +84,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Resolve root Cargo dependency graph
+        shell: bash
         run: cargo metadata --format-version=1 > /dev/null
       - name: Ensure Rust target is installed
         run: rustup target add ${{ matrix.target }}
@@ -110,6 +112,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - name: Resolve root Cargo dependency graph
+        shell: bash
         run: cargo metadata --format-version=1 > /dev/null
       - name: Ensure Rust target is installed
         run: rustup target add x86_64-pc-windows-msvc
@@ -241,6 +244,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Resolve root Cargo dependency graph
+        shell: bash
         run: cargo metadata --format-version=1 > /dev/null
       - name: Run library unit tests
         run: cargo test --lib --locked
