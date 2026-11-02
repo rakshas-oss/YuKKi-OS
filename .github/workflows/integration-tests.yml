@@ -19,9 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -39,9 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -59,9 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -79,9 +70,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -99,9 +87,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -119,9 +104,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -157,9 +139,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
       - name: Build the real CPU-only broker and BRK2 test
