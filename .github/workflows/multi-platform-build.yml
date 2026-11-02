@@ -182,7 +182,7 @@ jobs:
       - name: Check browser Rust formatting
         run: cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
       - name: Check browser JavaScript syntax
-        run: node --check browser-wasm/app.js
+        run: node --input-type=module --check < browser-wasm/app.js
       - name: Test browser verifier
         run: cargo test --manifest-path browser-wasm/Cargo.toml --locked
       - name: Lint browser verifier
