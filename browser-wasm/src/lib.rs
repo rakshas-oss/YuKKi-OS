@@ -98,10 +98,6 @@ pub fn validate_ykmc(bytes: &[u8]) -> i32 {
         Ok(value) => value,
         Err(_) => return ERR_UTF8,
     };
-    if stream_id.chars().any(char::is_control) || codec.chars().any(char::is_control) {
-        return ERR_UTF8;
-    }
-
     VALID
 }
 
