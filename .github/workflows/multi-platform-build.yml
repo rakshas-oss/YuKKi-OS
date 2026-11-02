@@ -9,7 +9,7 @@ on:
     types: [created]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: builds-${{ github.workflow }}-${{ github.ref }}
@@ -144,30 +144,6 @@ jobs:
           name: yukki-guest-worker-wasm32-wasip1
           path: guest-worker/target/wasm32-wasip1/release/yukki_guest_worker.wasm
           if-no-files-found: error
-
-  refresh-lockfile:
-    name: Refresh Cargo.lock after dependency graph changes
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'platform/msvc-windows-wasi-guest'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.head_ref }}
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Regenerate lockfile
-        run: cargo generate-lockfile
-      - name: Commit refreshed lockfile
-        shell: bash
-        run: |
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock is already current"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock
-          git commit -m "chore: refresh Cargo.lock after dependency patch removal"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
 
   build-browser-wasm:
     name: Browser application (wasm32-unknown-unknown)
