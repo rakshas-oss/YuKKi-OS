@@ -33,7 +33,6 @@ use tracing::warn;
 
 use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
-    mesh::{demo_mesh_nodes, MeshStore, MeshSnapshot},
     stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
     stream_relay::{RelayError, StreamRelay},
 };
