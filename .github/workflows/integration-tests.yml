@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -36,6 +38,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -53,6 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -70,6 +76,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -87,6 +95,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -104,6 +114,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -139,6 +151,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
+      - name: Resolve root Cargo dependency graph
+        run: cargo metadata --format-version=1 > /dev/null
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
       - name: Build the real CPU-only broker and BRK2 test
@@ -155,56 +169,7 @@ jobs:
       - name: Run Rust shared BRK conformance corpus
         run: cargo test --locked --test brk_conformance -- --nocapture
       - name: Run C++ BRK conformance tests
-        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|brk_conformance_test)
-      - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
-        env:
-          OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
-        run: |
-          set -euo pipefail
-          overhauled/build/broker_server 19090 --cpu-only > /tmp/overhauled-broker.log 2>&1 &
-          broker_pid=$!
-          trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 40); do
-            if (echo > /dev/tcp/127.0.0.1/19090) >/dev/null 2>&1; then
-              break
-            fi
-            if ! kill -0 "$broker_pid" 2>/dev/null; then
-              cat /tmp/overhauled-broker.log
-              exit 1
-            fi
-            sleep 0.25
-          done
-          OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
-          OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
-      - name: Run live BRK2 NPU execution and CPU fallback
-        env:
-          OVERHAULED_NPU_BROKER_ENDPOINT: 127.0.0.1:19091
-          OVERHAULED_CPU_FALLBACK_ENDPOINT: 127.0.0.1:19092
-        run: |
-          set -euo pipefail
-          overhauled/build/broker_server 19091 --npu-simulated > /tmp/overhauled-npu-broker.log 2>&1 &
-          npu_pid=$!
-          overhauled/build/broker_server 19092 > /tmp/overhauled-cpu-fallback-broker.log 2>&1 &
-          cpu_pid=$!
-          trap 'kill "$npu_pid" "$cpu_pid" 2>/dev/null || true; wait "$npu_pid" 2>/dev/null || true; wait "$cpu_pid" 2>/dev/null || true' EXIT
-          for port in 19091 19092; do
-            ready=false
-            for attempt in $(seq 1 40); do
-              if (echo > "/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1; then
-                ready=true
-                break
-              fi
-              sleep 0.25
-            done
-            if [[ "$ready" != true ]]; then
-              cat /tmp/overhauled-npu-broker.log
-              cat /tmp/overhauled-cpu-fallback-broker.log
-              exit 1
-            fi
-          done
-          cargo test --locked --test test_overhauled_npu_live -- --nocapture
-
-
+        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|brk_conformance_test)$'
       - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
