@@ -1,6 +1,6 @@
 # YuKKi OS v6.9.9
 
-YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
+YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary. It coordinates peers and workload policy; accelerator execution is delegated to an explicitly configured broker such as [Overhauled](https://github.com/rakshas-oss/overhauled).
 
 > Current stable release: v6.9.9. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
@@ -14,13 +14,7 @@ YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame eng
 
 ## What's new in v6.9.9
 
-Release v6.9.9 brings the latest stability, deployability, and interoperability updates for the mesh and broker boundary.
-
-- Stability improvements for the authenticated peer mesh and stream registry
-- Improved broker interoperability compatibility and clearer timeout validation
-- Additional guardrails for GPU-adapter fallback behavior and CPU-first execution safety
-- Documentation refresh across deployment, API, and release notes for the current stable line
-- Updated release metadata and links to the latest release notes page
+The current line includes stability and deployability improvements for the authenticated mesh, stream registry, broker boundary, platform targets, and accelerator fallback policy. Recent interoperability work documents the Rust/C++ BRK1 and BRK2 wire contract, adds a shared cross-language conformance corpus and live broker tests, and enables an opt-in Overhauled Ethos-U85 Linux DRM execution path. These capabilities do not imply that physical U85 hardware has been validated; see the linked deployment guide for the validation boundary.
 
 ## CLI and stream gateway
 
@@ -32,24 +26,13 @@ yukki_core_node streams list
 yukki_core_node streams tune <stream-id> [--from <seq>]
 ```
 
-The gateway defaults to `127.0.0.1:7670`. Open `/dashboard` for the stream
-dashboard and enter the gateway bearer token to load stream data. Set
-`YUKKI_GATEWAY_TOKEN` before starting `gateway`; the explicit `--insecure-dev` option is for local
-development only. A node also starts its gateway when that token is set.
-`YUKKI_GATEWAY_LISTEN` configures the node's listener and
-`YUKKI_GATEWAY_ENDPOINT` configures the `streams` CLI target.
+The gateway defaults to `127.0.0.1:7670`. Open `/dashboard` for the stream dashboard and enter the gateway bearer token to load stream data. Set `YUKKI_GATEWAY_TOKEN` before starting `gateway`; `--insecure-dev` is for local development only. A node also starts its gateway when that token is set. `YUKKI_GATEWAY_LISTEN` configures the node listener and `YUKKI_GATEWAY_ENDPOINT` configures the `streams` CLI target.
 
-Required for the peer mesh:
+Required for the peer mesh: `YUKKI_PSK_HEX` (64 hex chars / 32 bytes).
 
-- `YUKKI_PSK_HEX` (64 hex chars / 32 bytes)
+Required for an authenticated gateway: `YUKKI_GATEWAY_TOKEN` (1–4096 visible bearer-token characters).
 
-Required for an authenticated gateway:
-
-- `YUKKI_GATEWAY_TOKEN` (1–4096 visible bearer-token characters)
-
-Optional logging env var:
-
-- `RUST_LOG` (default `info`)
+Optional logging variable: `RUST_LOG` (default `info`).
 
 ## Build and run
 
@@ -61,121 +44,63 @@ export YUKKI_PSK_HEX="$(openssl rand -hex 32)"
 ./target/release/yukki_core_node node 127.0.0.1:7660 127.0.0.1:9999
 ```
 
-## Broker interoperability boundary
+## Broker interoperability
 
-YuKKi-OS peer mesh transport and broker transport are separate:
+The peer mesh and broker transports are separate:
 
-- Peer mesh: X25519 + PSK + HKDF + ChaCha20-Poly1305
-- Generic broker client (`src/broker_client.rs`): raw TCP + 4-byte big-endian length-prefixed JSON; this is not the `overhauled` wire protocol
+- **Peer mesh:** X25519 + PSK + HKDF + ChaCha20-Poly1305.
+- **Generic broker client** (`src/broker_client.rs`): raw TCP with a 4-byte big-endian length-prefixed JSON protocol. It is not the Overhauled protocol.
+- **Overhauled adapter:** raw TCP with the same length prefix and BRK1/v1 or BRK2/v2 binary envelopes. WSM1 carries sandbox task and lifecycle payloads inside broker requests and responses. The Overhauled server accepts BRK1 and BRK2 on one listener; the client selects the envelope and there is no JSON HELLO negotiation.
 
-Default broker endpoint: `127.0.0.1:9000`
+YuKKi-OS remains the control plane. Overhauled owns placement and execution, including the opt-in physical Ethos-U85 Linux DRM backend. BRK2 `device_preference=npu` is the existing NPU dispatch request; the broker response identifies the selected `backend` so clients can distinguish NPU execution from CPU fallback. A simulated NPU is CPU emulation for CI, not hardware acceleration. See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for wire and compatibility details and [docs/ETHOSU_U85_DEPLOYMENT.md](docs/ETHOSU_U85_DEPLOYMENT.md) for the hardware path and limits.
 
-Broker boundary env vars:
+Default generic broker endpoint: `127.0.0.1:9000`.
+
+Generic broker boundary variables:
 
 - `YUKKI_BROKER_ENDPOINT`
-- `YUKKI_BROKER_CONNECT_TIMEOUT_MS` (must be `1..=600000` ms)
-- `YUKKI_BROKER_REQUEST_TIMEOUT_MS` (must be `1..=600000` ms)
+- `YUKKI_BROKER_CONNECT_TIMEOUT_MS` (1..=600000 ms)
+- `YUKKI_BROKER_REQUEST_TIMEOUT_MS` (1..=600000 ms)
 - `YUKKI_BROKER_MAX_FRAME_BYTES`
 - `YUKKI_BROKER_TRANSPORT_SECURITY` (`plaintext-boundary` or `authenticated-proxy`)
 
-`authenticated-proxy` is documentary metadata for operations; it does not enable TLS by itself.
-
-Per-task `timeout_ms` (on `BrokerTask`/`GpuTaskRequest`) must be `1..=300000`
-ms (5 minutes); zero or oversized values are rejected by request validation.
-Callers must supply an in-range timeout explicitly; payload size is not used to
-derive task deadlines.
+`authenticated-proxy` is documentary metadata; it does not enable TLS by itself. Per-task `timeout_ms` on broker task requests must be `1..=300000` ms; zero and oversized values are rejected.
 
 ## Geospatial and chunked media codecs
 
-The Rust library provides an interoperable GeoJSON avenue model
-(`ArcGisAvenue`) using validated WGS84 longitude/latitude coordinates and
-optional route/avenue properties. The legacy NXR1 codec remains available but
-its numeric fields are not geographic coordinates.
+The Rust library provides an interoperable GeoJSON avenue model (`ArcGisAvenue`) using validated WGS84 longitude/latitude coordinates and optional route/avenue properties. The legacy NXR1 codec remains available, but its numeric fields are not geographic coordinates.
 
-Audio/video data is supported as codec-agnostic pass-through `MediaChunk`s.
-`LiveMediaStreams` provides bounded in-memory stream opening, ordered
-ingestion, sequence/range reads, acknowledgement, and finish/removal APIs.
-`StreamRegistry` exposes local and discovered descriptors and bounded,
-per-subscriber cursors. The authenticated gateway provides stream listing,
-description, HTTP range reads, and WebSocket tune-in with sequence-prefixed
-binary frames and explicit acknowledgements.
-The default store retains at most 256 chunks (256 KiB maximum each); it does
-not transcode media. Nodes exchange bounded stream announcements and
-low-frequency digest summaries over the existing authenticated mesh transport.
-`StreamRelay` can mirror discovered remote streams into a local store, sharing
-one upstream pull among local subscribers and enabling relay fan-out. The
-library includes `OriginChunkClient` for authenticated HTTP range reads from an
-origin gateway. Applications must wire these into `serve_with_relay`; the CLI
-does not configure a relay automatically. The standalone `gateway` command
-owns its own in-memory store. The origin client uses plain HTTP, so use a
-trusted network or a TLS-terminating proxy.
-WASM guests can select bounded binary chunks through a checked host import;
-they never receive raw store pointers.
+Audio/video data is supported as codec-agnostic pass-through `MediaChunk`s. `LiveMediaStreams` provides bounded in-memory stream opening, ordered ingestion, sequence/range reads, acknowledgement, and finish/removal APIs. `StreamRegistry` exposes local and discovered descriptors and bounded per-subscriber cursors. The authenticated gateway provides stream listing, description, HTTP range reads, and WebSocket tune-in with sequence-prefixed binary frames and explicit acknowledgements. The default store retains at most 256 chunks (256 KiB maximum each); it does not transcode media. Nodes exchange bounded stream announcements and low-frequency digest summaries over the authenticated mesh. `StreamRelay` and `OriginChunkClient` are library APIs that applications must wire into `serve_with_relay`; the CLI does not configure a relay automatically. Origin reads use plain HTTP, so use a trusted network or TLS-terminating proxy. WASM guests select bounded binary chunks through a checked host import and never receive raw store pointers.
 
-See [docs/API.md](docs/API.md) for Rust examples, wire layouts, validation,
-and limits, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for trust and
-resource boundaries.
+See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for API, wire layouts, trust boundaries, and resource limits. [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md) covers streaming and media deployment.
 
-## Streaming binaries and data
+## GPU-backed WASM sandbox adapter
 
-Use the [streaming user how-to](docs/USER_HOWTO_STREAMING.md) for chunked binary
-and media streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
+The optional `src/gpu_adapter.rs` boundary supports Overhauled via BRK1/BRK2 plus WSM1 task and lifecycle payloads. The adapter is disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`); ordinary deployments do not require a broker or accelerator. Use `LifecycleClient` with the selected BRK wire mode and `submit_wsm1_task` for this binary endpoint. `GpuBrokerClient::submit_task` and `BrokerClient` are separate legacy JSON routes and are not compatible with the Overhauled C++ listener.
 
-## GPU-backed WASM sandbox interoperability (rakshas-oss/overhauled)
+Adapter variables:
 
-YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
-
-- Interoperates with `overhauled` over raw TCP using a 4-byte big-endian length prefix, BRK1/v1 or BRK2/v2 binary request/response envelopes, and WSM1 binary task/lifecycle payloads.
-- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the C++ broker accepts BRK1 and BRK2 but does not implement JSON handshake negotiation or remote protocol negotiation.
-- Use `LifecycleClient` with `LifecycleWireMode::Brk1` or `LifecycleWireMode::Brk2` and `submit_wsm1_task` for the `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON messaging transport for compatibility.
-- Preserves sandbox isolation with host-mediated execution and bounded buffer descriptors.
-- Provides module lifecycle management with atomic routing switches, quiescing/draining, drain-before-release ordering, and rollback on activation failure.
-- Optional / configurable: disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`) so existing deployments run without GPU hardware or external brokers.
-
-Environment variables:
 - `YUKKI_GPU_ADAPTER_ENABLED` (`true` / `false`, default `false`)
 - `YUKKI_GPU_BROKER_ENDPOINT` (default `127.0.0.1:9090`)
-- `YUKKI_GPU_CONNECT_TIMEOUT_MS` (default `2000`, must be `1..=600000` ms)
-- `YUKKI_GPU_REQUEST_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
-- `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (default `5000`, must be `1..=600000` ms)
-- `YUKKI_GPU_MAX_FRAME_BYTES` (default `1048576` / 1 MiB)
+- `YUKKI_GPU_CONNECT_TIMEOUT_MS`, `YUKKI_GPU_REQUEST_TIMEOUT_MS`, `YUKKI_GPU_QUIESCE_TIMEOUT_MS` (each 1..=600000 ms)
+- `YUKKI_GPU_MAX_FRAME_BYTES` (default 1048576 / 1 MiB)
 - `YUKKI_GPU_MAX_RETRIES` (default `3`)
 
-### CPU-first execution policy
-
-CPU is the always-available correctness baseline; accelerators are optional, best-effort tiers (`src/exec_policy.rs`). `RustasmSandbox::execute_with_policy` picks a backend from a `TaskProfile`:
-
-1. **CPU** (default): used for small tasks, when no accelerator is available, or when `YUKKI_FORCE_CPU_FALLBACK=true`.
-2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
-3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
-
-Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the task is rejected with the failure reason.
-
-See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/WSM1 cross-repository contract, and [docs/API.md](docs/API.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for additional compatibility details.
-
-## Documentation
-
-- [docs/RELEASE_v6.9.9.md](docs/RELEASE_v6.9.9.md)
-- [docs/DRONE_DASHBOARD.md](docs/DRONE_DASHBOARD.md)
-- [docs/DRONE_INTEROP.md](docs/DRONE_INTEROP.md)
-- [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- [docs/SYSADMIN_HOWTO.md](docs/SYSADMIN_HOWTO.md)
-- [scripts/deploy/README.md](scripts/deploy/README.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/API.md](docs/API.md)
-- [docs/SECURITY.md](docs/SECURITY.md)
-- [docs/CHANGELOG.md](docs/CHANGELOG.md)
-- [docs/VERSIONING.md](docs/VERSIONING.md)
-- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+CPU is the always-available correctness baseline. GPU and NPU are optional, best-effort broker tiers. `device_preference=npu` requests NPU dispatch; it does not guarantee hardware use. Exact-precision/verification-sensitive tasks (including PQC) do not offload. CPU retry is governed by task fallback safety. Physical U85 inference requires the Overhauled DRM backend, a compatible kernel UAPI, and a Vela-generated bundle; simulator tests and successful compilation are not board validation.
 
 ## Platform deployment
 
-See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC build instructions, the WASI Preview 1 sandbox guest, and the separate browser-WASM application. Neither WebAssembly artifact is a browser build of the native node.
+See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC, WASI Preview 1 guest, and browser-WASM deployment profiles. The browser client targets `wasm32-unknown-unknown`, uses bounded authenticated HTTP reads, and verifies YKMC v1 frames. For separately hosted browser sites, configure the gateway's exact-origin `YUKKI_GATEWAY_CORS_ORIGINS` allow-list or use a same-origin reverse proxy; use HTTPS remotely. Browser WebSockets cannot set the Authorization header required by the gateway route.
 
-### Browser WebAssembly client
+## Documentation
 
-The separate browser client in `browser-wasm/` targets `wasm32-unknown-unknown`. It connects to the authenticated gateway over bounded HTTP reads and verifies YKMC v1 frames in a dependency-free Rust WASM module. See [docs/BROWSER_WASM.md](docs/BROWSER_WASM.md) for build, static hosting, and exact-origin CORS configuration.
+- [Release notes v6.9.9](docs/RELEASE_v6.9.9.md)
+- [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
+- [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
+- [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
+- [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Browser WASM](docs/BROWSER_WASM.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
+- [Changelog](docs/CHANGELOG.md) · [Versioning](docs/VERSIONING.md)
 
 ## Docker
 
@@ -190,28 +115,3 @@ Current limitation: no built-in TLS termination for peer or broker links.
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
-
-## BRK2 binary codec (reference implementation)
-
-YuKKi-OS now exposes a standalone BRK2 codec in `src/brk2.rs` without changing
-the existing JSON, BRK1, or WSM1 transports. BRK2 is intentionally opt-in at
-this stage; it is **not** automatically negotiated by the existing broker
-client, because that requires a matching broker-side HELLO/HELLO_ACK
-implementation.
-
-Wire framing is a 4-byte big-endian body length (excluding the prefix), a
-32-byte fixed header, and 8-byte-header TLV fields. The codec enforces frame,
-payload, and field-count limits; validates reserved bits, flags, fixed-width
-values, UTF-8 and booleans; rejects duplicate singular fields; and preserves
-unknown optional fields. Schema validation rejects unknown critical fields.
-
-Public API exports: `encode_brk2_frame`, `decode_brk2_frame`,
-`validate_brk2_schema`, `Brk2Message`, `Brk2Header`, `Brk2Field`,
-`Brk2WireType`, `Brk2Limits`, and `Brk2BrokerRequest`.
-
-The initial BrokerRequest schema uses field IDs 1–9 for task_id, source,
-destination, kind, priority, timeout_ms, payload, optional UUID idempotency
-key, and optional Unix-nanosecond deadline. Freeze the schema and publish the
-normative protocol document before independent implementations depend on it.
-
-Run the codec tests with `cargo test brk2` or the full suite with `cargo test`.

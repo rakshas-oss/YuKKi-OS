@@ -1,137 +1,86 @@
-# YuKKi-OS ↔ overhauled broker interoperability
+# YuKKi-OS ↔ Overhauled broker interoperability
 
-This document records the wire contract implemented by the current
-`rakshas-oss/overhauled` C++ broker and the corresponding YuKKi-OS client
-path. The overhauled repository is authoritative for the broker envelope.
+This document describes the current cross-repository contract between the YuKKi-OS Rust client and the Overhauled C++ broker. Overhauled is authoritative for broker execution behavior and its protocol documentation; YuKKi-OS documents the matching client path. The repositories are independently built and have no source dependency on each other.
 
-## Supported wire stack
+## Responsibility boundary
+
+- **YuKKi-OS:** authenticated peer-mesh control plane, task policy, and optional broker client.
+- **Overhauled:** placement and execution plane, broker service, CPU/GPU dispatch, and optional NPU executor.
+- **Interop:** bounded binary broker frames over TCP. Peer-mesh encryption is not automatically inherited by this separate broker connection.
+
+The generic `src/broker_client.rs` JSON protocol is not the Overhauled wire protocol. For the Overhauled endpoint, use the GPU adapter's BRK1/BRK2 client and WSM1 task/lifecycle payloads.
+
+## Wire stack
 
 ```text
 TCP connection
 └── uint32_be frame length (body bytes only)
     └── BRK1/v1 or BRK2/v2 request/response body
-        └── WSM1/v1 task or lifecycle payload (inside request.payload /
-            response.result)
+        └── WSM1 task/lifecycle payload (request.payload / response.result)
 ```
 
-The outer TCP length prefix is not included in the BRK1 body length.
+The 4-byte prefix is not included in the body length. Both implementations use big-endian envelope integers. BRK1 remains supported; BRK2 is selected by frame magic. There is no JSON HELLO negotiation, remote cancellation contract, or TLS implied by this framing.
 
-### BRK1 request body
+## BRK1 and BRK2
 
-All multibyte values are big-endian. The request body is:
+BRK1 request/response layouts, validation limits, and status values are specified in [Overhauled `BROKER_PROTOCOL.md`](https://github.com/rakshas-oss/overhauled/blob/main/docs/BROKER_PROTOCOL.md). Request timeout is explicitly required and must be `1..=300000` ms; zero and values above five minutes are rejected. The decoder does not infer a deadline from payload size.
 
-1. `magic`: 4 bytes, ASCII `BRK1`
-2. `version`: uint16, value 1
-3. `message_type`: uint8, value 1 (request)
-4. `reserved`: uint8, value 0
-5. `task_id`: uint16 length + UTF-8 bytes
-6. `source`: uint16 length + UTF-8 bytes
-7. `destination`: uint16 length + UTF-8 bytes
-8. `kind`: uint16 length + UTF-8 bytes
-9. `priority`: uint8
-10. `timeout_ms`: uint32
-11. `payload`: uint32 length + bytes
+BRK2 uses the same length prefix, a 32-byte fixed header, then 8-byte-header TLV fields. Header and TLV lengths are checked, reserved bits and malformed values are rejected, singular duplicates are invalid, unknown optional fields are forward-compatible, and unknown critical fields are rejected at schema validation. Request schema 1 and response schema 2 are shared by the Rust codec and C++ broker. The request correlation ID is echoed in the response.
 
-Request validation follows the C++ broker: non-empty routing identifiers,
-timeout in 1..=300000 ms, strings within the configured string limit, payload
-within the configured payload limit, and no trailing bytes.
-
-### BRK1 response body
-
-The response layout is different from the request layout:
-
-1. `magic`: 4 bytes, ASCII `BRK1`
-2. `version`: uint16, value 1
-3. `message_type`: uint8, value 2 (response)
-4. `reserved`: uint8, value 0
-5. `task_id`: uint16 length + UTF-8 bytes
-6. `status`: uint8 (0=ok, 1=rejected, 2=error, 3=timeout)
-7. `selected_gpu`: int32
-8. `latency_ms`: uint64
-9. `result`: uint32 length + bytes
-10. `error`: uint16 length + UTF-8 bytes
-
-Do not decode a response with the request decoder. The response's `result`
-contains the encoded WSM1 response for WSM1 task/lifecycle kinds.
+The current broker request schema includes the optional `device_preference` string field (field 10): `cpu`, `gpu`, or `npu`. Unknown preference values are rejected. The response includes `backend` (field 7), allowing clients to distinguish `cpu`, `gpu`, and `npu` execution rather than assuming that a request preference guarantees a device. These fields do not change BRK1 framing. See the Overhauled protocol document and shared conformance corpus for the normative current schema and vectors.
 
 ## WSM1 payload kinds
 
-The outer BRK1 `kind` selects the broker handler:
+The outer request `kind` selects the broker handler:
 
 | Kind | WSM1 payload |
 |---|---|
-| `wasm.task.v1` | WSM1 TaskRequest (message type 1) |
-| `wasm.lifecycle.prepare.v1` | WSM1 LifecycleRequest, action Prepare (1) |
-| `wasm.lifecycle.drain.v1` | WSM1 LifecycleRequest, action Drain (2) |
-| `wasm.lifecycle.release.v1` | WSM1 LifecycleRequest, action Release (3) |
-| `wasm.lifecycle.query.v1` | WSM1 LifecycleRequest, action Query (4) |
+| `wasm.task.v1` | TaskRequest (message type 1) |
+| `wasm.lifecycle.prepare.v1` | LifecycleRequest, Prepare (1) |
+| `wasm.lifecycle.drain.v1` | LifecycleRequest, Drain (2) |
+| `wasm.lifecycle.release.v1` | LifecycleRequest, Release (3) |
+| `wasm.lifecycle.query.v1` | LifecycleRequest, Query (4) |
 
-The broker returns a BRK1 response whose `result` is the corresponding WSM1
-TaskResponse (message type 2) or LifecycleResponse (message type 4). YuKKi-OS
-validates that the outer BRK1 `task_id` equals the inner WSM1 `task_id` or
-`request_id`.
+Responses carry a WSM1 TaskResponse (message type 2) or LifecycleResponse (message type 4) in the broker result. YuKKi-OS verifies that the outer task ID matches the inner task ID or request ID. WSM1 layouts, enums, buffer descriptors, and lifecycle sequencing are specified in [Overhauled `WASM_INTEROP.md`](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 
-The WSM1 task status byte is: 0=Ok, 1=Rejected, 2=Error, 3=Timeout,
-4=ModuleDraining, 5=ModuleNotFound, 6=VersionMismatch. YuKKi-OS now accepts
-all seven values; the Rust variant `Failed` represents wire value 2 (named
-`Error` by the C++ implementation).
+## NPU dispatch and Ethos-U85 execution
 
-The WSM1 field layouts, status enums, and buffer descriptor formats are
-specified in [overhauled/docs/WASM_INTEROP.md](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
-The outer BRK1 format is specified in
-[overhauled/docs/BROKER_PROTOCOL.md](https://github.com/rakshas-oss/overhauled/blob/main/docs/BROKER_PROTOCOL.md)
-and implemented by `overhauled/src/broker_protocol.cpp`.
+YuKKi-OS remains the control plane and requests NPU placement using the existing BRK2 `device_preference=npu` contract; no new wire negotiation is required. The Overhauled broker owns physical Ethos-U85 execution via its opt-in mainline Linux DRM backend. Build it on Linux with:
 
-## BRK2/v2 envelope
+```sh
+cmake -S . -B build \
+  -DENABLE_ETHOSU_DRM=ON \
+  -DENABLE_CUDA=OFF \
+  -DENABLE_TENSORRT=OFF \
+  -DBUILD_BROKER=ON
+cmake --build build -j"$(nproc)"
+ctest --test-dir build --output-on-failure
+```
 
-BRK2 uses the same TCP `uint32_be` body-length prefix, followed by a 32-byte
-header and 8-byte TLV field headers. All integer values are big-endian.
-The Rust reference codec and C++ broker share schema ID 1 for requests and
-schema ID 2 for responses. Request fields are task_id (1, UTF-8), source
-(2), destination (3), kind (4), priority (5, U8), timeout_ms (6, U32),
-payload (7, bytes), optional idempotency_key (8, UUID), and optional
-deadline_unix_ns (9, U64). Response fields are task_id (1), status (2, U8),
-selected_gpu (3, I64), latency_ms (4, U64), result (5, bytes), and error
-(6, UTF-8). BRK2 request_id is echoed unchanged in the response header.
-Unknown optional fields are ignored; unknown critical fields are rejected.
-The server dispatches BRK1 and BRK2 per frame, without changing the existing
-BRK1 wire format.
+Start with a Vela-generated bundle:
 
-## Compatibility boundary
+```sh
+./build/broker_server 9090 --npu-ethosu-bundle model.yu85
+```
 
-- The overhauled broker accepts BRK1/v1 and BRK2/v2 on the same TCP listener.
-- The current overhauled broker does not implement a JSON protocol handshake.
-  BRK1/v1 is selected by the client configuration; do not send a JSON
-  `HandshakeRequest` to this server.
-- The current overhauled broker does not implement the YuKKi JSON
-  `CancelTaskRequest`. Local cancellation and socket teardown do not guarantee
-  preemption of work already executing in the broker.
-- YuKKi-OS `BrokerClient` (in `src/broker_client.rs`) remains a separate
-  JSON broker client. It is not compatible with the C++ overhauled server.
-- YuKKi-OS `GpuBrokerClient::submit_task` is the legacy JSON message route.
-  Use `LifecycleClient` in BRK1 mode and `submit_wsm1_task` for the current
-  overhauled WSM1 task endpoint.
+If needed, select a DRM render node explicitly using `--ethosu-device /dev/dri/renderD128`. The `YU85BND1` format, tensor quantization, region layout, and runtime requirements are documented in [Overhauled `ETHOSU_U85_BUNDLE.md`](https://github.com/rakshas-oss/overhauled/blob/main/docs/ETHOSU_U85_BUNDLE.md). YuKKi's existing BRK2 preference is the dispatch signal; the broker reports NPU only when execution completes on that executor. If a request is marked fallback-safe and hardware execution fails, configured CPU fallback may apply.
 
-## Limits and defaults
+`--npu-simulated` is a distinct CPU-emulated path for conformance/CI; it is not NPU hardware acceleration. The source `src/drivers/ethosu85_async.rs` in YuKKi-OS is an orphaned placeholder, not a Linux DRM driver, and is not an execution path. Physical validation requires an appropriate kernel exposing the mainline Ethos-U DRM UAPI, a compatible Vela command stream and bundle, and a successful inference on the target board. Compilation or simulator tests alone do not establish board support.
 
-- Broker endpoint: `127.0.0.1:9090` (matches the overhauled broker's documented
-  default launch port; deployments may override it).
-- BRK1 frame limit: 1 MiB in the YuKKi-OS GPU adapter default.
-- Broker default payload limit: 512 KiB.
-- Broker default string limit: 1024 bytes.
-- WSM1 buffer descriptor limit: 64 per task.
-- Encoded WSM1 payload limit: 512 KiB.
-- Broker task timeout: 1..=300000 ms.
+## Compatibility and security limits
 
-The actual server-side limits are configured by `ProtocolLimits`; client
-limits should be set no higher than the server's configured values.
+- Overhauled accepts BRK1 and BRK2 on the same TCP listener; client and server must agree on each frame's envelope and schema.
+- The C++ listener does not implement the YuKKi JSON `HandshakeRequest` or `CancelTaskRequest`.
+- Local cancellation or socket closure does not guarantee preemption of broker work already executing.
+- Broker transport is a bounded protocol, not an authentication layer. Use a trusted network or an independently secured proxy; labels such as `authenticated-proxy` do not enable TLS.
+- Keep client frame/payload limits at or below server `ProtocolLimits`. Task timeout must be `1..=300000` ms.
+- CPU fallback is only allowed where the request/task policy is marked safe; requesting a backend is not proof that backend was used. Inspect the response backend.
 
-## Interoperability tests
+## Conformance and live interoperability
 
-YuKKi-OS includes byte-level BRK1 codec tests and a mock TCP round-trip test.
-The `overhauled-live-cpp` CI job builds the real C++ `broker_server` in CPU-only
-mode, starts it, and runs a Rust `LifecycleClient` against it in both BRK1 and
-BRK2 modes. The live test covers WSM1 Prepare, Task, Drain, and Release
-operations over the actual TCP listener in each mode. A successful BRK2 run
-is the evidence for cross-language interoperability;
-the mock test remains useful for isolated client behavior.
+Both repositories carry the shared BRK1/BRK2 conformance corpus and language-specific runners. The live YuKKi-OS integration workflow builds the CPU-only C++ broker and exercises Rust lifecycle operations over its TCP listener in BRK1 and BRK2 modes. The Overhauled CPU-only CTest suite includes protocol, conformance, service, backend-dispatch, broker-server E2E, and other registered tests. These CI and simulator checks validate protocol/software behavior, not physical Ethos-U85 hardware.
+
+- [YuKKi BRK2 conformance](BRK2_CONFORMANCE_V1.md)
+- [YuKKi executable BRK corpus](BRK_CONFORMANCE_V1.md)
+- [Overhauled BRK2 conformance](https://github.com/rakshas-oss/overhauled/blob/main/docs/BRK2_CONFORMANCE_V1.md)
+- [Overhauled executable BRK corpus](https://github.com/rakshas-oss/overhauled/blob/main/docs/BRK_CONFORMANCE_V1.md)
