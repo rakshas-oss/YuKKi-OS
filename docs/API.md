@@ -36,7 +36,7 @@ cannot set the Authorization request header.
 The Rust WASM module verifies the YKMC v1 header, media type, flag bits,
 UTF-8 metadata, payload ceiling, exact frame length, and trailing-byte rule.
 It does not decode or transcode media payloads. See
-[ BROWSER_WASM.md ](BROWSER_WASM.md) for build and deployment instructions.
+[BROWSER_WASM.md](BROWSER_WASM.md) for build and deployment instructions.
 
 ## CLI API (`src/main.rs`)
 
