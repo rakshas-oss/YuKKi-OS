@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     media_codec::{
         LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType,
     },
@@ -184,7 +184,7 @@ fn wasm_guest_selects_bounded_binary_stream_chunks() {
     );
     assert!(matches!(
         streams.get_chunk("camera-1", 0),
-        Err(yukkios_6_8_0_inet3::MediaError::ChunkNotRetained { .. })
+        Err(yukkios::MediaError::ChunkNotRetained { .. })
     ));
     assert_eq!(
         run_guest_with_streams(&wasm, CH, &[1], handler(Default::default(), 0), None).unwrap(),
