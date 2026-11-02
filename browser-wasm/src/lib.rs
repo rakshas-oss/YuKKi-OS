@@ -90,14 +90,9 @@ pub fn validate_ykmc(bytes: &[u8]) -> i32 {
 
     let stream_id = &bytes[YKMC_HEADER_LEN..YKMC_HEADER_LEN + stream_id_len];
     let codec = &bytes[YKMC_HEADER_LEN + stream_id_len..metadata_end];
-    let stream_id = match core::str::from_utf8(stream_id) {
-        Ok(value) => value,
-        Err(_) => return ERR_UTF8,
-    };
-    let codec = match core::str::from_utf8(codec) {
-        Ok(value) => value,
-        Err(_) => return ERR_UTF8,
-    };
+    if core::str::from_utf8(stream_id).is_err() || core::str::from_utf8(codec).is_err() {
+        return ERR_UTF8;
+    }
     VALID
 }
 
