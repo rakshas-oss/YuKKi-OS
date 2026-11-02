@@ -2,6 +2,8 @@ FROM rust:1.98.1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
+COPY kernel ./kernel
+COPY include ./include
 COPY benches ./benches
 RUN cargo build --release --locked
 
