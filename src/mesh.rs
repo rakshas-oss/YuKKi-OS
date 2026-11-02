@@ -63,14 +63,14 @@ impl MeshStore {
     }
 
     pub fn upsert_node(&self, node: MeshNode) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
         let mut nodes = self.nodes.write().unwrap();
         nodes.insert(node.id.clone(), node.clone());
         #[cfg(feature = "mesh_dashboard")]
         {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
             let mut rtree = self.rtree.write().unwrap();
             rtree.insert(MeshPoint { node: node.clone() });
             // retain only the newest version for each id; this is a simple, obvious approach
