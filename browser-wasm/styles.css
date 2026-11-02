@@ -1,0 +1,43 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #101820;
+  color: #e8eef2;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.shell { width: min(980px, 100% - 2rem); margin: 0 auto; padding: 2rem 0 3rem; }
+header { margin-bottom: 1.5rem; }
+h1 { margin: .25rem 0 .5rem; font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; }
+h2 { margin: 0; font-size: 1.1rem; }
+p { line-height: 1.55; }
+.eyebrow { color: #69c3dc; font-size: .76rem; font-weight: 700; letter-spacing: .14em; }
+.muted, .hint, footer { color: #9eb0ba; }
+.panel { margin: 1rem 0; padding: 1.25rem; border: 1px solid #334752; border-radius: .9rem; background: #172630; }
+form { display: grid; grid-template-columns: 1fr; gap: .45rem; margin-top: 1rem; }
+label { font-size: .9rem; font-weight: 650; }
+input { width: 100%; min-height: 2.75rem; padding: .65rem .75rem; border: 1px solid #526773; border-radius: .5rem; background: #0f1c24; color: inherit; font: inherit; }
+button { min-height: 2.7rem; padding: .55rem .85rem; border: 1px solid #4a9abb; border-radius: .5rem; background: #1c6686; color: white; font: inherit; font-weight: 650; cursor: pointer; }
+button.secondary { background: transparent; border-color: #526773; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin-top: .35rem; }
+.check-label { display: inline-flex; align-items: center; gap: .5rem; font-weight: 500; }
+.check-label input { width: 1rem; min-height: 1rem; }
+.status { min-height: 1.4rem; color: #9dd9e7; }
+.hint { font-size: .85rem; }
+.section-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.stream-list { display: grid; gap: .65rem; margin-top: 1rem; }
+.stream-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .6rem; padding: .8rem; border: 1px solid #334752; border-radius: .6rem; }
+.stream-card p { margin: .2rem 0; overflow-wrap: anywhere; }
+.stream-card strong { overflow-wrap: anywhere; }
+.chunk-list { padding-left: 1.5rem; }
+.chunk-list li { margin: .6rem 0; overflow-wrap: anywhere; }
+.chunk-meta { color: #b9c9d1; font-size: .9rem; }
+footer { margin-top: 2rem; font-size: .85rem; }
+@media (min-width: 640px) {
+  #connect-form { grid-template-columns: 10rem minmax(0, 1fr); align-items: center; }
+  #connect-form .actions, #connect-form .status, #connect-form .hint { grid-column: 1 / -1; }
+  #chunk-form { grid-template-columns: 9rem minmax(8rem, 1fr) 10rem minmax(6rem, .5fr); align-items: center; }
+  #chunk-form .actions { grid-column: 1 / -1; }
+}
