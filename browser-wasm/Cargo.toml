@@ -1,0 +1,20 @@
+[package]
+name = "yukki-browser-core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Dependency-free YKMC v1 verifier for the YuKKi-OS browser WASM client"
+
+[lib]
+name = "yukki_browser_core"
+crate-type = ["cdylib"]
+
+[workspace]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
