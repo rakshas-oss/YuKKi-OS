@@ -30,9 +30,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
 
       - name: Cache cargo registry
         uses: actions/cache@v6
@@ -64,9 +61,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -83,9 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - run: cargo audit
@@ -96,9 +87,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Generate coverage
@@ -117,9 +105,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - name: Resolve root Cargo dependency graph
-        shell: bash
-        run: cargo metadata --format-version=1 > /dev/null
       - name: Install musl tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Ensure MUSL target is installed
