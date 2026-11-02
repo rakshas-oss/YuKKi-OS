@@ -65,6 +65,16 @@ each be greater than `0` and no more than `600000` (10 minutes); values
 outside this range fail config validation at startup rather than being
 silently accepted.
 
+## Browser dashboard deployment
+
+The browser client is a separate static site built from `browser-wasm/`.
+Build it using the commands in [BROWSER_WASM.md](BROWSER_WASM.md), then
+publish its four output files over HTTPS. Serve the app and gateway on the same
+origin through a reverse proxy when possible. For a different static-site
+origin, set `YUKKI_GATEWAY_CORS_ORIGINS` to a comma-separated list of exact
+origins (scheme, host, and optional port); wildcards are not accepted.
+CORS does not authenticate callers. The gateway bearer token remains required.
+
 ## Ports and network
 
 - Bootstrap listen port: operator-defined (examples use `7660/tcp`)
