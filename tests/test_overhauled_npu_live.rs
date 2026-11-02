@@ -4,7 +4,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     brk2::{
         self, BrokerRequest, Limits, MSG_RESPONSE,
     },
