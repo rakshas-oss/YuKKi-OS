@@ -3,7 +3,7 @@
 //! Measures frame construction, copy throughput, payload isolation,
 //! and memory footprint heuristics at various queue depths.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use yukkios::SpatiotemporalFrame;
 
@@ -22,3 +22,12 @@ fn make_frame(seq: u64) -> SpatiotemporalFrame {
         payload: [seq as u8; 16],
     }
 }
+
+fn bench_frame_construction(c: &mut Criterion) {
+    c.bench_function("spatiotemporal_frame_construction", |b| {
+        b.iter(|| black_box(make_frame(black_box(42))))
+    });
+}
+
+criterion_group!(frame_benches, bench_frame_construction);
+criterion_main!(frame_benches);

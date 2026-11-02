@@ -5,9 +5,7 @@ use tokio::{
     net::TcpStream,
 };
 use yukkios::{
-    brk2::{
-        self, BrokerRequest, Limits, MSG_RESPONSE,
-    },
+    brk2::{self, BrokerRequest, Limits, MSG_RESPONSE},
     gpu_adapter::{GpuAdapterConfig, GpuAdapterError, LifecycleClient},
 };
 
