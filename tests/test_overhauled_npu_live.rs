@@ -26,11 +26,7 @@ fn decode_doubles(bytes: &[u8]) -> Vec<f64> {
         .collect()
 }
 
-async fn raw_brk2_inference(
-    endpoint: &str,
-    task_id: &str,
-    request_id: u64,
-) -> brk2::Message {
+async fn raw_brk2_inference(endpoint: &str, task_id: &str, request_id: u64) -> brk2::Message {
     let request = BrokerRequest {
         task_id: task_id.to_owned(),
         source: "yukki-os-ci".to_owned(),
@@ -68,7 +64,10 @@ async fn raw_brk2_inference(
     let message = brk2::decode(&response, Limits::default()).expect("decode BRK2 response");
     assert_eq!(message.header.message_type, MSG_RESPONSE);
     assert_eq!(message.header.request_id, request_id);
-    assert_eq!(message.field(1).unwrap().value.as_slice(), task_id.as_bytes());
+    assert_eq!(
+        message.field(1).unwrap().value.as_slice(),
+        task_id.as_bytes()
+    );
     assert_eq!(message.field(2).unwrap().value.as_slice(), &[0]);
     message
 }
@@ -139,7 +138,8 @@ async fn live_brk2_npu_execution_and_explicit_cpu_fallback() {
     // A broker with no NPU executor must truthfully report CPU fallback and
     // retain selected_gpu=-1. The high-level NPU API must reject that result
     // rather than misreporting it as NPU execution.
-    let cpu_response = raw_brk2_inference(&cpu_endpoint, "cpu-fallback-raw", 0x4350550000000002).await;
+    let cpu_response =
+        raw_brk2_inference(&cpu_endpoint, "cpu-fallback-raw", 0x4350550000000002).await;
     assert_eq!(response_backend(&cpu_response), "cpu");
     assert_eq!(response_selected_gpu(&cpu_response), -1);
     assert_eq!(response_result(&cpu_response), vec![2.0, 4.0]);
