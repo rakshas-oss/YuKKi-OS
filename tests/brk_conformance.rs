@@ -1,7 +1,7 @@
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     decode_brk2_frame, Brk2BrokerRequest, Brk2Limits,
 };
-use yukkios_6_8_0_inet3::gpu_adapter::{
+use yukkios::gpu_adapter::{
     decode_brk1_frame, decode_brk1_response_frame, encode_brk1_frame,
     Brk1Frame, BRK1_MSG_REQUEST,
 };
