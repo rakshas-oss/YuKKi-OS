@@ -3,6 +3,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
 COPY benches ./benches
+RUN cargo metadata --format-version=1 > /dev/null
 RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
