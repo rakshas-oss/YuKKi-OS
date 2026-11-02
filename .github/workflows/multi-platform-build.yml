@@ -145,6 +145,32 @@ jobs:
           path: guest-worker/target/wasm32-wasip1/release/yukki_guest_worker.wasm
           if-no-files-found: error
 
+  refresh-lockfile:
+    name: Resolve Cargo.lock after optional Wasmtime cache removal
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/post-merge-baseline'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve dependency graph without building
+        run: cargo metadata --format-version=1 > /dev/null
+      - name: Commit lockfile graph
+        shell: bash
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock is already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: prune unused Wasmtime cache dependencies"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+
   build-browser-wasm:
     name: Browser application (wasm32-unknown-unknown)
     runs-on: ubuntu-latest
