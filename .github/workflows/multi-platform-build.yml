@@ -189,6 +189,31 @@ jobs:
         run: cargo clippy --manifest-path browser-wasm/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
       - name: Build browser verifier
         run: cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+      - name: Smoke-test browser WASM exports
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const bytes = await readFile("browser-wasm/target/wasm32-unknown-unknown/release/yukki_browser_core.wasm");
+          const { instance } = await WebAssembly.instantiate(bytes, {});
+          const { memory, yukki_input_ptr, yukki_input_capacity, yukki_validate_ykmc } = instance.exports;
+          if (!(memory instanceof WebAssembly.Memory) || typeof yukki_input_ptr !== "function" ||
+              typeof yukki_input_capacity !== "function" || typeof yukki_validate_ykmc !== "function") {
+            throw new Error("Required browser WASM exports are missing");
+          }
+          const frame = new Uint8Array(33);
+          const view = new DataView(frame.buffer);
+          frame.set([0x59, 0x4b, 0x4d, 0x43, 1, 0, 0], 0);
+          view.setUint16(7, 1, false);
+          view.setUint16(9, 1, false);
+          view.setBigUint64(11, 0n, false);
+          view.setBigUint64(19, 0n, false);
+          view.setUint32(27, 0, false);
+          frame.set([0x61, 0x62], 31);
+          const ptr = yukki_input_ptr();
+          if (frame.byteLength > yukki_input_capacity()) throw new Error("WASM input area too small");
+          new Uint8Array(memory.buffer, ptr, frame.byteLength).set(frame);
+          if (yukki_validate_ykmc(frame.byteLength) !== 0) throw new Error("Valid YKMC smoke frame was rejected");
+          NODE
       - name: Assemble static browser application
         run: |
           mkdir -p dist
