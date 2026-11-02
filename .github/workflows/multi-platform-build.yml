@@ -123,22 +123,26 @@ jobs:
           path: target/x86_64-pc-windows-msvc/release/yukki_core_node.exe
 
   build-wasm:
-    name: WebAssembly
+    name: WebAssembly guest worker (WASI Preview 1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
-      - name: Ensure Rust target is installed
-        run: rustup target add wasm32-unknown-unknown
-      - run: cargo build --lib --release --locked --target wasm32-unknown-unknown
-      - name: Upload artifact
+          targets: wasm32-wasip1
+      - name: Ensure WASI target is installed
+        run: rustup target add wasm32-wasip1
+      - name: Build sandbox guest worker
+        run: cargo build --manifest-path guest-worker/Cargo.toml --release --locked --target wasm32-wasip1
+      - name: Test sandbox guest worker
+        working-directory: guest-worker
+        run: cargo test --locked
+      - name: Upload WASI guest artifact
         uses: actions/upload-artifact@v7
         with:
-          name: yukki_core_node-wasm
-          path: target/wasm32-unknown-unknown/release/*.wasm
-          if-no-files-found: warn
+          name: yukki-guest-worker-wasm32-wasip1
+          path: guest-worker/target/wasm32-wasip1/release/yukki_guest_worker.wasm
+          if-no-files-found: error
 
   build-summary:
     name: Build Summary
