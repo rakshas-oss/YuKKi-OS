@@ -1,20 +1,20 @@
-# YuKKi OS v6.9.8
+# YuKKi OS v6.9.9
 
 YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary.
 
-> Current stable release: v6.9.8. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Current stable release: v6.9.9. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.9.8**
+- Release line: **v6.9.9**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios_6_8_0_inet3`**
 - Status: **stable release**
 
-## What's new in v6.9.8
+## What's new in v6.9.9
 
-Release v6.9.8 brings the latest stability, deployability, and interoperability updates for the mesh and broker boundary.
+Release v6.9.9 brings the latest stability, deployability, and interoperability updates for the mesh and broker boundary.
 
 - Stability improvements for the authenticated peer mesh and stream registry
 - Improved broker interoperability compatibility and clearer timeout validation
@@ -126,8 +126,8 @@ and media streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
 YuKKi-OS provides an optional interoperability adapter (`src/gpu_adapter.rs`) for offloading WASM sandbox tasks to GPU placement brokers such as `rakshas-oss/overhauled`:
 
 - Interoperates with `overhauled` over raw TCP using a 4-byte big-endian length prefix, BRK1/v1 or BRK2/v2 binary request/response envelopes, and WSM1 binary task/lifecycle payloads.
-- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the C++ broker accepts BRK1 and BRK2 but does not implement JSON handshake negotiation or remote cancellation.
-- Use `LifecycleClient` with `LifecycleWireMode::Brk1` or `LifecycleWireMode::Brk2` and `submit_wsm1_task` for the `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON message path and is not wire-compatible with `overhauled`.
+- Uses the exact broker kinds `wasm.task.v1` and `wasm.lifecycle.{prepare,drain,release,query}.v1`; the C++ broker accepts BRK1 and BRK2 but does not implement JSON handshake negotiation or remote protocol negotiation.
+- Use `LifecycleClient` with `LifecycleWireMode::Brk1` or `LifecycleWireMode::Brk2` and `submit_wsm1_task` for the `overhauled` server. `GpuBrokerClient::submit_task` remains the legacy JSON messaging transport for compatibility.
 - Preserves sandbox isolation with host-mediated execution and bounded buffer descriptors.
 - Provides module lifecycle management with atomic routing switches, quiescing/draining, drain-before-release ordering, and rollback on activation failure.
 - Optional / configurable: disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`) so existing deployments run without GPU hardware or external brokers.
@@ -149,13 +149,13 @@ CPU is the always-available correctness baseline; accelerators are optional, bes
 2. **GPU** (overhauled broker): only for data-parallel tasks above the offload threshold and when the adapter is enabled.
 3. **NPU / Remote peer**: reserved tiers; not selected until an executor is registered.
 
-Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the request fails.
+Exact-precision / verification-sensitive tasks (e.g. PQC) never offload. If an accelerator fails and `cpu_retry_safe` is true, the task is retried on CPU and the reason is reported; otherwise the task is rejected with the failure reason.
 
-See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/WSM1 cross-repository contract, and [docs/API.md](docs/API.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for API and lifecycle documentation.
+See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/WSM1 cross-repository contract, and [docs/API.md](docs/API.md) / [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for additional compatibility details.
 
 ## Documentation
 
-- [docs/RELEASE_v6.9.8.md](docs/RELEASE_v6.9.8.md)
+- [docs/RELEASE_v6.9.9.md](docs/RELEASE_v6.9.9.md)
 - [docs/DRONE_DASHBOARD.md](docs/DRONE_DASHBOARD.md)
 - [docs/DRONE_INTEROP.md](docs/DRONE_INTEROP.md)
 - [docs/USER_HOWTO_STREAMING.md](docs/USER_HOWTO_STREAMING.md)
@@ -174,7 +174,7 @@ See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.9.8 .
+docker build -t yukkios:6.9.9 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
