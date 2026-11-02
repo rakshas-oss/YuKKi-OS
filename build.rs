@@ -19,7 +19,7 @@ fn main() {
         .file("kernel/yukki_crypto.c")
         .include("src/ffi")
         .include("include")
-        .flag("-std=c99");
+        .flag_if_supported("-std=c99");
 
     // Optional native crypto feature will define USE_MBEDTLS and request linking
     if std::env::var("CARGO_FEATURE_NATIVE_CRYPTO").is_ok() {

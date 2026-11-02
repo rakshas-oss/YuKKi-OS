@@ -169,6 +169,14 @@ See [docs/OVERHAULED_INTEROP.md](docs/OVERHAULED_INTEROP.md) for the exact BRK1/
 - [docs/VERSIONING.md](docs/VERSIONING.md)
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
+## Platform deployment
+
+See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC build instructions, the WASI Preview 1 sandbox guest, and the separate browser-WASM application. Neither WebAssembly artifact is a browser build of the native node.
+
+### Browser WebAssembly client
+
+The separate browser client in `browser-wasm/` targets `wasm32-unknown-unknown`. It connects to the authenticated gateway over bounded HTTP reads and verifies YKMC v1 frames in a dependency-free Rust WASM module. See [docs/BROWSER_WASM.md](docs/BROWSER_WASM.md) for build, static hosting, and exact-origin CORS configuration.
+
 ## Docker
 
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.

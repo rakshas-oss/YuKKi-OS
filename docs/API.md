@@ -18,6 +18,26 @@ can pass the relay to `stream_gateway::serve_with_relay` to enable remote
 WebSocket tune-in. The standard CLI does not configure an origin client or
 relay; applications must construct and wire these library components.
 
+## Browser WASM client
+
+The standalone browser client is built from `browser-wasm/` and uses the
+existing authenticated stream routes:
+
+- `GET /v1/streams`
+- `GET /v1/streams/{id}/chunks?from={sequence}&limit={1..8}`
+
+The static app stores its bearer token only in page memory and sends it in the
+Authorization header. Cross-origin deployments must configure the exact
+`YUKKI_GATEWAY_CORS_ORIGINS` allow-list; the gateway permits GET preflights
+with Authorization and Content-Type headers only. The browser client uses
+HTTP polling, not the native WebSocket route, because browser WebSocket APIs
+cannot set the Authorization request header.
+
+The Rust WASM module verifies the YKMC v1 header, media type, flag bits,
+UTF-8 metadata, payload ceiling, exact frame length, and trailing-byte rule.
+It does not decode or transcode media payloads. See
+[BROWSER_WASM.md](BROWSER_WASM.md) for build and deployment instructions.
+
 ## CLI API (`src/main.rs`)
 
 ### Command forms

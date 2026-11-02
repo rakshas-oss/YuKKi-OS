@@ -220,7 +220,9 @@ pub async fn serve_with_relay(
         .layer(middleware::from_fn_with_state(
             state,
             authenticate_and_limit,
-        ));
+        ))
+        // Added outermost so browser CORS preflights are handled before bearer auth.
+        .layer(middleware::from_fn(cors_preflight_and_headers));
     axum::serve(
         CappedListener {
             listener,
@@ -229,6 +231,94 @@ pub async fn serve_with_relay(
         app,
     )
     .await
+}
+
+const GATEWAY_CORS_ORIGINS_ENV: &str = "YUKKI_GATEWAY_CORS_ORIGINS";
+
+fn cors_origin_allowed(origin: &str, configured_origins: &str) -> bool {
+    configured_origins.split(',').any(|candidate| {
+        let candidate = candidate.trim();
+        !candidate.is_empty() && candidate != "*" && candidate == origin
+    })
+}
+
+fn apply_cors_headers(response: &mut Response, origin: &str) {
+    if let Ok(origin) = origin.parse() {
+        let headers = response.headers_mut();
+        headers.insert("access-control-allow-origin", origin);
+        headers.append("vary", "Origin".parse().expect("static header is valid"));
+    }
+}
+
+async fn cors_preflight_and_headers(
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let Some(origin) = origin else {
+        return next.run(request).await;
+    };
+
+    let configured = std::env::var(GATEWAY_CORS_ORIGINS_ENV).unwrap_or_default();
+    if !cors_origin_allowed(&origin, &configured) {
+        // Do not attach CORS permission to an unlisted origin. Leave ordinary
+        // same-origin GET requests functional even when no cross-origin list
+        // is configured; browsers still prevent cross-origin JS from reading
+        // the response. Preflight is rejected before the protected GET.
+        if request.method() == axum::http::Method::OPTIONS {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        return next.run(request).await;
+    }
+
+    if request.method() == axum::http::Method::OPTIONS {
+        let requested_method = request
+            .headers()
+            .get("access-control-request-method")
+            .and_then(|value| value.to_str().ok());
+        let requested_headers_allowed = request
+            .headers()
+            .get("access-control-request-headers")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .split(',')
+            .all(|header| {
+                matches!(
+                    header.trim().to_ascii_lowercase().as_str(),
+                    "" | "authorization" | "content-type"
+                )
+            });
+        if !requested_method.is_some_and(|method| method.eq_ignore_ascii_case("GET"))
+            || !requested_headers_allowed
+        {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        apply_cors_headers(&mut response, &origin);
+        let headers = response.headers_mut();
+        headers.insert(
+            "access-control-allow-methods",
+            "GET, OPTIONS".parse().expect("static header is valid"),
+        );
+        headers.insert(
+            "access-control-allow-headers",
+            "Authorization, Content-Type".parse().expect("static header is valid"),
+        );
+        headers.insert(
+            "access-control-max-age",
+            "300".parse().expect("static header is valid"),
+        );
+        return response;
+    }
+
+    let mut response = next.run(request).await;
+    apply_cors_headers(&mut response, &origin);
+    response
 }
 
 fn drone_dashboard_enabled() -> bool {
@@ -617,6 +707,16 @@ mod tests {
         headers.remove(header::AUTHORIZATION);
         assert!(!authorized(&headers, &auth));
         assert!(authorized(&HeaderMap::new(), &GatewayAuth::InsecureDev));
+    }
+
+    #[test]
+    fn cors_allowlist_requires_an_exact_origin_and_rejects_wildcards() {
+        let allowed = "https://dashboard.example,https://ops.example:8443";
+        assert!(cors_origin_allowed("https://dashboard.example", allowed));
+        assert!(cors_origin_allowed("https://ops.example:8443", allowed));
+        assert!(!cors_origin_allowed("https://dashboard.example.evil", allowed));
+        assert!(!cors_origin_allowed("https://dashboard.example/", allowed));
+        assert!(!cors_origin_allowed("https://dashboard.example", "*"));
     }
 
     #[test]

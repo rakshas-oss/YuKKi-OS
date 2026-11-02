@@ -63,9 +63,3 @@ harness = false
 
 [build-dependencies]
 cc = "1.0"
-
-# Temporary dependency override to address RustSec advisory RUSTSEC-2026-0404
-# in the transitive zstd/zstd-safe dependency chain.
-[patch.crates-io]
-zstd = "=0.14.3"
-zstd-safe = "=8.2.0"
