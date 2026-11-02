@@ -201,10 +201,19 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  test-library:
+    name: Library tests (including gateway CORS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run library unit tests
+        run: cargo test --lib --locked
+
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows, build-wasm, build-browser-wasm]
+    needs: [build-linux, build-macos, build-windows, build-wasm, build-browser-wasm, test-library]
     if: always()
     steps:
       - name: Report build results
@@ -214,3 +223,4 @@ jobs:
           echo "Windows build: ${{ needs.build-windows.result }}"
           echo "WASI guest build: ${{ needs.build-wasm.result }}"
           echo "Browser WASM build: ${{ needs.build-browser-wasm.result }}"
+          echo "Library tests: ${{ needs.test-library.result }}"
