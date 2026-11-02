@@ -133,7 +133,8 @@ jobs:
       - name: Ensure WASI target is installed
         run: rustup target add wasm32-wasip1
       - name: Build sandbox guest worker
-        run: cargo build --manifest-path guest-worker/Cargo.toml --release --locked --target wasm32-wasip1
+        working-directory: guest-worker
+        run: cargo build --release --locked --target wasm32-wasip1
       - name: Test sandbox guest worker
         working-directory: guest-worker
         run: cargo test --locked
