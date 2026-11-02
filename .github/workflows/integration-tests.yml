@@ -149,9 +149,9 @@ jobs:
             -DENABLE_TENSORRT=OFF \
             -DBUILD_BROKER=ON \
             -DBUILD_EXAMPLES=OFF
-          cmake --build overhauled/build --target broker_server brk2_protocol_test --parallel 2
-      - name: Run C++ BRK2 codec tests
-        run: ctest --test-dir overhauled/build --output-on-failure -R '^brk2_protocol_test$'
+          cmake --build overhauled/build --target broker_server brk2_protocol_test backend_dispatch_test --parallel 2
+      - name: Run C++ BRK2 and backend-dispatch tests
+        run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|backend_dispatch_test)$'
       - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
@@ -172,3 +172,30 @@ jobs:
           done
           OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
           OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
+      - name: Run live BRK2 NPU execution and CPU fallback
+        env:
+          OVERHAULED_NPU_BROKER_ENDPOINT: 127.0.0.1:19091
+          OVERHAULED_CPU_FALLBACK_ENDPOINT: 127.0.0.1:19092
+        run: |
+          set -euo pipefail
+          overhauled/build/broker_server 19091 --npu-simulated > /tmp/overhauled-npu-broker.log 2>&1 &
+          npu_pid=$!
+          overhauled/build/broker_server 19092 > /tmp/overhauled-cpu-fallback-broker.log 2>&1 &
+          cpu_pid=$!
+          trap 'kill "$npu_pid" "$cpu_pid" 2>/dev/null || true; wait "$npu_pid" 2>/dev/null || true; wait "$cpu_pid" 2>/dev/null || true' EXIT
+          for port in 19091 19092; do
+            ready=false
+            for attempt in $(seq 1 40); do
+              if (echo > "/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1; then
+                ready=true
+                break
+              fi
+              sleep 0.25
+            done
+            if [[ "$ready" != true ]]; then
+              cat /tmp/overhauled-npu-broker.log
+              cat /tmp/overhauled-cpu-fallback-broker.log
+              exit 1
+            fi
+          done
+          cargo test --locked --test test_overhauled_npu_live -- --nocapture
