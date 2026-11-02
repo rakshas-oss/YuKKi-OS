@@ -136,7 +136,9 @@ pub fn decode(input:&[u8],limits:Limits)->Result<Message,Error>{
     let plen=u32::from_be_bytes(b[28..32].try_into().unwrap()) as usize;if plen>limits.max_payload_bytes{return Err(Error::PayloadTooLarge(plen))}
     if HEADER_LEN.checked_add(plen)!=Some(len){return Err(Error::LengthMismatch)}
     let mut fields=Vec::new();let mut p=HEADER_LEN;
-    while p<b.len(){if fields.len()>=limits.max_fields{return Err(Error::TooManyFields)}if b.len()-p<TLV_HEADER_LEN{return Err(Error::Truncated("TLV header"))}
+    while p<b.len(){
+        if fields.len()>=limits.max_fields{return Err(Error::TooManyFields)}
+        if b.len()-p<TLV_HEADER_LEN{return Err(Error::Truncated("TLV header"))}
         let id=u16::from_be_bytes(b[p..p+2].try_into().unwrap());let wt=WireType::try_from(b[p+2])?;let ff=b[p+3];
         if ff & !KNOWN_FIELD_FLAGS!=0{return Err(Error::InvalidFieldFlags(ff))}
         let n=u32::from_be_bytes(b[p+4..p+8].try_into().unwrap()) as usize;p+=TLV_HEADER_LEN;
@@ -218,7 +220,7 @@ mod tests {
          Err(Error::UnknownCriticalField(99))
      );
  }
- #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let mut l=Limits::default();l.max_frame_bytes=32;assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut m=sample();m.field(6);m.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&m),Err(Error::InvalidValue("timeout_ms must be nonzero")))}
+ #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let l=Limits{max_frame_bytes:32,..Limits::default()};assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut m=sample();m.field(6);m.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&m),Err(Error::InvalidValue("timeout_ms must be nonzero")))}
  #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok())}
  #[test]
  fn deterministic_malformed_corpus_never_panics() {

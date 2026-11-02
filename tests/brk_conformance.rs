@@ -1,6 +1,5 @@
 use yukkios::gpu_adapter::{
-    decode_brk1_frame, decode_brk1_response_frame, encode_brk1_frame, Brk1Frame,
-    BRK1_MSG_REQUEST,
+    decode_brk1_frame, decode_brk1_response_frame, encode_brk1_frame, Brk1Frame, BRK1_MSG_REQUEST,
 };
 use yukkios::{decode_brk2_frame, Brk2BrokerRequest, Brk2Limits};
 
@@ -25,8 +24,7 @@ fn shared_brk1_brk2_conformance_corpus() {
 
         let columns: Vec<_> = line.split('|').collect();
         assert_eq!(columns.len(), 5, "bad corpus row: {line}");
-        let (id, protocol, direction, expected) =
-            (columns[0], columns[1], columns[2], columns[3]);
+        let (id, protocol, direction, expected) = (columns[0], columns[1], columns[2], columns[3]);
         let body = unhex(columns[4]);
         let should_accept = expected == "accept";
 

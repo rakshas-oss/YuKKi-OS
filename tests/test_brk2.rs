@@ -61,8 +61,10 @@ fn brk2_rejects_trailing_bytes_and_oversized_frames() {
         decode_brk2_frame(&trailing, Brk2Limits::default()),
         Err(Brk2Error::TrailingBytes)
     );
-    let mut limits = Brk2Limits::default();
-    limits.max_frame_bytes = 32;
+    let limits = Brk2Limits {
+        max_frame_bytes: 32,
+        ..Brk2Limits::default()
+    };
     assert!(matches!(
         decode_brk2_frame(&frame, limits),
         Err(Brk2Error::FrameTooLarge(_))
