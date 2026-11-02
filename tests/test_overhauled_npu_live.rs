@@ -18,7 +18,10 @@ fn inference_payload() -> Vec<u8> {
 
 fn decode_doubles(bytes: &[u8]) -> Vec<f64> {
     let (chunks, remainder) = bytes.as_chunks::<8>();
-    assert!(remainder.is_empty(), "payload length must be divisible by 8");
+    assert!(
+        remainder.is_empty(),
+        "payload length must be divisible by 8"
+    );
     chunks
         .iter()
         .map(|chunk| f64::from_be_bytes(*chunk))
