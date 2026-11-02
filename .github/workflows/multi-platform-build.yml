@@ -179,6 +179,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Ensure browser WASM target is installed
         run: rustup target add wasm32-unknown-unknown
+      - name: Check browser JavaScript syntax
+        run: node --check browser-wasm/app.js
       - name: Test browser verifier
         run: cargo test --manifest-path browser-wasm/Cargo.toml --locked
       - name: Build browser verifier
