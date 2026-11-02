@@ -41,9 +41,37 @@ The host validates module size, imports, exports, fuel, memory, and execution
 limits before instantiation. Deployment HTTP authentication belongs to the
 front end that invokes the host-side ingest handler.
 
+## Browser application (wasm32-unknown-unknown)
+
+The browser client is a separate static application in `browser-wasm/`.
+Its Rust verifier is compiled for `wasm32-unknown-unknown`; the HTML/JavaScript
+shell runs in the browser and connects to the existing authenticated stream
+gateway. This is not a browser compilation of the native node or the WASI
+sandbox guest.
+
+Build and test:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo test --manifest-path browser-wasm/Cargo.toml --locked
+cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+```
+
+The static site consists of `browser-wasm/index.html`, `app.js`,
+`styles.css`, and `yukki_browser_core.wasm`. CI packages these files into
+the `yukkios-browser-wasm` artifact. Serve them over HTTPS. A same-origin
+reverse proxy is the simplest deployment; cross-origin static hosting requires
+an exact `YUKKI_GATEWAY_CORS_ORIGINS` allow-list on the gateway.
+
+The browser client uses authenticated HTTP chunk-range reads. It does not put
+the bearer token in a URL; the browser WebSocket API cannot set the custom
+Authorization header required by the current gateway WebSocket endpoint.
+The Rust WASM verifier validates YKMC v1 framing and bounds; it does not
+decode media codecs.
+
 ## Explicit non-goals
 
-- The native node is not itself a browser `wasm32-unknown-unknown` application.
+- The native node is not itself a browser `wasm32-unknown-unknown` application; use the separate `browser-wasm/` client for browser deployment.
 - The WASI guest worker does not contain the peer mesh, TCP broker client,
   gateway, or Wasmtime host runtime.
 - The guest worker does not provide a standalone network server.
@@ -53,5 +81,5 @@ front end that invokes the host-side ingest handler.
 ## Qualification gates
 
 A platform is release-qualified only when its corresponding CI jobs pass:
-native Windows build and tests for MSVC; WASI guest build and guest tests for
-WebAssembly. A successful cross-compile alone is not runtime qualification.
+native Windows build and tests for MSVC; WASI guest build and guest tests;
+and browser verifier build/tests plus static-site packaging for browser WASM. A successful cross-compile alone is not runtime qualification.
