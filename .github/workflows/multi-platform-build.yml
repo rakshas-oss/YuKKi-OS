@@ -179,10 +179,14 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Ensure browser WASM target is installed
         run: rustup target add wasm32-unknown-unknown
+      - name: Check browser Rust formatting
+        run: cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
       - name: Check browser JavaScript syntax
         run: node --check browser-wasm/app.js
       - name: Test browser verifier
         run: cargo test --manifest-path browser-wasm/Cargo.toml --locked
+      - name: Lint browser verifier
+        run: cargo clippy --manifest-path browser-wasm/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
       - name: Build browser verifier
         run: cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
       - name: Assemble static browser application
