@@ -29,7 +29,33 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 x25519-dalek = { version = "3.0", features = ["static_secrets"] }
 chacha20poly1305 = "0.11"
 rand_core = { version = "0.6", features = ["getrandom", "std"] }
-wasmtime = "49.0"
+wasmtime = { version = "49.0", default-features = false, features = [
+    "anyhow",
+    "async",
+    "backtrace",
+    "gc",
+    "gc-copying",
+    "gc-drc",
+    "gc-null",
+    "wat",
+    "profiling",
+    "parallel-compilation",
+    "cranelift",
+    "pooling-allocator",
+    "demangle",
+    "addr2line",
+    "coredump",
+    "debug-builtins",
+    "runtime",
+    "component-model",
+    "component-model-async",
+    "threads",
+    "stack-switching",
+    "std",
+    "debug",
+    "compile-time-builtins",
+    "wit-parser",
+] }
 zeroize = { version = "1.9", features = ["derive"] }
 hkdf = "0.13"
 sha2 = "0.11"
