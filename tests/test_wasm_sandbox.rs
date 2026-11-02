@@ -1,6 +1,6 @@
 /// Tests for Rustasm WebAssembly Sandbox
 /// Validates isolation, memory management, and execution bounds
-use yukkios_6_8_0_inet3::wasm_sandbox::RustasmSandbox;
+use yukkios::wasm_sandbox::RustasmSandbox;
 
 #[test]
 fn test_sandbox_initialization() {
@@ -114,9 +114,9 @@ fn test_fuel_exhaustion_reports_clear_error() {
 mod cpu_first_policy {
     use std::sync::Arc;
     use std::time::Duration;
-    use yukkios_6_8_0_inet3::exec_policy::{BackendPolicy, ExecutionBackend, TaskProfile};
-    use yukkios_6_8_0_inet3::gpu_adapter::{GpuAdapterConfig, GpuBrokerClient};
-    use yukkios_6_8_0_inet3::wasm_sandbox::{PolicyExecError, RustasmSandbox};
+    use yukkios::exec_policy::{BackendPolicy, ExecutionBackend, TaskProfile};
+    use yukkios::gpu_adapter::{GpuAdapterConfig, GpuBrokerClient};
+    use yukkios::wasm_sandbox::{PolicyExecError, RustasmSandbox};
 
     fn gpu_sandbox() -> RustasmSandbox {
         let mut cfg = GpuAdapterConfig::new("127.0.0.1:1");
