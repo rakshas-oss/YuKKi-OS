@@ -1908,6 +1908,12 @@ pub fn decode_wsm1_message(data: &[u8]) -> Result<Wsm1Message, GpuAdapterError> 
 
 /// Encode a `Brk1Frame` into bytes.
 pub fn encode_brk1_frame(frame: &Brk1Frame) -> Result<Vec<u8>, GpuAdapterError> {
+    if !(MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&frame.timeout_ms) {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "BRK1 timeout_ms must be in {MIN_TASK_TIMEOUT_MS}..={MAX_TASK_TIMEOUT_MS} (got {})",
+            frame.timeout_ms
+        )));
+    }
     let mut buf = Vec::with_capacity(128 + frame.payload.len());
     write_u32(&mut buf, BRK1_MAGIC);
     write_u16(&mut buf, BRK1_PROTOCOL_VERSION);
@@ -1956,6 +1962,11 @@ pub fn decode_brk1_frame(data: &[u8]) -> Result<Brk1Frame, GpuAdapterError> {
     let kind = r.read_str()?;
     let priority = r.read_u8()?;
     let timeout_ms = r.read_u32()?;
+    if !(MIN_TASK_TIMEOUT_MS..=MAX_TASK_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(GpuAdapterError::Wsm1Codec(format!(
+            "BRK1 timeout_ms must be in {MIN_TASK_TIMEOUT_MS}..={MAX_TASK_TIMEOUT_MS} (got {timeout_ms})"
+        )));
+    }
     let payload = r.read_bytes()?;
     r.ensure_exhausted()?;
     Ok(Brk1Frame {
