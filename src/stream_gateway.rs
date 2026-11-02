@@ -265,7 +265,14 @@ async fn cors_preflight_and_headers(
 
     let configured = std::env::var(GATEWAY_CORS_ORIGINS_ENV).unwrap_or_default();
     if !cors_origin_allowed(&origin, &configured) {
-        return StatusCode::FORBIDDEN.into_response();
+        // Do not attach CORS permission to an unlisted origin. Leave ordinary
+        // same-origin GET requests functional even when no cross-origin list
+        // is configured; browsers still prevent cross-origin JS from reading
+        // the response. Preflight is rejected before the protected GET.
+        if request.method() == axum::http::Method::OPTIONS {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        return next.run(request).await;
     }
 
     if request.method() == axum::http::Method::OPTIONS {
