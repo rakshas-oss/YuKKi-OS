@@ -1,4 +1,4 @@
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     decode_brk2_frame, encode_brk2_frame, validate_brk2_schema, Brk2BrokerRequest, Brk2Error,
     Brk2Field, Brk2Header, Brk2Limits, Brk2Message, Brk2WireType,
 };
