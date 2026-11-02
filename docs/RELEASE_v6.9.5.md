@@ -33,7 +33,7 @@ origin gateway only when an application wires the relay into its gateway.
 - Stream descriptors do not include codec metadata, so `OriginChunkClient`
   reports the codec as `unknown`.
 - The Cargo package version remains `6.9.3`; the library crate name remains
-  `yukkios_6_8_0_inet3`.
+  `yukkios`.
 
 See [CHANGELOG.md](CHANGELOG.md), [VERSIONING.md](VERSIONING.md), and
 [USER_HOWTO_STREAMING.md](USER_HOWTO_STREAMING.md) for additional details.

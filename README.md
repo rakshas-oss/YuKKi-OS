@@ -9,7 +9,7 @@ YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame eng
 - Release line: **v6.9.9**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
-- Library crate: **`yukkios_6_8_0_inet3`**
+- Library crate: **`yukkios`**
 - Status: **stable release**
 
 ## What's new in v6.9.9
