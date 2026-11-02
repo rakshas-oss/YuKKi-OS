@@ -14,7 +14,7 @@ use tokio_tungstenite::{
         Message,
     },
 };
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     stream_gateway::{serve, GatewayAuth},
     LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType,
     StreamRegistry,

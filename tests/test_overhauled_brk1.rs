@@ -3,7 +3,7 @@ use tokio::{
     net::TcpListener,
 };
 
-use yukkios_6_8_0_inet3::gpu_adapter::{
+use yukkios::gpu_adapter::{
     decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame,
     encode_wsm1_task_request, encode_wsm1_task_response, Brk1Frame, GpuAdapterConfig,
     GpuAdapterError, LifecycleClient, LifecycleWireMode, WasmBufferDescriptor, WasmTaskRequest,

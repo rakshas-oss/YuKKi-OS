@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     ChunkSource, LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType,
     RelayError, StreamAnnouncement, StreamKind, StreamRegistry, StreamRelay, StreamStatus,
     SubscriptionRead,
@@ -76,7 +76,7 @@ fn relay_mirrors_remote_stream_with_shared_upstream_pull() {
             StreamAnnouncement {
                 message_id: "m1".into(),
                 remaining_hops: 2,
-                descriptor: yukkios_6_8_0_inet3::StreamDescriptor {
+                descriptor: yukkios::StreamDescriptor {
                     id: "cam".into(),
                     name: "cam".into(),
                     kind: StreamKind::Video,

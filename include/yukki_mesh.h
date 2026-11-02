@@ -11,7 +11,18 @@
 
 typedef uint32_t yukki_node_id_t;
 
-typedef struct {
+/*
+ * Keep the wire header byte-packed on both MSVC and GCC/Clang.
+ * MSVC's C compiler does not support GNU __attribute__((packed)).
+ */
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#define YUKKI_MESH_PACKED
+#else
+#define YUKKI_MESH_PACKED __attribute__((packed))
+#endif
+
+typedef struct YUKKI_MESH_PACKED {
     uint16_t magic;
     yukki_node_id_t src_id;
     yukki_node_id_t dst_id;
@@ -20,7 +31,12 @@ typedef struct {
     int32_t dest_z_q16;
     uint8_t hop_count;
     uint8_t reserved;
-} __attribute__((packed)) yukki_adi_header_t;
+} yukki_adi_header_t;
+
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+#undef YUKKI_MESH_PACKED
 
 typedef struct {
     yukki_node_id_t node_id;

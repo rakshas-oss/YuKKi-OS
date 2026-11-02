@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType, RegistryError,
     StreamAnnouncement, StreamKind, StreamRegistry, StreamStatus, SubscriptionRead,
     STREAM_MAX_SUBSCRIBERS,
@@ -97,7 +97,7 @@ fn slow_subscriber_retains_chunks_until_all_subscribers_ack() {
     slow.acknowledge_through(0).unwrap();
     assert!(matches!(
         streams.get_chunk("camera-1", 0),
-        Err(yukkios_6_8_0_inet3::MediaError::ChunkNotRetained { .. })
+        Err(yukkios::MediaError::ChunkNotRetained { .. })
     ));
 }
 
@@ -135,7 +135,7 @@ fn announcements_are_bounded_deduplicated_and_anti_entropy_is_hash_based() {
     let announcement = StreamAnnouncement {
         message_id: "announcement-1".into(),
         remaining_hops: 4,
-        descriptor: yukkios_6_8_0_inet3::StreamDescriptor {
+        descriptor: yukkios::StreamDescriptor {
             id: "remote-camera".into(),
             name: "Remote camera".into(),
             kind: StreamKind::Video,
@@ -165,7 +165,7 @@ fn announcements_are_bounded_deduplicated_and_anti_entropy_is_hash_based() {
         1
     );
     assert!(registry
-        .descriptors_for_digest(&[yukkios_6_8_0_inet3::StreamDigestEntry {
+        .descriptors_for_digest(&[yukkios::StreamDigestEntry {
             id: String::new(),
             version_hash: "0".repeat(64),
         }])
@@ -174,7 +174,7 @@ fn announcements_are_bounded_deduplicated_and_anti_entropy_is_hash_based() {
     let expired = StreamAnnouncement {
         message_id: "expired".into(),
         remaining_hops: 2,
-        descriptor: yukkios_6_8_0_inet3::StreamDescriptor {
+        descriptor: yukkios::StreamDescriptor {
             id: "old".into(),
             name: "old".into(),
             kind: StreamKind::Audio,

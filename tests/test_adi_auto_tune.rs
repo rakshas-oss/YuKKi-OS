@@ -1,8 +1,8 @@
 //! Tests for ADI Auto-Tuning Suite
 //! Validates hardware calibration, throughput, and queueing efficiency
 
-use yukkios_6_8_0_inet3::adi_auto_tune::ADIAutoTuner;
-use yukkios_6_8_0_inet3::SpatiotemporalFrame;
+use yukkios::adi_auto_tune::ADIAutoTuner;
+use yukkios::SpatiotemporalFrame;
 
 #[test]
 fn test_adi_auto_tuner_initialization() {

@@ -6,7 +6,7 @@ use tokio::{
     time::timeout,
 };
 
-use yukkios_6_8_0_inet3::gpu_adapter::{
+use yukkios::gpu_adapter::{
     GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus, WasmTaskRequest,
     WasmTaskStatus,
 };

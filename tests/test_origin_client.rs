@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use yukkios_6_8_0_inet3::{
+use yukkios::{
     stream_gateway::{serve, GatewayAuth},
     ChunkSource, LiveMediaStreams, MediaChunk, MediaStreamConfig, MediaStreamMetadata, MediaType,
     OriginChunkClient, StreamRegistry,
