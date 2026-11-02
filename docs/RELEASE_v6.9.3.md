@@ -9,5 +9,5 @@ It refreshes the README, version metadata, Docker image metadata, and
 release references while keeping the `yukki_core_node` executable name and
 library crate naming stable.
 
-The `yukki_core_node` executable name, `yukkios_6_8_0_inet3` library crate
-name, and runtime protocols remain unchanged.
+The `yukki_core_node` executable name, `yukkios` library crate name, and
+runtime protocols remain unchanged.

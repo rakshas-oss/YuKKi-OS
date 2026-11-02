@@ -17,7 +17,7 @@ allow = [
   "CC0-1.0",
 ]
 exceptions = [
-  { name = "yukkios_6_8_0_inet3", allow = ["GPL-3.0-only"] },
+  { name = "yukkios", allow = ["GPL-3.0-only"] },
   { name = "yukki_guest_worker", allow = ["GPL-3.0-only"] },
 ]
 
