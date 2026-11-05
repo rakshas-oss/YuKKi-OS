@@ -2,8 +2,8 @@
 
 YuKKi-OS exposes two portable library primitives:
 
-- \`yukkios::numa::NumaTopology\` discovers CPU/memory NUMA domains.
-- \`yukkios::mpmc::BoundedMpmc<T>\` provides a bounded blocking MPMC queue.
+- `yukkios::numa::NumaTopology` discovers CPU/memory NUMA domains.
+- `yukkios::mpmc::BoundedMpmc<T>` provides a bounded blocking MPMC queue.
 
 ## NUMA discovery
 
