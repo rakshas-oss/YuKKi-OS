@@ -146,7 +146,7 @@ impl OriginChunkClient {
     fn describe(&self, stream_id: &str) -> Result<StreamDescriptor, RelayError> {
         let path = stream_path(stream_id)?;
         let body = self.get(&path)?;
-        serde_json::from_slice(&body).map_err(|e| RelayError::Upstream(e.to_string()))
+        crate::ingress::from_slice(&body, crate::ingress::IngressLimits::CONTROL.with_max_bytes(ORIGIN_MAX_BODY_BYTES)).map_err(|e| RelayError::Upstream(e.to_string()))
     }
 }
 
@@ -202,7 +202,7 @@ impl ChunkSource for OriginChunkClient {
         );
         let body = self.get(&path)?;
         let chunks: Vec<MediaChunk> =
-            serde_json::from_slice(&body).map_err(|e| RelayError::Upstream(e.to_string()))?;
+            crate::ingress::from_slice(&body, crate::ingress::IngressLimits::CONTROL.with_max_bytes(ORIGIN_MAX_BODY_BYTES)).map_err(|e| RelayError::Upstream(e.to_string()))?;
         if chunks.len() as u64 > limit {
             return Err(RelayError::Upstream(
                 "origin returned too many chunks".into(),
