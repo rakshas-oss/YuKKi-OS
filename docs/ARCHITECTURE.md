@@ -157,3 +157,8 @@ or equivalent deployment boundary.
 - No HTTP health endpoint; health is log- and process-state based
 - Remote stream relay requires application wiring; the CLI does not configure
   an origin client or relay automatically
+
+
+## NUMA and MPMC primitives
+
+See [NUMA_MPMC_RUNTIME.md](NUMA_MPMC_RUNTIME.md). The topology and bounded queue APIs are library primitives; workload scheduling is not yet NUMA-aware.
