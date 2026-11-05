@@ -9,6 +9,7 @@ pub mod brk2;
 pub mod exec_policy;
 #[rustfmt::skip]
 pub mod gpu_adapter;
+pub mod ingress;
 #[cfg(feature = "interop_encryption")]
 #[rustfmt::skip]
 pub mod interop_encryption;
