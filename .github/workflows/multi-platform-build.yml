@@ -211,6 +211,44 @@ jobs:
       - name: Run library unit tests
         run: cargo test --lib --locked
 
+  publish-release-assets:
+    name: Publish versioned release archives
+    if: >-
+      github.event_name == 'release' &&
+      needs.build-linux.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-wasm.result == 'success' &&
+      needs.build-browser-wasm.result == 'success' &&
+      needs.test-library.result == 'success'
+    needs: [build-linux, build-macos, build-windows, build-wasm, build-browser-wasm, test-library]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download qualified build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-artifacts
+      - name: Create release archives and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          for artifact in release-artifacts/*; do
+            [ -d "$artifact" ] || continue
+            name="$(basename "$artifact")"
+            tar -czf "release-assets/${name}.tar.gz" -C "$artifact" .
+          done
+          cd release-assets
+          sha256sum *.tar.gz > SHA256SUMS
+      - name: Attach archives to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
