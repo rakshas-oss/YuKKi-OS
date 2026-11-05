@@ -168,7 +168,7 @@ mod tests {
         const P: usize = 4;
         const C: usize = 4;
         const N: usize = 1500;
-        let q = BoundedMpmc::new(29).unwrap();
+        let q: BoundedMpmc<usize> = BoundedMpmc::new(29).unwrap();
         let total = Arc::new(AtomicUsize::new(0));
         let seen = Arc::new(std::sync::Mutex::new(vec![false; P * N]));
         let mut consumers = Vec::new();
