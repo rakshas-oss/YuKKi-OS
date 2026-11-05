@@ -34,6 +34,7 @@ impl IngressLimits {
 
     pub const fn with_max_bytes(mut self, max_bytes: usize) -> Self {
         self.max_bytes = max_bytes;
+        self.max_tokens = max_bytes;
         self.max_work_units = max_bytes;
         self
     }
