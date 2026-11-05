@@ -290,7 +290,7 @@ async fn handle_peer(
         }
     };
     let registration = match timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)).await {
-        Ok(Ok(bytes)) => serde_json::from_slice::<SovereignCommand>(&bytes).ok(),
+        Ok(Ok(bytes)) => yukkios::ingress::from_slice::<SovereignCommand>(&bytes, yukkios::ingress::IngressLimits::CONTROL).ok(),
         _ => None,
     };
     let Some(SovereignCommand::Register(peer)) = registration else {
@@ -317,7 +317,7 @@ async fn handle_peer(
             result = timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)) => {
                 match result {
                     Ok(Ok(mut message)) => {
-                        match serde_json::from_slice::<SovereignCommand>(&message) {
+                        match yukkios::ingress::from_slice::<SovereignCommand>(&message, yukkios::ingress::IngressLimits::CONTROL) {
                             Ok(SovereignCommand::StreamAnnouncement(mut announcement))
                                 if announcement.remaining_hops > 1
                                     && announcement.remaining_hops <= yukkios::STREAM_ANNOUNCEMENT_MAX_HOPS =>
