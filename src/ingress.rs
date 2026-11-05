@@ -66,11 +66,17 @@ impl PartialEq for IngressError {
     fn eq(&self, other: &Self) -> bool {
         use IngressError::*;
         match (self, other) {
-            (PayloadTooLarge { actual: a, max: b }, PayloadTooLarge { actual: c, max: d }) => a == c && b == d,
+            (
+                PayloadTooLarge { actual: a, max: b },
+                PayloadTooLarge { actual: c, max: d },
+            ) => a == c && b == d,
             (StringTooLarge { max: a }, StringTooLarge { max: b }) => a == b,
             (NestingTooDeep { max: a }, NestingTooDeep { max: b }) => a == b,
             (TooManyTokens { max: a }, TooManyTokens { max: b }) => a == b,
-            (WorkBudgetExceeded { used: a, max: b }, WorkBudgetExceeded { used: c, max: d }) => a == c && b == d,
+            (
+                WorkBudgetExceeded { used: a, max: b },
+                WorkBudgetExceeded { used: c, max: d },
+            ) => a == c && b == d,
             (Json(a), Json(b)) => a.to_string() == b.to_string(),
             _ => false,
         }
@@ -138,7 +144,11 @@ pub fn validate_json(bytes: &[u8], limits: IngressLimits) -> Result<(), IngressE
                 }
                 tokens = tokens.saturating_add(1);
             }
-            b'}' | b']' | b',' | b':' => tokens = tokens.saturating_add(1),
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                tokens = tokens.saturating_add(1);
+            }
+            b',' | b':' => tokens = tokens.saturating_add(1),
             _ => {}
         }
         if tokens > limits.max_tokens {
@@ -203,13 +213,27 @@ mod tests {
             ..IngressLimits::CONTROL
         };
         assert!(matches!(
-            validate_json(b"[[[[0]]]]", limits),
+            validate_json(b"[[[[[0]]]]]", limits),
             Err(IngressError::NestingTooDeep { max: 4 })
         ));
-        assert!(validate_json(b"[[[[0]]]]", IngressLimits {
-            max_depth: 5,
+        assert!(validate_json(
+            b"[[[[0]]]]",
+            IngressLimits {
+                max_depth: 4,
+                ..IngressLimits::CONTROL
+            }
+        )
+        .is_ok());
+    }
+
+
+    #[test]
+    fn sibling_containers_do_not_accumulate_nesting_depth() {
+        let limits = IngressLimits {
+            max_depth: 2,
             ..IngressLimits::CONTROL
-        }).is_ok());
+        };
+        assert!(validate_json(b"[{}, {}, {}, {}, {}, {}, {}, {}]", limits).is_ok());
     }
 
     #[test]
