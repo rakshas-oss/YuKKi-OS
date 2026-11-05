@@ -588,7 +588,7 @@ async fn websocket_session(
             incoming = futures_util::StreamExt::next(&mut receiver) => {
                 match incoming {
                     Some(Ok(Message::Text(text))) if text.len() <= 1024 => {
-                        let ack = serde_json::from_str::<ClientAck>(&text);
+                        let ack = crate::ingress::from_slice::<ClientAck>(text.as_bytes(), crate::ingress::IngressLimits::CONTROL);
                         match ack {
                             Ok(ack) if ack.r#type == "ack" && awaiting_ack == Some(ack.sequence) => {
                                 if subscription.acknowledge_through(ack.sequence).is_err() {

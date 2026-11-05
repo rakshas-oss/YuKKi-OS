@@ -307,8 +307,11 @@ impl BrokerClient {
         stream.flush().await?;
 
         let reply = read_frame(&mut stream, self.config.max_frame_size).await?;
-        let result = serde_json::from_slice::<BrokerResult>(&reply)
-            .map_err(BrokerClientError::DeserializeResponse)?;
+        let result = crate::ingress::from_slice::<BrokerResult>(
+            &reply,
+            crate::ingress::IngressLimits::CONTROL.with_max_bytes(self.config.max_frame_size),
+        )
+        .map_err(|error| BrokerClientError::MalformedResponse(error.to_string()))?;
         result.validate_for(task)?;
         Ok(result)
     }

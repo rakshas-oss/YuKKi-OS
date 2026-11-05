@@ -74,6 +74,8 @@ struct AvenueProperties {
 pub enum ArcGisError {
     #[error("GeoJSON avenue feature is malformed: {0}")]
     Malformed(#[from] serde_json::Error),
+    #[error(transparent)]
+    Ingress(#[from] crate::ingress::IngressError),
     #[error("GeoJSON avenue feature is {size} bytes, exceeding max {max}")]
     TooLarge { size: usize, max: usize },
     #[error("avenue field '{field}' must contain between 1 and {max} bytes")]
@@ -101,6 +103,7 @@ impl PartialEq for ArcGisError {
         use ArcGisError::*;
         match (self, other) {
             (Malformed(a), Malformed(b)) => a.to_string() == b.to_string(),
+            (Ingress(a), Ingress(b)) => a.to_string() == b.to_string(),
             (TooLarge { size: a, max: b }, TooLarge { size: c, max: d }) => a == c && b == d,
             (InvalidMetadata { field: a, max: b }, InvalidMetadata { field: c, max: d }) => {
                 a == c && b == d
@@ -177,7 +180,8 @@ impl ArcGisAvenue {
                 max: ARCGIS_AVENUE_MAX_BYTES,
             });
         }
-        let feature: GeoJsonFeature = serde_json::from_slice(bytes)?;
+        let feature: GeoJsonFeature =
+            crate::ingress::from_slice(bytes, crate::ingress::IngressLimits::CONTROL)?;
         if feature.feature_type != "Feature" {
             return Err(ArcGisError::InvalidFeatureType(feature.feature_type));
         }
