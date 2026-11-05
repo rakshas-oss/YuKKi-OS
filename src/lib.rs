@@ -15,6 +15,8 @@ pub mod interop_encryption;
 pub mod media_codec;
 #[rustfmt::skip]
 pub mod mesh;
+pub mod mpmc;
+pub mod numa;
 pub mod nxr1;
 pub mod origin_client;
 #[rustfmt::skip]
@@ -120,7 +122,6 @@ impl FFISafetyMarker {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_spatiotemporal_frame_layout() {
         assert_eq!(std::mem::size_of::<SpatiotemporalFrame>(), 88);
