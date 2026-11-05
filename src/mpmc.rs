@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
-struct State<T> { items: VecDeque<T>, closed: bool }
+struct State<T> {
+    items: VecDeque<T>,
+    closed: bool,
+}
 struct Shared<T> {
     capacity: usize,
     state: Mutex<State<T>>,
@@ -11,24 +14,40 @@ struct Shared<T> {
 
 /// Cloneable bounded multi-producer/multi-consumer queue.
 /// Uses a mutex/condition variables for auditable blocking semantics.
-pub struct BoundedMpmc<T> { shared: Arc<Shared<T>> }
+pub struct BoundedMpmc<T> {
+    shared: Arc<Shared<T>>,
+}
 
 impl<T> Clone for BoundedMpmc<T> {
-    fn clone(&self) -> Self { Self { shared: Arc::clone(&self.shared) } }
+    fn clone(&self) -> Self {
+        Self {
+            shared: Arc::clone(&self.shared),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum SendError<T> { Full(T), Closed(T) }
+pub enum SendError<T> {
+    Full(T),
+    Closed(T),
+}
 
 impl<T> BoundedMpmc<T> {
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
-        if capacity == 0 { return Err("MPMC queue capacity must be greater than zero"); }
-        Ok(Self { shared: Arc::new(Shared {
-            capacity,
-            state: Mutex::new(State { items: VecDeque::with_capacity(capacity), closed: false }),
-            not_empty: Condvar::new(),
-            not_full: Condvar::new(),
-        }) })
+        if capacity == 0 {
+            return Err("MPMC queue capacity must be greater than zero");
+        }
+        Ok(Self {
+            shared: Arc::new(Shared {
+                capacity,
+                state: Mutex::new(State {
+                    items: VecDeque::with_capacity(capacity),
+                    closed: false,
+                }),
+                not_empty: Condvar::new(),
+                not_full: Condvar::new(),
+            }),
+        })
     }
 
     fn lock(&self) -> MutexGuard<'_, State<T>> {
@@ -37,8 +56,12 @@ impl<T> BoundedMpmc<T> {
 
     pub fn try_send(&self, item: T) -> Result<(), SendError<T>> {
         let mut state = self.lock();
-        if state.closed { return Err(SendError::Closed(item)); }
-        if state.items.len() == self.shared.capacity { return Err(SendError::Full(item)); }
+        if state.closed {
+            return Err(SendError::Closed(item));
+        }
+        if state.items.len() == self.shared.capacity {
+            return Err(SendError::Full(item));
+        }
         state.items.push_back(item);
         self.shared.not_empty.notify_one();
         Ok(())
@@ -48,20 +71,28 @@ impl<T> BoundedMpmc<T> {
         let mut state = self.lock();
         let mut item = Some(item);
         loop {
-            if state.closed { return Err(SendError::Closed(item.take().unwrap())); }
+            if state.closed {
+                return Err(SendError::Closed(item.take().unwrap()));
+            }
             if state.items.len() < self.shared.capacity {
                 state.items.push_back(item.take().unwrap());
                 self.shared.not_empty.notify_one();
                 return Ok(());
             }
-            state = self.shared.not_full.wait(state).unwrap_or_else(|p| p.into_inner());
+            state = self
+                .shared
+                .not_full
+                .wait(state)
+                .unwrap_or_else(|p| p.into_inner());
         }
     }
 
     pub fn try_recv(&self) -> Option<T> {
         let mut state = self.lock();
         let item = state.items.pop_front();
-        if item.is_some() { self.shared.not_full.notify_one(); }
+        if item.is_some() {
+            self.shared.not_full.notify_one();
+        }
         item
     }
 
@@ -72,8 +103,14 @@ impl<T> BoundedMpmc<T> {
                 self.shared.not_full.notify_one();
                 return Some(item);
             }
-            if state.closed { return None; }
-            state = self.shared.not_empty.wait(state).unwrap_or_else(|p| p.into_inner());
+            if state.closed {
+                return None;
+            }
+            state = self
+                .shared
+                .not_empty
+                .wait(state)
+                .unwrap_or_else(|p| p.into_inner());
         }
     }
 
@@ -85,16 +122,27 @@ impl<T> BoundedMpmc<T> {
         self.shared.not_full.notify_all();
     }
 
-    pub fn is_closed(&self) -> bool { self.lock().closed }
-    pub fn len(&self) -> usize { self.lock().items.len() }
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
-    pub fn capacity(&self) -> usize { self.shared.capacity }
+    pub fn is_closed(&self) -> bool {
+        self.lock().closed
+    }
+    pub fn len(&self) -> usize {
+        self.lock().items.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn capacity(&self) -> usize {
+        self.shared.capacity
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{BoundedMpmc, SendError};
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use std::thread;
 
     #[test]
@@ -111,7 +159,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_capacity() { assert!(BoundedMpmc::<u8>::new(0).is_err()); }
+    fn rejects_zero_capacity() {
+        assert!(BoundedMpmc::<u8>::new(0).is_err());
+    }
 
     #[test]
     fn mpmc_delivers_every_item_once() {
@@ -124,20 +174,28 @@ mod tests {
         for _ in 0..C {
             let q = q.clone();
             let total = Arc::clone(&total);
-            consumers.push(thread::spawn(move || while q.recv().is_some() {
-                total.fetch_add(1, Ordering::Relaxed);
+            consumers.push(thread::spawn(move || {
+                while q.recv().is_some() {
+                    total.fetch_add(1, Ordering::Relaxed);
+                }
             }));
         }
         let mut producers = Vec::new();
         for p in 0..P {
             let q = q.clone();
-            producers.push(thread::spawn(move || for n in 0..N {
-                q.send(p * N + n).unwrap();
+            producers.push(thread::spawn(move || {
+                for n in 0..N {
+                    q.send(p * N + n).unwrap();
+                }
             }));
         }
-        for p in producers { p.join().unwrap(); }
+        for p in producers {
+            p.join().unwrap();
+        }
         q.close();
-        for c in consumers { c.join().unwrap(); }
+        for c in consumers {
+            c.join().unwrap();
+        }
         assert_eq!(total.load(Ordering::Relaxed), P * N);
     }
 
