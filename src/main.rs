@@ -446,7 +446,7 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
             loop {
                 match timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)).await {
                     Ok(Ok(mut message)) => {
-                        match serde_json::from_slice::<SovereignCommand>(&message) {
+                        match yukkios::ingress::from_slice::<SovereignCommand>(&message, yukkios::ingress::IngressLimits::CONTROL) {
                             Ok(SovereignCommand::NodeFleet(fleet)) => {
                                 info!(peers = fleet.len(), "received fleet update");
                             }
