@@ -180,7 +180,8 @@ impl ArcGisAvenue {
                 max: ARCGIS_AVENUE_MAX_BYTES,
             });
         }
-        let feature: GeoJsonFeature = crate::ingress::from_slice(bytes, crate::ingress::IngressLimits::CONTROL)?;
+        let feature: GeoJsonFeature =
+            crate::ingress::from_slice(bytes, crate::ingress::IngressLimits::CONTROL)?;
         if feature.feature_type != "Feature" {
             return Err(ArcGisError::InvalidFeatureType(feature.feature_type));
         }

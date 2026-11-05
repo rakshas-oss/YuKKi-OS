@@ -66,17 +66,15 @@ impl PartialEq for IngressError {
     fn eq(&self, other: &Self) -> bool {
         use IngressError::*;
         match (self, other) {
-            (
-                PayloadTooLarge { actual: a, max: b },
-                PayloadTooLarge { actual: c, max: d },
-            ) => a == c && b == d,
+            (PayloadTooLarge { actual: a, max: b }, PayloadTooLarge { actual: c, max: d }) => {
+                a == c && b == d
+            }
             (StringTooLarge { max: a }, StringTooLarge { max: b }) => a == b,
             (NestingTooDeep { max: a }, NestingTooDeep { max: b }) => a == b,
             (TooManyTokens { max: a }, TooManyTokens { max: b }) => a == b,
-            (
-                WorkBudgetExceeded { used: a, max: b },
-                WorkBudgetExceeded { used: c, max: d },
-            ) => a == c && b == d,
+            (WorkBudgetExceeded { used: a, max: b }, WorkBudgetExceeded { used: c, max: d }) => {
+                a == c && b == d
+            }
             (Json(a), Json(b)) => a.to_string() == b.to_string(),
             _ => false,
         }
@@ -179,8 +177,7 @@ mod tests {
         for _ in 0..32 {
             validate_json(input, IngressLimits::CONTROL).unwrap();
         }
-        let parsed: serde_json::Value =
-            from_slice(input, IngressLimits::CONTROL).unwrap();
+        let parsed: serde_json::Value = from_slice(input, IngressLimits::CONTROL).unwrap();
         assert_eq!(parsed["sequence"], 42);
     }
 
@@ -225,7 +222,6 @@ mod tests {
         )
         .is_ok());
     }
-
 
     #[test]
     fn sibling_containers_do_not_accumulate_nesting_depth() {

@@ -290,7 +290,11 @@ async fn handle_peer(
         }
     };
     let registration = match timeout(IO_TIMEOUT, read_frame(&mut stream, &mut session)).await {
-        Ok(Ok(bytes)) => yukkios::ingress::from_slice::<SovereignCommand>(&bytes, yukkios::ingress::IngressLimits::CONTROL).ok(),
+        Ok(Ok(bytes)) => yukkios::ingress::from_slice::<SovereignCommand>(
+            &bytes,
+            yukkios::ingress::IngressLimits::CONTROL,
+        )
+        .ok(),
         _ => None,
     };
     let Some(SovereignCommand::Register(peer)) = registration else {
