@@ -46,7 +46,7 @@ impl Default for IngressLimits {
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum IngressError {
     #[error("JSON ingress is {actual} bytes; maximum is {max}")]
     PayloadTooLarge { actual: usize, max: usize },
@@ -61,6 +61,23 @@ pub enum IngressError {
     #[error("malformed JSON: {0}")]
     Json(#[from] serde_json::Error),
 }
+
+impl PartialEq for IngressError {
+    fn eq(&self, other: &Self) -> bool {
+        use IngressError::*;
+        match (self, other) {
+            (PayloadTooLarge { actual: a, max: b }, PayloadTooLarge { actual: c, max: d }) => a == c && b == d,
+            (StringTooLarge { max: a }, StringTooLarge { max: b }) => a == b,
+            (NestingTooDeep { max: a }, NestingTooDeep { max: b }) => a == b,
+            (TooManyTokens { max: a }, TooManyTokens { max: b }) => a == b,
+            (WorkBudgetExceeded { used: a, max: b }, WorkBudgetExceeded { used: c, max: d }) => a == c && b == d,
+            (Json(a), Json(b)) => a.to_string() == b.to_string(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for IngressError {}
 
 /// Perform the deterministic admission scan without parsing or allocating.
 pub fn validate_json(bytes: &[u8], limits: IngressLimits) -> Result<(), IngressError> {
