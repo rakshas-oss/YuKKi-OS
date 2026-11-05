@@ -170,12 +170,18 @@ mod tests {
         const N: usize = 1500;
         let q = BoundedMpmc::new(29).unwrap();
         let total = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::new(std::sync::Mutex::new(vec![false; P * N]));
         let mut consumers = Vec::new();
         for _ in 0..C {
             let q = q.clone();
             let total = Arc::clone(&total);
+            let seen = Arc::clone(&seen);
             consumers.push(thread::spawn(move || {
-                while q.recv().is_some() {
+                while let Some(item) = q.recv() {
+                    let mut seen = seen.lock().unwrap();
+                    assert!(item < seen.len());
+                    assert!(!seen[item], "duplicate queue item: {item}");
+                    seen[item] = true;
                     total.fetch_add(1, Ordering::Relaxed);
                 }
             }));
@@ -197,6 +203,7 @@ mod tests {
             c.join().unwrap();
         }
         assert_eq!(total.load(Ordering::Relaxed), P * N);
+        assert!(seen.lock().unwrap().iter().all(|item| *item));
     }
 
     #[test]
