@@ -1,8 +1,21 @@
-# YuKKi OS v6.9.5 — Architecture
+# YuKKi-OS v6.9.9 — Architecture
 
-## Scope
+## System identity and scope
 
-This document describes the architecture implemented in the current repository state, v6.9.5 stable release.
+YuKKi-OS is a modular distributed systems platform implemented primarily in Rust. It provides an authenticated control-plane mesh and a collection of runtime, isolation, interoperability, and streaming services for coordinating distributed workloads across native and WebAssembly deployment environments.
+
+Its architectural pillars are:
+
+- **Distributed control plane:** authenticated peer sessions, node registration, fleet coordination, and stream discovery.
+- **Concurrent runtime primitives:** bounded MPMC queues and portable NUMA topology discovery.
+- **Execution isolation:** Wasmtime-based WebAssembly sandboxing with host-mediated access to selected services.
+- **Interoperability:** C FFI components and versioned Rust/C++ broker wire contracts.
+- **Data and streaming:** bounded media chunk storage, stream registry, gateway, relay, and geospatial codecs.
+- **Hardware integration:** optional accelerator execution through an external broker such as [Overhauled](https://github.com/rakshas-oss/overhauled).
+
+This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
+
+This document describes the architecture implemented in the current repository state, v6.9.9 stable release.
 
 ## Runtime topology
 
