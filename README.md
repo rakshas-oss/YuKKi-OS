@@ -1,6 +1,8 @@
-# YuKKi OS v6.9.9
+# YuKKi-OS v6.9.9
 
-YuKKi-OS is a Rust-based authenticated control-plane mesh with a C FFI frame engine and an optional broker client boundary. It coordinates peers and workload policy; accelerator execution is delegated to an explicitly configured broker such as [Overhauled](https://github.com/rakshas-oss/overhauled).
+**YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, interoperable data and media streaming, and portable platform interfaces. It integrates with external execution brokers for optional GPU/NPU acceleration.
+
+YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker interoperability, a Wasmtime execution sandbox, C FFI components, and portable NUMA-discovery and bounded MPMC queue primitives. Hardware execution and placement remain delegated to separately configured components where documented.
 
 > Current stable release: v6.9.9. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
