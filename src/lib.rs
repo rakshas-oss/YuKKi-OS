@@ -65,6 +65,10 @@ pub use interop_encryption::{
     derive_hybrid_key, generate_interop_secret, InteropAead, InteropSession,
 };
 pub use origin_client::OriginChunkClient;
+pub use spatiotemporal_resolver::{
+    PayloadReceiver, ResolvedPayload, ResolverError, SequencePolicy,
+    SpatiotemporalPayloadResolver,
+};
 pub use stream_relay::{ChunkSource, RelayError, StreamRelay};
 
 pub use nxr1::{
