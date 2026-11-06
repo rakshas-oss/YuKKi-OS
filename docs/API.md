@@ -115,6 +115,47 @@ descriptor IDs and SHA-256 version hashes.
 - `execution_ms: Option<u64>`
 - `result: Option<serde_json::Value>`
 
+
+### Spatiotemporal payload resolver (`src/spatiotemporal_resolver.rs`)
+
+The `SpatiotemporalPayloadResolver` is the component-consumer boundary for
+NXR1 broker tasks. Register one destination per component with a bounded queue:
+
+```rust
+use yukkios::{SequencePolicy, SpatiotemporalPayloadResolver};
+
+let resolver = SpatiotemporalPayloadResolver::new();
+let physics_rx = resolver.register_destination(
+    "physics",
+    256,
+    Some(0), // advisory NUMA node; scheduler applies placement
+    SequencePolicy::RejectNonIncreasing,
+)?;
+```
+
+Pass each received `BrokerTask` to `resolve_and_enqueue(&task)`. The resolver
+validates and decodes the existing `geospatial.frame.v1` NXR1 payload, routes
+by the task's exact `destination`, and makes the decoded frame available from
+the matching `PayloadReceiver`. Consumers call `recv()` or `try_recv()`.
+Queue capacity is bounded; full and closed queues return explicit errors.
+
+Sequence ordering is per source and per destination. Use `RejectNonIncreasing`
+only when the producer guarantees monotonically increasing sequence IDs;
+otherwise use `AllowAll`. A sequence watermark advances only after successful
+enqueue. The optional NUMA node is metadata for the consuming scheduler, not
+an affinity operation performed by the resolver.
+
+This library repository currently provides the receiver API but does not
+contain a broker-server receive loop that owns inbound `BrokerTask` delivery.
+The application or broker adapter must call `resolve_and_enqueue` at that
+boundary. The resolver does not change the BRK1/NXR1 wire format or reinterpret
+the opaque NXR1 payload bytes.
+
+The Criterion benchmark
+`nxr1_resolver_decode_and_component_dispatch_256b` measures decode plus
+bounded queue dispatch and receive. Run with
+`cargo bench --bench frame_benchmarks`.
+
 ## NXR1 geospatial frame interop (`src/nxr1.rs`)
 
 Wire-compatible `geospatial.frame.v1` codec shared with `rakshas-oss/overhauled`.
