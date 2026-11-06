@@ -20,6 +20,7 @@ pub mod mpmc;
 pub mod numa;
 pub mod nxr1;
 pub mod origin_client;
+pub mod spatiotemporal_resolver;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
