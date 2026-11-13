@@ -185,3 +185,54 @@ impl StreamRelay {
             .unwrap_or(false)
     }
 }
+
+
+#[cfg(test)]
+mod adversarial_tests {
+    use super::*;
+
+    fn chunk(sequence_no: u64) -> MediaChunk {
+        MediaChunk {
+            stream_id: "relay-test".into(),
+            media_type: crate::media_codec::MediaType::Video,
+            codec: "raw".into(),
+            sequence_no,
+            timestamp_ms: sequence_no,
+            is_keyframe: false,
+            payload: vec![0],
+        }
+    }
+
+    #[test]
+    fn sequence_arithmetic_rejects_u64_exhaustion() {
+        assert_eq!(next_sequence(None).unwrap(), 0);
+        assert_eq!(next_sequence(Some(41)).unwrap(), 42);
+        assert!(matches!(
+            next_sequence(Some(u64::MAX)),
+            Err(RelayError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn relay_batch_validation_rejects_gaps_and_oversized_batches() {
+        assert!(validate_sequence_batch(10, &[chunk(10), chunk(11)]).is_ok());
+        assert!(matches!(
+            validate_sequence_batch(10, &[chunk(10), chunk(12)]),
+            Err(RelayError::Upstream(_))
+        ));
+        let too_many: Vec<_> = (0..=RELAY_MAX_BATCH).map(chunk).collect();
+        assert!(matches!(
+            validate_sequence_batch(0, &too_many),
+            Err(RelayError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn relay_batch_validation_allows_last_sequence_without_wrapping() {
+        assert!(validate_sequence_batch(u64::MAX, &[chunk(u64::MAX)]).is_ok());
+        assert!(matches!(
+            validate_sequence_batch(u64::MAX, &[chunk(u64::MAX), chunk(0)]),
+            Err(RelayError::Upstream(_))
+        ));
+    }
+}
