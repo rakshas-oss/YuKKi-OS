@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v6.10.0 (current)
+
+### Event-driven draining, mesh validation, and NXR1 interoperability
+
+- Replaced polling in WASM module draining with event-driven `tokio::sync::Notify` wakeups registered before counter inspection.
+- Rejected non-finite mesh coordinates before R-tree insertion.
+- Validated peer-advertised address lengths before broadcasting node-fleet updates.
+- Hardened remote stream relay sequence arithmetic and validated complete upstream batches before mutating the mirror.
+- Added real 256-byte NXR1 encode/decode Criterion benchmarks.
+- Rejected negative WASM bridge timeouts before invoking the host handler.
+
+---
+
 ## v6.9.5 (current)
 
 ### Remote stream relay and dashboard

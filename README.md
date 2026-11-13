@@ -1,14 +1,14 @@
-# YuKKi-OS v6.9.9
+# YuKKi-OS v6.10.0
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
 
-> Current stable release: v6.9.9. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Current stable release: v6.10.0. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.9.9**
+- Release line: **v6.10.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios`**
@@ -18,9 +18,9 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
 
-## What's new in v6.9.9
+## What's new in v6.10.0
 
-The current line includes stability and deployability improvements for the authenticated mesh, stream registry, broker boundary, platform targets, and accelerator fallback policy. Recent interoperability work keeps the control plane authoritative while treating GPU/NPU execution as explicit backend requests.
+The v6.10.0 release adds event-driven WASM module draining, mesh coordinate and peer-address validation, hardened remote stream relay batch handling, negative-timeout rejection at the WASM bridge, and real 256-byte NXR1 encode/decode benchmarks.
 
 ## CLI and stream gateway
 
@@ -100,7 +100,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 
 ## Documentation
 
-- [Release notes v6.9.9](docs/RELEASE_v6.9.9.md)
+- [Release notes v6.9.9](docs/CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
@@ -114,7 +114,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.9.9 .
+docker build -t yukkios:6.10.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.

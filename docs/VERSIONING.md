@@ -2,14 +2,14 @@
 
 ## Current baseline
 
-- **Current release line:** `v6.9.9`
-- **Cargo package version:** `6.9.9`
+- **Current release line:** `v6.10.0`
+- **Cargo package version:** `6.10.0`
 - **Rust toolchain pin:** `1.98.1`
 - **Runtime binary name:** `yukki_core_node`
 
 ## Policy
 
-- `v6.9.9` is the latest tagged release and active documentation baseline.
+- `v6.10.0` is the current release candidate and active documentation baseline. The release tag is created only after verification.
 - Historical release notes remain in `docs/RELEASE_v*.md` and are archival.
 - Historical references must be explicitly labeled as legacy/historical.
 
