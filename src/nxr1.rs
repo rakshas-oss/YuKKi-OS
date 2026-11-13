@@ -461,6 +461,20 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn matches_shared_cpp_nxr1_v1_golden_vector() {
+        const GOLDEN_HEX: &str = "4e58523101000000000000002a3ff8000000000000c00200000000000040080000000000003fc0000000000000bfe000000000000000000000000000003f6666663dcccccdbf50624dd2f1a9fc00000004deadbeef";
+        let expected: Vec<u8> = (0..GOLDEN_HEX.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&GOLDEN_HEX[i..i + 2], 16).unwrap())
+            .collect();
+        let frame = sample_frame();
+        assert_eq!(NXR1_HEADER_LEN, 81);
+        assert_eq!(frame.encode().unwrap(), expected);
+        assert_eq!(Nxr1Frame::decode(&expected).unwrap(), frame);
+    }
+
     #[test]
     fn round_trips_a_populated_frame() {
         let frame = sample_frame();
