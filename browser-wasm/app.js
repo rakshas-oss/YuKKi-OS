@@ -144,9 +144,8 @@ function quoteLargeProtocolIntegers(raw) {
       if (targetKeys.has(key)) {
         const match = raw.slice(i).match(/^(\s*:\s*)(\d+)(?=\s*[,}\]])/);
         if (match) {
-          out += match[0];
-          out += '"' + match[2] + '"';
-          i += match[0].length + match[2].length + 1;
+          out += match[1] + '"' + match[2] + '"';
+          i += match[0].length;
         }
       }
     } else {
