@@ -78,7 +78,7 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    sync::watch,
+    sync::{watch, Notify},
     time::{sleep, timeout},
 };
 
@@ -2846,6 +2846,8 @@ pub struct ModuleVersionHandle {
     pub handoff_hook: Option<Arc<dyn StateHandoffHook>>,
     pub lease_token: Mutex<Option<String>>,
     pub assigned_gpu: AtomicI32,
+    /// Wakes drain waiters when the final in-flight task exits.
+    pub drained_notify: Notify,
     /// Cooperative cancellation signal shared by all tasks currently executing
     /// against this module version. Flipped by timeout handling in
     /// [`ModuleLifecycleManager::execute_task_with_deadline`], by explicit
@@ -2947,7 +2949,9 @@ struct InFlightGuard {
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        self.handle.in_flight.fetch_sub(1, Ordering::SeqCst);
+        if self.handle.in_flight.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.handle.drained_notify.notify_waiters();
+        }
     }
 }
 
@@ -3018,6 +3022,7 @@ impl ModuleLifecycleManager {
             handoff_hook,
             lease_token: Mutex::new(None),
             assigned_gpu: AtomicI32::new(-1),
+            drained_notify: Notify::new(),
             cancellation: CancellationToken::new(),
         });
 
@@ -3178,19 +3183,30 @@ impl ModuleLifecycleManager {
 
     /// Asynchronously wait for in-flight tasks to reach zero on a quiescing version.
     async fn drain_version(&self, handle: &ModuleVersionHandle) -> Result<(), GpuAdapterError> {
-        let start = std::time::Instant::now();
-        while handle.in_flight.load(Ordering::SeqCst) > 0 {
-            if start.elapsed() > self.quiesce_timeout {
-                let remaining = handle.in_flight.load(Ordering::SeqCst);
-                handle.request_cancellation();
-                return Err(GpuAdapterError::QuiesceTimeout {
-                    module_id: handle.module_id.clone(),
-                    version: handle.version.clone(),
-                    remaining,
-                });
+        let wait_until_drained = async {
+            loop {
+                // Explicitly register before checking the counter. This closes the
+                // check-to-await race with notify_waiters() in InFlightGuard::drop.
+                let notified = handle.drained_notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if handle.in_flight.load(Ordering::SeqCst) == 0 {
+                    break;
+                }
+                notified.await;
             }
-            sleep(Duration::from_millis(10)).await;
+        };
+
+        if timeout(self.quiesce_timeout, wait_until_drained).await.is_err() {
+            let remaining = handle.in_flight.load(Ordering::SeqCst);
+            handle.request_cancellation();
+            return Err(GpuAdapterError::QuiesceTimeout {
+                module_id: handle.module_id.clone(),
+                version: handle.version.clone(),
+                remaining,
+            });
         }
+
         *handle.state.write().unwrap() = ModuleLifecycleState::Drained;
         Ok(())
     }
