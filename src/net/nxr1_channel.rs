@@ -29,7 +29,7 @@ impl Nxr1StateChannel {
             self.payload_hash.fill(0);
             crate::arch::cache::invalidate_dcache_range(self.payload_hash.as_ptr() as usize, 16);
         } else {
-            let bytes = core::slice::from_raw_parts(source_ptr, len);
+            let bytes = core::slice::from_raw_parts(source_ptr, len.min(16));
             self.sync_zero_copy_sram(bytes);
         }
     }
