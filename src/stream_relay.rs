@@ -63,6 +63,32 @@ pub struct StreamRelay {
     pulls: Mutex<HashMap<String, Arc<StreamPull>>>,
 }
 
+fn next_sequence(latest: Option<u64>) -> Result<u64, RelayError> {
+    match latest {
+        None => Ok(0),
+        Some(sequence) => sequence
+            .checked_add(1)
+            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into())),
+    }
+}
+
+fn validate_sequence_batch(from: u64, chunks: &[MediaChunk]) -> Result<(), RelayError> {
+    if chunks.len() > RELAY_MAX_BATCH as usize {
+        return Err(RelayError::Upstream("upstream batch exceeds requested limit".into()));
+    }
+    for (index, chunk) in chunks.iter().enumerate() {
+        let offset = u64::try_from(index)
+            .map_err(|_| RelayError::Upstream("upstream batch index overflow".into()))?;
+        let expected = from
+            .checked_add(offset)
+            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into()))?;
+        if chunk.sequence_no != expected {
+            return Err(RelayError::Upstream("non-contiguous chunk".into()));
+        }
+    }
+    Ok(())
+}
+
 impl StreamRelay {
     pub fn new(
         streams: Arc<LiveMediaStreams>,
@@ -122,16 +148,15 @@ impl StreamRelay {
         if snapshot.finished {
             return Ok(0);
         }
-        let next = snapshot.latest_sequence.map_or(0, |seq| seq + 1);
-        let mut appended = 0;
+        let next = next_sequence(snapshot.latest_sequence)?;
         let chunks = self.source.fetch_range(stream_id, next, RELAY_MAX_BATCH);
         *last = Some(Instant::now());
-        for (expected, chunk) in (next..).zip(chunks?) {
-            if chunk.sequence_no != expected {
-                return Err(RelayError::Upstream("non-contiguous chunk".into()));
-            }
+        let chunks = chunks?;
+        // Validate the complete untrusted batch before mutating the mirror.
+        validate_sequence_batch(next, &chunks)?;
+        let appended = chunks.len();
+        for chunk in chunks {
             self.streams.append_chunk(stream_id, chunk)?;
-            appended += 1;
         }
         if appended == 0 && self.source.is_finished(stream_id)? {
             self.streams.close_stream(stream_id)?;
