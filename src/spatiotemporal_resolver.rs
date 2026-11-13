@@ -90,9 +90,9 @@ pub enum ResolverError {
     DuplicateDestination(String),
     #[error("no component route registered for destination '{0}'")]
     UnknownDestination(String),
-    #[error("frame sequence {sequence} from '{source}' is not newer than {last}")]
+    #[error("frame sequence {sequence} from '{source_id}' is not newer than {last}")]
     StaleSequence {
-        source: String,
+        source_id: String,
         sequence: u64,
         last: u64,
     },
@@ -163,7 +163,7 @@ impl SpatiotemporalPayloadResolver {
             if let Some(last) = state.last_sequence_by_source.get(&task.source).copied() {
                 if sequence <= last {
                     return Err(ResolverError::StaleSequence {
-                        source: task.source.clone(),
+                        source_id: task.source.clone(),
                         sequence,
                         last,
                     });
