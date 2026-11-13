@@ -90,9 +90,9 @@ pub enum ResolverError {
     DuplicateDestination(String),
     #[error("no component route registered for destination '{0}'")]
     UnknownDestination(String),
-    #[error("frame sequence {sequence} from '{source}' is not newer than {last}")]
+    #[error("frame sequence {sequence} from '{source_id}' is not newer than {last}")]
     StaleSequence {
-        source: String,
+        source_id: String,
         sequence: u64,
         last: u64,
     },
@@ -163,7 +163,7 @@ impl SpatiotemporalPayloadResolver {
             if let Some(last) = state.last_sequence_by_source.get(&task.source).copied() {
                 if sequence <= last {
                     return Err(ResolverError::StaleSequence {
-                        source: task.source.clone(),
+                        source_id: task.source.clone(),
                         sequence,
                         last,
                     });
@@ -181,14 +181,14 @@ impl SpatiotemporalPayloadResolver {
         match route.queue.try_send(payload) {
             Ok(()) => {
                 if route.sequence_policy == SequencePolicy::RejectNonIncreasing {
-                    state.last_sequence_by_source.insert(task.source.clone(), sequence);
+                    state
+                        .last_sequence_by_source
+                        .insert(task.source.clone(), sequence);
                 }
                 Ok(sequence)
             }
             Err(SendError::Full(_)) => Err(ResolverError::QueueFull(route.destination.clone())),
-            Err(SendError::Closed(_)) => {
-                Err(ResolverError::QueueClosed(route.destination.clone()))
-            }
+            Err(SendError::Closed(_)) => Err(ResolverError::QueueClosed(route.destination.clone())),
         }
     }
 }
@@ -212,8 +212,15 @@ mod tests {
             divergence: 0.0,
             payload: vec![1, 2, 3],
         };
-        to_broker_task(&frame, format!("task-{sequence}"), source, destination, 1, 1000)
-            .unwrap()
+        to_broker_task(
+            &frame,
+            format!("task-{sequence}"),
+            source,
+            destination,
+            1,
+            1000,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -223,7 +230,10 @@ mod tests {
             .register_destination("physics", 4, Some(1), SequencePolicy::AllowAll)
             .unwrap();
 
-        assert_eq!(resolver.resolve_and_enqueue(&task("sensor-a", "physics", 7)), Ok(7));
+        assert_eq!(
+            resolver.resolve_and_enqueue(&task("sensor-a", "physics", 7)),
+            Ok(7)
+        );
         let resolved = receiver.try_recv().unwrap();
         assert_eq!(resolved.source, "sensor-a");
         assert_eq!(resolved.destination, "physics");
@@ -240,8 +250,14 @@ mod tests {
             .register_destination("scheduler", 2, None, SequencePolicy::RejectNonIncreasing)
             .unwrap();
 
-        assert_eq!(resolver.resolve_and_enqueue(&task("a", "scheduler", 10)), Ok(10));
-        assert_eq!(resolver.resolve_and_enqueue(&task("b", "scheduler", 3)), Ok(3));
+        assert_eq!(
+            resolver.resolve_and_enqueue(&task("a", "scheduler", 10)),
+            Ok(10)
+        );
+        assert_eq!(
+            resolver.resolve_and_enqueue(&task("b", "scheduler", 3)),
+            Ok(3)
+        );
         assert!(matches!(
             resolver.resolve_and_enqueue(&task("a", "scheduler", 10)),
             Err(ResolverError::StaleSequence { .. })
