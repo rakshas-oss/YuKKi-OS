@@ -103,3 +103,40 @@ pub fn demo_mesh_nodes() -> Vec<MeshNode> {
         stream_id: Some(format!("stream-{}", idx + 1)), updated_at: now,
     }).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(lat: f64, lon: f64) -> MeshNode {
+        MeshNode {
+            id: "mesh-test".into(),
+            name: "mesh test".into(),
+            lat,
+            lon,
+            alt: None,
+            heading: None,
+            rssi_dbm: None,
+            latency_ms: None,
+            status: "online".into(),
+            neighbors: Vec::new(),
+            stream_id: None,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn rejects_non_finite_coordinates_without_mutating_store() {
+        let store = MeshStore::new();
+        store.upsert_node(node(f64::NAN, 1.0));
+        store.upsert_node(node(1.0, f64::INFINITY));
+        assert!(store.snapshot().nodes.is_empty());
+    }
+
+    #[test]
+    fn accepts_finite_coordinates() {
+        let store = MeshStore::new();
+        store.upsert_node(node(37.0, -122.0));
+        assert_eq!(store.snapshot().nodes.len(), 1);
+    }
+}
