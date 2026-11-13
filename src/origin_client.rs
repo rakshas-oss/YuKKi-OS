@@ -151,7 +151,9 @@ impl OriginChunkClient {
             if content_length.is_some_and(|len| body.len() >= len) {
                 break;
             }
-            socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
+            socket
+                .set_read_timeout(Some(remaining().map_err(up)?))
+                .map_err(up)?;
             let n = socket.read(&mut tmp).map_err(up)?;
             if n == 0 {
                 break;
