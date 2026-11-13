@@ -11,7 +11,7 @@
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -52,8 +52,15 @@ impl OriginChunkClient {
     fn get(&self, path: &str) -> Result<Vec<u8>, RelayError> {
         let up = |e: std::io::Error| RelayError::Upstream(e.to_string());
         let mut socket = TcpStream::connect_timeout(&self.address, self.timeout).map_err(up)?;
-        socket.set_read_timeout(Some(self.timeout)).map_err(up)?;
-        socket.set_write_timeout(Some(self.timeout)).map_err(up)?;
+        let deadline = Instant::now() + self.timeout;
+        let remaining = || {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "origin request deadline exceeded"))
+            } else {
+                Ok(left)
+            }
+        };
         let auth = match &self.token {
             Some(token) if token.contains(['\r', '\n']) => {
                 return Err(RelayError::Upstream("invalid bearer token".into()))
@@ -65,6 +72,7 @@ impl OriginChunkClient {
             "GET {path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\n{auth}Connection: close\r\n\r\n",
             self.host
         );
+        socket.set_write_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
         socket.write_all(request.as_bytes()).map_err(up)?;
 
         // Read headers, then the body up to the configured bound.
@@ -77,6 +85,7 @@ impl OriginChunkClient {
             if buf.len() > ORIGIN_MAX_HEADER_BYTES {
                 return Err(RelayError::Upstream("response headers too large".into()));
             }
+            socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
             let n = socket.read(&mut tmp).map_err(up)?;
             if n == 0 {
                 return Err(RelayError::Upstream("connection closed early".into()));
