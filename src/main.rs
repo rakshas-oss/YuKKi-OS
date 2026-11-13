@@ -245,6 +245,12 @@ type Fleet = Arc<Mutex<HashMap<Uuid, PeerInfo>>>;
 type Clients = Arc<Mutex<HashMap<Uuid, mpsc::Sender<Vec<u8>>>>>;
 type SeenAnnouncements = Arc<Mutex<(HashSet<String>, VecDeque<String>)>>;
 
+const MAX_ADVERTISED_PEER_ADDR_BYTES: usize = 256;
+
+fn valid_advertised_peer_addr(address: &str) -> bool {
+    !address.trim().is_empty() && address.len() <= MAX_ADVERTISED_PEER_ADDR_BYTES
+}
+
 async fn relay_to_peers(message: Vec<u8>, except: Uuid, clients: &Clients) {
     let senders: Vec<_> = clients
         .lock()
@@ -301,6 +307,10 @@ async fn handle_peer(
         warn!(%remote, "peer did not register");
         return;
     };
+    if !valid_advertised_peer_addr(&peer.addr) {
+        warn!(%remote, "peer advertised invalid address length or empty address");
+        return;
+    }
     let id = peer.uuid;
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
     fleet.lock().await.insert(id, peer);
@@ -779,5 +789,20 @@ async fn main() -> io::Result<()> {
             run_streams_tune(gateway_address()?, stream_id, from_sequence).await
         }
         _ => Err(io::Error::new(io::ErrorKind::InvalidInput, usage())),
+    }
+}
+
+
+#[cfg(test)]
+mod peer_registration_validation_tests {
+    use super::valid_advertised_peer_addr;
+
+    #[test]
+    fn advertised_peer_address_must_be_nonempty_and_bounded() {
+        assert!(!valid_advertised_peer_addr(""));
+        assert!(!valid_advertised_peer_addr("   \t"));
+        assert!(valid_advertised_peer_addr("127.0.0.1:9000"));
+        assert!(valid_advertised_peer_addr(&"a".repeat(256)));
+        assert!(!valid_advertised_peer_addr(&"a".repeat(257)));
     }
 }
