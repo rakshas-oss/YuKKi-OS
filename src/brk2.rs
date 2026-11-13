@@ -85,7 +85,7 @@ pub struct Message { pub header:Header,pub fields:Vec<Field> }
 impl Message { pub fn new(header:Header)->Self { Self{header,fields:Vec::new()} } pub fn push(&mut self,f:Field){self.fields.push(f)} pub fn field(&self,id:u16)->Option<&Field>{self.fields.iter().find(|f|f.id==id)} }
 
 fn validate_value(f:&Field)->Result<(),Error>{
-    let expected=match f.wire_type { WireType::U8|WireType::Bool=>Some(1),WireType::U16=>Some(2),WireType::U32|WireType::F32=>Some(4),WireType::U64|WireType::I64|WireType::F64=>Some(8),WireType::Utf8|WireType::Bytes|WireType::Uuid|WireType::Nested=>None,_=>None };
+    let expected=match f.wire_type { WireType::U8|WireType::Bool=>Some(1),WireType::U16=>Some(2),WireType::U32|WireType::F32=>Some(4),WireType::U64|WireType::I64|WireType::F64=>Some(8),WireType::Utf8|WireType::Bytes|WireType::Uuid|WireType::Nested=>None };
     if let Some(n)=expected { if f.value.len()!=n { return Err(Error::InvalidFieldLength{field_id:f.id,expected:n,actual:f.value.len()}); } }
     match f.wire_type {
         WireType::Utf8=>{std::str::from_utf8(&f.value).map_err(|_|Error::InvalidUtf8(f.id))?;}
