@@ -119,6 +119,23 @@ fn bridge_rejects_wild_pointer() {
 }
 
 #[test]
+fn bridge_rejects_negative_timeout_before_handler() {
+    let wasm = wat_bytes(
+        r#"(module
+          (import "env" "wasmtime_yield_xpu" (func $y (param i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (func (export "execute_inference_pipeline") (param i32 i32 i32) (result i32)
+            local.get 0 i32.const -1 call $y))"#,
+    );
+    let log = Arc::new(Mutex::new(vec![]));
+    assert_eq!(
+        run_guest(&wasm, CH, &[1], handler(log.clone(), 0)).unwrap(),
+        STATUS_BAD_TIMEOUT
+    );
+    assert!(log.lock().unwrap().is_empty());
+}
+
+#[test]
 fn wasm_guest_selects_bounded_binary_stream_chunks() {
     let wasm = wat_bytes(
         r#"(module
