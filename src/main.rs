@@ -792,7 +792,6 @@ async fn main() -> io::Result<()> {
     }
 }
 
-
 #[cfg(test)]
 mod peer_registration_validation_tests {
     use super::valid_advertised_peer_addr;
