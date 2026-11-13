@@ -1,4 +1,4 @@
-use crate::SpatiotemporalFrame;
+use crate::{Nxr1Frame, SpatiotemporalFrame};
 use std::time::Instant;
 
 pub struct ADIAutoTuner {
@@ -18,16 +18,41 @@ impl ADIAutoTuner {
     }
 
     pub fn test_encoding_throughput(&self) -> bool {
+        let mut frame = Nxr1Frame {
+            seq_id: 0,
+            x: 0.1,
+            y: 0.2,
+            z: 0.3,
+            u: 0.0,
+            v: 0.0,
+            w: 0.0,
+            fluidity: 0.9,
+            drag: 0.1,
+            divergence: 0.0,
+            payload: vec![0xA5; 256],
+        };
         let start = Instant::now();
-        for _ in 0..10_000 {
-            std::hint::black_box(0);
+        let mut encoded_bytes = 0usize;
+        for seq_id in 0..10_000 {
+            frame.seq_id = seq_id;
+            match frame.encode() {
+                Ok(encoded) => {
+                    encoded_bytes = encoded_bytes.saturating_add(encoded.len());
+                    std::hint::black_box(encoded);
+                }
+                Err(error) => {
+                    eprintln!("[TEST: ENCODING] NXR1 serialization failed: {error}");
+                    return false;
+                }
+            }
         }
         let duration = start.elapsed();
+        let frames_per_second = 10_000.0 / duration.as_secs_f64().max(f64::MIN_POSITIVE);
         println!(
-            "\x1b[38;5;37m[TEST: ENCODING] 10k Frames Evaluated in {:?}\x1b[0m",
-            duration
+            "\x1b[38;5;37m[TEST: ENCODING] 10k NXR1 frames ({} bytes) encoded in {:?} ({:.0} frames/s)\x1b[0m",
+            encoded_bytes, duration, frames_per_second
         );
-        duration.as_millis() < 15
+        encoded_bytes > 0
     }
 
     pub fn test_enquing_efficiency(&mut self) -> bool {

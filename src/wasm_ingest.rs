@@ -28,6 +28,7 @@ const WASM_PAGE: usize = 65536;
 /// Host-side bridge status codes returned to the guest.
 pub const STATUS_BAD_CHANNEL: i32 = -1;
 pub const STATUS_MISALIGNED: i32 = -3;
+pub const STATUS_BAD_TIMEOUT: i32 = -4;
 pub const STATUS_CHANNEL_MISMATCH: i32 = -8;
 pub const STATUS_STREAMS_UNAVAILABLE: i32 = -20;
 pub const STATUS_BAD_STREAM_ID: i32 = -21;
@@ -168,6 +169,9 @@ fn bridge(mut caller: wasmtime::Caller<'_, GuestState>, ptr: i32, timeout_ms: i3
     let expected = caller.data().channel_id;
     if guest_id != expected {
         return STATUS_CHANNEL_MISMATCH;
+    }
+    if timeout_ms < 0 {
+        return STATUS_BAD_TIMEOUT;
     }
     let timeout = (timeout_ms as u32).clamp(1, MAX_XPU_TIMEOUT_MS);
     let handler = caller.data().handler.clone();

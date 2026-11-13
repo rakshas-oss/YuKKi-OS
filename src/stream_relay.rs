@@ -63,6 +63,34 @@ pub struct StreamRelay {
     pulls: Mutex<HashMap<String, Arc<StreamPull>>>,
 }
 
+fn next_sequence(latest: Option<u64>) -> Result<u64, RelayError> {
+    match latest {
+        None => Ok(0),
+        Some(sequence) => sequence
+            .checked_add(1)
+            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into())),
+    }
+}
+
+fn validate_sequence_batch(from: u64, chunks: &[MediaChunk]) -> Result<(), RelayError> {
+    if chunks.len() > RELAY_MAX_BATCH as usize {
+        return Err(RelayError::Upstream(
+            "upstream batch exceeds requested limit".into(),
+        ));
+    }
+    for (index, chunk) in chunks.iter().enumerate() {
+        let offset = u64::try_from(index)
+            .map_err(|_| RelayError::Upstream("upstream batch index overflow".into()))?;
+        let expected = from
+            .checked_add(offset)
+            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into()))?;
+        if chunk.sequence_no != expected {
+            return Err(RelayError::Upstream("non-contiguous chunk".into()));
+        }
+    }
+    Ok(())
+}
+
 impl StreamRelay {
     pub fn new(
         streams: Arc<LiveMediaStreams>,
@@ -122,16 +150,15 @@ impl StreamRelay {
         if snapshot.finished {
             return Ok(0);
         }
-        let next = snapshot.latest_sequence.map_or(0, |seq| seq + 1);
-        let mut appended = 0;
+        let next = next_sequence(snapshot.latest_sequence)?;
         let chunks = self.source.fetch_range(stream_id, next, RELAY_MAX_BATCH);
         *last = Some(Instant::now());
-        for (expected, chunk) in (next..).zip(chunks?) {
-            if chunk.sequence_no != expected {
-                return Err(RelayError::Upstream("non-contiguous chunk".into()));
-            }
+        let chunks = chunks?;
+        // Validate the complete untrusted batch before mutating the mirror.
+        validate_sequence_batch(next, &chunks)?;
+        let appended = chunks.len();
+        for chunk in chunks {
             self.streams.append_chunk(stream_id, chunk)?;
-            appended += 1;
         }
         if appended == 0 && self.source.is_finished(stream_id)? {
             self.streams.close_stream(stream_id)?;
@@ -158,5 +185,55 @@ impl StreamRelay {
             .lock()
             .map(|pulls| pulls.contains_key(stream_id))
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod adversarial_tests {
+    use super::*;
+
+    fn chunk(sequence_no: u64) -> MediaChunk {
+        MediaChunk {
+            stream_id: "relay-test".into(),
+            media_type: crate::media_codec::MediaType::Video,
+            codec: "raw".into(),
+            sequence_no,
+            timestamp_ms: sequence_no,
+            is_keyframe: false,
+            payload: vec![0],
+        }
+    }
+
+    #[test]
+    fn sequence_arithmetic_rejects_u64_exhaustion() {
+        assert_eq!(next_sequence(None).unwrap(), 0);
+        assert_eq!(next_sequence(Some(41)).unwrap(), 42);
+        assert!(matches!(
+            next_sequence(Some(u64::MAX)),
+            Err(RelayError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn relay_batch_validation_rejects_gaps_and_oversized_batches() {
+        assert!(validate_sequence_batch(10, &[chunk(10), chunk(11)]).is_ok());
+        assert!(matches!(
+            validate_sequence_batch(10, &[chunk(10), chunk(12)]),
+            Err(RelayError::Upstream(_))
+        ));
+        let too_many: Vec<_> = (0..=RELAY_MAX_BATCH).map(chunk).collect();
+        assert!(matches!(
+            validate_sequence_batch(0, &too_many),
+            Err(RelayError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn relay_batch_validation_allows_last_sequence_without_wrapping() {
+        assert!(validate_sequence_batch(u64::MAX, &[chunk(u64::MAX)]).is_ok());
+        assert!(matches!(
+            validate_sequence_batch(u64::MAX, &[chunk(u64::MAX), chunk(0)]),
+            Err(RelayError::Upstream(_))
+        ));
     }
 }
