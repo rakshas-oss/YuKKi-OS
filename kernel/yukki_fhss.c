@@ -37,7 +37,7 @@ uint16_t yukki_fhss_update_and_get_next_channel(yukki_fhss_ctx_t *ctx, uint32_t 
 }
 
 void yukki_fhss_sync(yukki_fhss_ctx_t *ctx, uint16_t remote_lfsr_state, uint8_t remote_index) {
-    if (!ctx) return;
+    if (!ctx || ctx->channel_count == 0) return;
     /* simple resync: adopt remote state and index (requires trust) */
     ctx->lfsr_state = remote_lfsr_state;
     ctx->index = remote_index % ctx->channel_count;

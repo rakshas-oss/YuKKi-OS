@@ -2,6 +2,7 @@
 #define YUKKI_MESH_H
 
 #include <stdint.h>
+#include <math.h>
 #include <stdbool.h>
 
 #define YUKKI_MESH_MAX_LOCAL_NEIGHBORS 16U
@@ -68,6 +69,9 @@ typedef enum {
 } yukki_route_status_t;
 
 static inline int32_t yukki_float_to_q16(float v) {
+    if (!isfinite(v)) return 0;
+    if (v >= 32767.9999f) return INT32_MAX;
+    if (v <= -32768.0f) return INT32_MIN;
     return (int32_t)(v * (float)YUKKI_MESH_Q16_16_SCALE);
 }
 

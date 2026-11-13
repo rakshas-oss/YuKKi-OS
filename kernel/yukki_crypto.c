@@ -1,10 +1,18 @@
 #include "yukki_crypto.h"
+#include <stddef.h>
 #include <string.h>
 
 #ifdef USE_MBEDTLS
 #include "mbedtls/md.h"
 #include "mbedtls/aes.h"
 #endif
+
+static void yukki_secure_zero(void *ptr, size_t len) {
+    volatile uint8_t *p = (volatile uint8_t *)ptr;
+    while (len--) {
+        *p++ = 0;
+    }
+}
 
 /* If no crypto backend is provided, these functions return error codes. */
 int yukki_protect_header(const uint8_t *net_key, const uint8_t *header, uint8_t header_len, uint8_t *mac_out) {
@@ -16,10 +24,13 @@ int yukki_protect_header(const uint8_t *net_key, const uint8_t *header, uint8_t 
     if (!md_info) return -2;
 
     unsigned char full_mac[32];
-    if (mbedtls_md_hmac(md_info, net_key, YUKKI_NETWORK_KEY_LEN, header, header_len, full_mac) != 0) return -3;
+    if (mbedtls_md_hmac(md_info, net_key, YUKKI_NETWORK_KEY_LEN, header, header_len, full_mac) != 0) {
+        yukki_secure_zero(full_mac, sizeof(full_mac));
+        return -3;
+    }
     memcpy(mac_out, full_mac, YUKKI_HEADER_MAC_LEN);
-    /* Zeroize full_mac */
-    memset(full_mac, 0, sizeof(full_mac));
+    /* Zeroize full_mac without dead-store elimination. */
+    yukki_secure_zero(full_mac, sizeof(full_mac));
     return 0;
 #else
     /* No secure implementation compiled in. Caller must provide platform crypto. */
@@ -37,7 +48,7 @@ int yukki_verify_header(const uint8_t *net_key, const uint8_t *header, uint8_t h
     /* constant-time compare */
     uint8_t diff = 0;
     for (uint8_t i = 0; i < YUKKI_HEADER_MAC_LEN; i++) diff |= (expected[i] ^ mac[i]);
-    memset(expected, 0, sizeof(expected));
+    yukki_secure_zero(expected, sizeof(expected));
     return diff ? -4 : 0;
 #else
     (void)net_key; (void)header; (void)header_len; (void)mac;
