@@ -745,6 +745,27 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn origin_pull_budget_is_bounded_and_recovers_after_saturation() {
+        let permits = ORIGIN_PULL_PERMITS
+            .try_acquire_many(MAX_CONCURRENT_ORIGIN_PULLS as u32)
+            .expect("test must acquire the complete origin-pull budget");
+        assert!(ORIGIN_PULL_PERMITS.try_acquire().is_err());
+
+        let waiting = tokio::spawn(async {
+            ORIGIN_PULL_PERMITS.acquire().await.map(|_| ())
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished(), "ninth origin pull must wait at capacity");
+
+        drop(permits);
+        timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("origin-pull waiter must resume after capacity is released")
+            .expect("origin-pull waiter task must not panic")
+            .expect("origin-pull semaphore must remain open");
+    }
+
     fn auth_token(auth: &GatewayAuth) -> &str {
         match auth {
             GatewayAuth::Bearer(token) => token,
