@@ -22,8 +22,12 @@ impl Nxr1StateChannel {
     /// Raw hardware/FFI boundary. Caller guarantees source_ptr is readable for len bytes.
     #[inline]
     pub unsafe fn sync_zero_copy_sram_raw(&mut self, source_ptr: *const u8, len: usize) {
-        if source_ptr.is_null() && len != 0 {
+        if len == 0 {
             self.payload_hash.fill(0);
+            crate::arch::cache::invalidate_dcache_range(self.payload_hash.as_ptr() as usize, 16);
+        } else if source_ptr.is_null() {
+            self.payload_hash.fill(0);
+            crate::arch::cache::invalidate_dcache_range(self.payload_hash.as_ptr() as usize, 16);
         } else {
             let bytes = core::slice::from_raw_parts(source_ptr, len);
             self.sync_zero_copy_sram(bytes);
