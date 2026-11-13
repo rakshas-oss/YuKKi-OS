@@ -461,7 +461,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn matches_shared_cpp_nxr1_v1_golden_vector() {
         const GOLDEN_HEX: &str = "4e58523101000000000000002a3ff8000000000000c00200000000000040080000000000003fc0000000000000bfe000000000000000000000000000003f6666663dcccccdbf50624dd2f1a9fc00000004deadbeef";
