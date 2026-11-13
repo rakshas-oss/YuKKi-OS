@@ -72,8 +72,16 @@ impl OriginChunkClient {
             "GET {path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\n{auth}Connection: close\r\n\r\n",
             self.host
         );
-        socket.set_write_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
-        socket.write_all(request.as_bytes()).map_err(up)?;
+        let request_bytes = request.as_bytes();
+        let mut written = 0;
+        while written < request_bytes.len() {
+            socket.set_write_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
+            let count = socket.write(&request_bytes[written..]).map_err(up)?;
+            if count == 0 {
+                return Err(RelayError::Upstream("origin closed while receiving request".into()));
+            }
+            written += count;
+        }
 
         // Read headers, then the body up to the configured bound.
         let mut buf = Vec::new();
