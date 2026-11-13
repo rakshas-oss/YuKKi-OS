@@ -46,6 +46,9 @@ impl MeshStore {
         }
     }
     pub fn upsert_node(&self, node: MeshNode) {
+        if !node.lat.is_finite() || !node.lon.is_finite() {
+            return;
+        }
         let mut nodes = self.nodes.write().unwrap();
         let previous = nodes.insert(node.id.clone(), node.clone());
         #[cfg(feature = "mesh_dashboard")]
