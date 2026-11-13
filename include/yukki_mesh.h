@@ -83,9 +83,9 @@ uint16_t yukki_compute_quality_from_etx_snr_q16(int32_t etx_q16, int32_t snr_db_
 void yukki_prune_stale_neighbors(yukki_node_context_t *ctx, uint32_t now_ms);
 bool yukki_neighbor_cache_insert(yukki_node_context_t *ctx, const yukki_neighbor_cache_entry_t *entry);
 yukki_route_status_t yukki_route_adi_frame(yukki_node_context_t *ctx,
-                                          yukki_adi_header_t *hdr,
-                                          const char *payload,
-                                          uint32_t now_ms,
-                                          yukki_node_id_t *chosen_next_hop_id);
+                                           yukki_adi_header_t *hdr,
+                                           const char *payload,
+                                           uint32_t now_ms,
+                                           yukki_node_id_t *chosen_next_hop_id);
 
 #endif

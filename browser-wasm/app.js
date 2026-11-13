@@ -122,6 +122,41 @@ function verifyChunkWithWasm(chunk) {
   return sequence;
 }
 
+function quoteLargeProtocolIntegers(raw) {
+  const targetKeys = new Set(["latest_seq", "sequence_no", "timestamp_ms"]);
+  let out = "";
+  let i = 0;
+  while (i < raw.length) {
+    if (raw[i] === '"') {
+      let end = i + 1;
+      while (end < raw.length) {
+        if (raw[end] === "\\") {
+          end += 2;
+          continue;
+        }
+        if (raw[end] === '"') break;
+        end += 1;
+      }
+      const token = raw.slice(i, end + 1);
+      const key = token.slice(1, -1);
+      out += token;
+      i = end + 1;
+      if (targetKeys.has(key)) {
+        const match = raw.slice(i).match(/^(\s*:\s*)(\d+)(?=\s*[,}\]])/);
+        if (match) {
+          out += match[0];
+          out += '"' + match[2] + '"';
+          i += match[0].length + match[2].length + 1;
+        }
+      }
+    } else {
+      out += raw[i];
+      i += 1;
+    }
+  }
+  return out;
+}
+
 async function gatewayFetch(path) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12000);
@@ -149,9 +184,7 @@ async function gatewayFetch(path) {
       throw error;
     }
     const raw = await response.text();
-    // Preserve u64 protocol fields exactly; JSON.parse would round large values.
-    const losslessIntegers = raw.replace(/("(?:latest_seq|sequence_no|timestamp_ms)"\s*:\s*)(\d+)/g, '$1"$2"');
-    return JSON.parse(losslessIntegers);
+    return JSON.parse(quoteLargeProtocolIntegers(raw));
   } catch (error) {
     if (error.name === "AbortError") throw new Error("Gateway request timed out after 12 seconds.");
     if (error instanceof TypeError) {

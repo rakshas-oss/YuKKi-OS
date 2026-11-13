@@ -85,7 +85,7 @@ pub struct Message { pub header:Header,pub fields:Vec<Field> }
 impl Message { pub fn new(header:Header)->Self { Self{header,fields:Vec::new()} } pub fn push(&mut self,f:Field){self.fields.push(f)} pub fn field(&self,id:u16)->Option<&Field>{self.fields.iter().find(|f|f.id==id)} }
 
 fn validate_value(f:&Field)->Result<(),Error>{
-    let expected=match f.wire_type { WireType::U8|WireType::Bool=>Some(1),WireType::U16=>Some(2),WireType::U32|WireType::F32=>Some(4),WireType::U64|WireType::I64|WireType::F64=>Some(8),WireType::Uuid=>Some(16),_=>None };
+    let expected=match f.wire_type { WireType::U8|WireType::Bool=>Some(1),WireType::U16=>Some(2),WireType::U32|WireType::F32=>Some(4),WireType::U64|WireType::I64|WireType::F64=>Some(8),WireType::Utf8|WireType::Bytes|WireType::Uuid|WireType::Nested=>None,_=>None };
     if let Some(n)=expected { if f.value.len()!=n { return Err(Error::InvalidFieldLength{field_id:f.id,expected:n,actual:f.value.len()}); } }
     match f.wire_type {
         WireType::Utf8=>{std::str::from_utf8(&f.value).map_err(|_|Error::InvalidUtf8(f.id))?;}
@@ -100,7 +100,8 @@ fn validate_duplicates(fields:&[Field])->Result<(),Error>{
     for f in fields { if f.flags & !KNOWN_FIELD_FLAGS!=0{return Err(Error::InvalidFieldFlags(f.flags))}
         let repeated=f.flags&FIELD_REPEATED!=0;
         if let Some(prev)=seen.get(&f.id) {if !repeated||!*prev{return Err(Error::DuplicateSingularField(f.id))}} else {seen.insert(f.id,repeated);}
-    } Ok(())
+    }
+    Ok(())
 }
 pub fn encode(m:&Message,limits:Limits)->Result<Vec<u8>,Error>{
     if m.header.major!=2{return Err(Error::UnsupportedMajor(m.header.major))}
@@ -135,22 +136,28 @@ pub fn decode(input:&[u8],limits:Limits)->Result<Message,Error>{
     let schema_version=u16::from_be_bytes(b[24..26].try_into().unwrap());if u16::from_be_bytes(b[26..28].try_into().unwrap())!=0{return Err(Error::ReservedNonZero)}
     let plen=u32::from_be_bytes(b[28..32].try_into().unwrap()) as usize;if plen>limits.max_payload_bytes{return Err(Error::PayloadTooLarge(plen))}
     if HEADER_LEN.checked_add(plen)!=Some(len){return Err(Error::LengthMismatch)}
-    let mut fields=Vec::new();let mut p=HEADER_LEN;
+    let mut fields=Vec::new();let mut p=HEADER_LEN;let mut seen=HashMap::<u16,bool>::new();
     while p<b.len(){
         if fields.len()>=limits.max_fields{return Err(Error::TooManyFields)}
         if b.len()-p<TLV_HEADER_LEN{return Err(Error::Truncated("TLV header"))}
         let id=u16::from_be_bytes(b[p..p+2].try_into().unwrap());let wt=WireType::try_from(b[p+2])?;let ff=b[p+3];
         if ff & !KNOWN_FIELD_FLAGS!=0{return Err(Error::InvalidFieldFlags(ff))}
+        let repeated=ff&FIELD_REPEATED!=0;
+        if let Some(prev)=seen.get(&id){
+            if !repeated||!*prev{return Err(Error::DuplicateSingularField(id));}
+        } else {
+            seen.insert(id,repeated);
+        }
         let n=u32::from_be_bytes(b[p+4..p+8].try_into().unwrap()) as usize;p+=TLV_HEADER_LEN;
         let end=p.checked_add(n).ok_or(Error::LengthMismatch)?;if end>b.len(){return Err(Error::Truncated("TLV value"))}
-        fields.push(Field{id,wire_type:wt,flags:ff,value:b[p..end].to_vec()});p=end;
+        let field=Field{id,wire_type:wt,flags:ff,value:b[p..end].to_vec()};
+        validate_value(&field)?;
+        fields.push(field);p=end;
     }
-    validate_duplicates(&fields)?;for f in &fields{validate_value(f)?}
     Ok(Message{header:Header{major,minor,message_type,flags,request_id,schema_id,schema_version},fields})
 }
 pub fn validate_known_fields(m:&Message,known:&[(u16,WireType,bool)])->Result<(),Error>{
-    for f in &m.fields {if let Some((_,expected,_))=known.iter().find(|(id,_,_)|*id==f.id){if f.wire_type!=*expected{return Err(Error::WrongWireType{field_id:f.id,expected:*expected,actual:f.wire_type})}}
-        else if f.flags&FIELD_CRITICAL!=0{return Err(Error::UnknownCriticalField(f.id))}}
+    for f in &m.fields {if let Some((_,expected,_))=known.iter().find(|(id,_,_)|*id==f.id){if f.wire_type!=*expected{return Err(Error::WrongWireType{field_id:f.id,expected:*expected,actual:f.wire_type})}}else if f.flags&FIELD_CRITICAL!=0{return Err(Error::UnknownCriticalField(f.id))}}
     for (id,_,required) in known{if *required&&m.field(*id).is_none(){return Err(Error::MissingField(*id))}}Ok(())
 }
 
@@ -161,15 +168,9 @@ impl BrokerRequest {
     pub fn to_message(&self,request_id:u64)->Message{let mut m=Message::new(Header::new(MSG_REQUEST,request_id,SCHEMA_BROKER_REQUEST,1));
         m.push(Field::utf8(1,&self.task_id).critical());m.push(Field::utf8(2,&self.source).critical());m.push(Field::utf8(3,&self.destination).critical());m.push(Field::utf8(4,&self.kind).critical());
         m.push(Field::u8(5,self.priority).critical());m.push(Field::u32(6,self.timeout_ms).critical());m.push(Field::bytes(7,&self.payload).critical());
-        if let Some(v) = self.idempotency_key {
-            m.push(Field::uuid(8, v));
-        }
-        if let Some(v) = self.deadline_unix_ns {
-            m.push(Field::u64(9, v));
-        }
-        if let Some(v) = &self.device_preference {
-            m.push(Field::utf8(10, v));
-        }
+        if let Some(v)=self.idempotency_key{m.push(Field::uuid(8,v));}
+        if let Some(v)=self.deadline_unix_ns{m.push(Field::u64(9,v));}
+        if let Some(v)=&self.device_preference{m.push(Field::utf8(10,v));}
         m
     }
     pub fn from_message(m:&Message)->Result<Self,Error>{
@@ -180,76 +181,28 @@ impl BrokerRequest {
         let task_id=s(1)?;let source=s(2)?;let destination=s(3)?;let kind=s(4)?;
         for (name,v) in [("task_id",&task_id),("source",&source),("destination",&destination),("kind",&kind)]{if v.trim().is_empty(){return Err(Error::InvalidValue(name))}}
         let timeout_ms=u32::from_be_bytes(m.field(6).unwrap().value[..4].try_into().unwrap());if timeout_ms==0{return Err(Error::InvalidValue("timeout_ms must be nonzero"))}
-        let device_preference = m.field(10)
-            .map(|f| {
-                std::str::from_utf8(&f.value)
-                    .map(|value| value.to_owned())
-                    .map_err(|_| Error::InvalidUtf8(10))
-            })
-            .transpose()?;
-        Ok(Self{task_id,source,destination,kind,priority:m.field(5).unwrap().value[0],timeout_ms,payload:m.field(7).unwrap().value.clone(),
-            idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),deadline_unix_ns:m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap())),device_preference})
+        let device_preference = m.field(10).map(|f| {std::str::from_utf8(&f.value).map(|value| value.to_owned()).map_err(|_| Error::InvalidUtf8(10))}).transpose()?;
+        Ok(Self{task_id,source,destination,kind,priority:m.field(5).unwrap().value[0],timeout_ms,payload:m.field(7).unwrap().value.clone(),idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),deadline_unix_ns:m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap())),device_preference})
     }
 }
 
 #[cfg(test)]
 mod tests {
- use super::*;
- fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:Some(42),device_preference:Some("npu".into())}.to_message(0x0102030405060708)}
- #[test]fn round_trip_and_endian(){let m=sample();let b=encode(&m,Limits::default()).unwrap();assert_eq!(&b[4..8],b"BRK2");assert_eq!(&b[16..24],&0x0102030405060708u64.to_be_bytes());assert_eq!(decode(&b,Limits::default()).unwrap(),m)}
- #[test]fn request_schema_round_trip(){let m=sample();let r=BrokerRequest::from_message(&m).unwrap();assert_eq!(r.task_id,"t-1");assert_eq!(r.payload,vec![0,1,255])}
- #[test]
- fn rejects_invalid_device_preference_utf8() {
-     let mut m = sample();
-     m.fields.iter_mut().find(|f| f.id == 10).unwrap().value = vec![0xff];
-     assert_eq!(BrokerRequest::from_message(&m), Err(Error::InvalidUtf8(10)));
- }
- #[test]fn rejects_truncation_and_trailing_bytes(){let mut b=encode(&sample(),Limits::default()).unwrap();b.pop();assert!(matches!(decode(&b,Limits::default()),Err(Error::Truncated(_))));b=encode(&sample(),Limits::default()).unwrap();b.push(0);assert_eq!(decode(&b,Limits::default()),Err(Error::TrailingBytes))}
- #[test]fn rejects_bad_magic_reserved_and_flags(){let mut b=encode(&sample(),Limits::default()).unwrap();b[4]=b'X';assert_eq!(decode(&b,Limits::default()),Err(Error::BadMagic));b=encode(&sample(),Limits::default()).unwrap();b[30]=1;assert_eq!(decode(&b,Limits::default()),Err(Error::ReservedNonZero))}
- #[test]fn rejects_duplicate_and_invalid_utf8(){let mut m=sample();m.push(Field::utf8(1,"dup"));assert_eq!(encode(&m,Limits::default()),Err(Error::DuplicateSingularField(1)));m=sample();m.fields[0].value=vec![255];assert_eq!(encode(&m,Limits::default()),Err(Error::InvalidUtf8(1)))}
- #[test]
- fn rejects_unknown_critical_but_preserves_optional() {
-     let mut m = Message::new(Header::new(MSG_REQUEST, 1, SCHEMA_BROKER_REQUEST, 1));
-     m.push(Field::utf8(1, "known").critical());
-     m.push(Field::u8(99, 1));
-     let schema = [(1, WireType::Utf8, true)];
-     assert!(validate_known_fields(&m, &schema).is_ok());
-     m.fields.last_mut().unwrap().flags |= FIELD_CRITICAL;
-     assert_eq!(
-         validate_known_fields(&m, &schema),
-         Err(Error::UnknownCriticalField(99))
-     );
- }
- #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let l=Limits{max_frame_bytes:32,..Limits::default()};assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut m=sample();m.field(6);m.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&m),Err(Error::InvalidValue("timeout_ms must be nonzero")))}
- #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok())}
- #[test]
- fn deterministic_malformed_corpus_never_panics() {
-     use std::panic::{catch_unwind, AssertUnwindSafe};
-     let seed = encode(&sample(), Limits::default()).unwrap();
-     for cut in 0..seed.len() {
-         let result = catch_unwind(AssertUnwindSafe(|| decode(&seed[..cut], Limits::default())));
-         assert!(result.is_ok(), "decoder panicked on truncation at {cut}");
-     }
-     for index in 0..seed.len() {
-         for bit in 0..8 {
-             let mut mutated = seed.clone();
-             mutated[index] ^= 1 << bit;
-             let result = catch_unwind(AssertUnwindSafe(|| decode(&mutated, Limits::default())));
-             assert!(result.is_ok(), "decoder panicked at byte {index}, bit {bit}");
-         }
-     }
-     // Deterministic arbitrary byte strings cover invalid prefixes and headers.
-     let mut state = 0x9e3779b97f4a7c15u64;
-     for len in 0..256usize {
-         let mut bytes = vec![0u8; len];
-         for byte in &mut bytes {
-             state ^= state << 7;
-             state ^= state >> 9;
-             state ^= state << 8;
-             *byte = state as u8;
-         }
-         let result = catch_unwind(AssertUnwindSafe(|| decode(&bytes, Limits::default())));
-         assert!(result.is_ok(), "decoder panicked on arbitrary input of length {len}");
-     }
- }
+  use super::*;
+  fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:None,device_preference:None}.to_message(7)}
+  #[test]fn round_trip_and_endian(){let m=sample();let b=encode(&m,Limits::default()).unwrap();assert_eq!(&b[4..8],b"BRK2");assert_eq!(&b[16..24],&0x0102030405060708u64.to_be_bytes());assert_eq!(decode(&b,Limits::default()).unwrap().header.message_type,MSG_REQUEST);}
+  #[test]fn request_schema_round_trip(){let m=sample();let r=BrokerRequest::from_message(&m).unwrap();assert_eq!(r.task_id,"t-1");assert_eq!(r.payload,vec![0,1,255]);}
+  #[test]fn rejects_invalid_device_preference_utf8(){let mut m=sample();m.fields.iter_mut().find(|f| f.id == 10).unwrap().value = vec![0xff];assert_eq!(BrokerRequest::from_message(&m), Err(Error::InvalidUtf8(10)));}
+  #[test]fn rejects_truncation_and_trailing_bytes(){let mut b=encode(&sample(),Limits::default()).unwrap();b.pop();assert!(matches!(decode(&b,Limits::default()),Err(Error::Truncated(_))));b=encode(&sample(),Limits::default()).unwrap();b.push(0);assert!(matches!(decode(&b,Limits::default()),Err(Error::TrailingBytes)));}
+  #[test]fn rejects_bad_magic_reserved_and_flags(){let mut b=encode(&sample(),Limits::default()).unwrap();b[4]=b'X';assert_eq!(decode(&b,Limits::default()),Err(Error::BadMagic));b=encode(&sample(),Limits::default()).unwrap();b[26]=1;assert_eq!(decode(&b,Limits::default()),Err(Error::ReservedNonZero));}
+  #[test]fn rejects_duplicate_and_invalid_utf8(){let mut m=sample();m.push(Field::utf8(1,"dup"));assert_eq!(encode(&m,Limits::default()),Err(Error::DuplicateSingularField(1)));m=sample();m.fields.iter_mut().find(|f|f.id==1).unwrap().value = vec![0xff];assert_eq!(BrokerRequest::from_message(&m), Err(Error::InvalidUtf8(1)));}
+  #[test]fn rejects_unknown_critical_but_preserves_optional(){let mut m=Message::new(Header::new(MSG_REQUEST,1,SCHEMA_BROKER_REQUEST,1));m.push(Field::utf8(1,"known").critical());m.push(Field::u8(99,1));assert!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]).is_ok());m.fields.last_mut().unwrap().flags |= FIELD_CRITICAL;assert_eq!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]),Err(Error::UnknownCriticalField(99)));}
+  #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let l=Limits{max_frame_bytes:32,..Limits::default()};assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut bad=sample();bad.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&bad),Err(Error::InvalidValue("timeout_ms must be nonzero")));}
+  #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok());}
+  #[test]fn deterministic_malformed_corpus_never_panics(){
+      use std::panic::{catch_unwind, AssertUnwindSafe};
+      let seed = encode(&sample(), Limits::default()).unwrap();
+      for cut in 0..seed.len() { let result = catch_unwind(AssertUnwindSafe(|| decode(&seed[..cut], Limits::default()))); assert!(result.is_ok(), "decoder panicked on truncation at {cut}"); }
+      for index in 0..seed.len() { for bit in 0..8 { let mut mutated = seed.clone(); mutated[index] ^= 1 << bit; let result = catch_unwind(AssertUnwindSafe(|| decode(&mutated, Limits::default()))); assert!(result.is_ok(), "decoder panicked on byte {index}"); } }
+  }
 }

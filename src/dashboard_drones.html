@@ -114,6 +114,20 @@
         border: 1px solid var(--border);
         border-radius: 12px;
       }
+      .auth-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      .auth-bar input, .auth-bar button {
+        font: inherit;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+      }
     </style>
   </head>
   <body>
@@ -122,6 +136,12 @@
         <h1>YuKKi OS Drone Dashboard</h1>
         <div class="badge" id="updated">Loading…</div>
       </div>
+
+      <form class="auth-bar" id="auth-form">
+        <input id="token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Enter gateway bearer token" required />
+        <button type="submit">Connect</button>
+        <button type="button" id="disconnect-btn">Clear Token</button>
+      </form>
 
       <section class="grid">
         <article class="card">
@@ -145,6 +165,8 @@
     </main>
 
     <script>
+      let bearerToken = "";
+
       function statusClass(state) {
         if (!state || state === 'offline') return 'offline';
         if (state === 'online' || state === 'running') return 'online';
@@ -153,11 +175,17 @@
 
       async function loadFleet() {
         const root = document.getElementById('fleet-root');
+        if (!bearerToken) {
+          root.innerHTML = '<div class="empty">Enter gateway bearer token above to load fleet data (stored in page memory only).</div>';
+          return;
+        }
         try {
           const response = await fetch('/dashboard/drones', {
-            headers: { Authorization: 'Bearer ' + localStorage.getItem('yukki_token') || '' }
+            headers: { Authorization: 'Bearer ' + bearerToken },
+            cache: 'no-store'
           });
           if (!response.ok) {
+            bearerToken = "";
             root.innerHTML = '<div class="empty">Dashboard requires an authenticated gateway token.</div>';
             return;
           }
@@ -216,10 +244,20 @@
           .replace(/'/g, '&#039;');
       }
 
-      const token = prompt('Enter gateway bearer token');
-      if (token) {
-        localStorage.setItem('yukki_token', token);
-      }
+      document.getElementById('auth-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('token-input');
+        bearerToken = input.value.trim();
+        input.value = '';
+        loadFleet();
+      });
+
+      document.getElementById('disconnect-btn').addEventListener('click', () => {
+        bearerToken = '';
+        loadFleet();
+      });
+
+      window.addEventListener('pagehide', () => { bearerToken = ''; });
       loadFleet();
       setInterval(loadFleet, 15000);
     </script>

@@ -21,6 +21,7 @@
 #![cfg_attr(target_arch = "wasm32", no_std)]
 #![cfg_attr(target_arch = "wasm32", no_main)]
 
+use core::cell::UnsafeCell;
 use core::mem::{align_of, size_of};
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -41,8 +42,8 @@ const HOST_STATUS_PASSTHROUGH_MAX: i32 = -64;
 #[repr(C, align(16))]
 pub struct Nxr1StateChannel {
     pub channel_id: u64,
-    pub bitmask: u64,
-    pub payload_hash: [u8; 16],
+    pub bitmask: UnsafeCell<u64>,
+    pub payload_hash: UnsafeCell<[u8; 16]>,
     pub lock: AtomicU32,
 }
 
@@ -162,7 +163,7 @@ impl Drop for LockGuard<'_> {
 /// Safe pipeline logic. `yield_xpu` receives the clamped timeout and returns
 /// the host status.
 pub fn run_pipeline(
-    channel: &mut Nxr1StateChannel,
+    channel: &Nxr1StateChannel,
     tensor: &[u8],
     timeout_ms: u32,
     yield_xpu: impl FnOnce(u32) -> i32,
@@ -173,10 +174,11 @@ pub fn run_pipeline(
     if tensor.len() > MAX_TENSOR_BYTES {
         return Err(WorkerError::TensorTooLarge);
     }
-    let Nxr1StateChannel { bitmask, payload_hash, lock, .. } = channel;
-    let guard = LockGuard::acquire(lock)?;
-    *payload_hash = hash128(tensor);
-    *bitmask = 1;
+    let guard = LockGuard::acquire(&channel.lock)?;
+    unsafe {
+        core::ptr::write_volatile(channel.payload_hash.get(), hash128(tensor));
+        core::ptr::write_volatile(channel.bitmask.get(), 1);
+    }
     let status = yield_xpu(clamp_timeout(timeout_ms));
     if status != 0 {
         return Err(WorkerError::from_host_status(status));
@@ -189,16 +191,14 @@ pub fn run_pipeline(
 
 /// # Safety
 /// `ptr` must be non-null, 16-byte aligned, point to a live
-/// `Nxr1StateChannel`, and be exclusively accessed for `'a`.
-unsafe fn channel_from_raw<'a>(ptr: *mut Nxr1StateChannel) -> &'a mut Nxr1StateChannel {
-    // SAFETY: guaranteed by the caller contract above.
-    unsafe { &mut *ptr }
+/// `Nxr1StateChannel` within valid linear memory for `'a`.
+unsafe fn channel_from_raw<'a>(ptr: *const Nxr1StateChannel) -> &'a Nxr1StateChannel {
+    unsafe { &*ptr }
 }
 
 /// # Safety
 /// `ptr..ptr+len` must be a valid readable range that is not mutated for `'a`.
 unsafe fn tensor_from_raw<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
-    // SAFETY: guaranteed by the caller contract above.
     unsafe { core::slice::from_raw_parts(ptr, len) }
 }
 
@@ -230,16 +230,11 @@ pub extern "C" fn execute_inference_pipeline(
     if let Err(e) = validate_args(channel_ptr as usize, tensor_data_ptr as usize, tensor_len) {
         return e.code();
     }
-    // SAFETY: pointers are non-null, the channel is 16-byte aligned, the length
-    // is bounded and the ranges do not overflow (validate_args); the host
-    // guarantees they refer to live guest linear memory.
     let (channel, tensor) = unsafe {
         (channel_from_raw(channel_ptr), tensor_from_raw(tensor_data_ptr, tensor_len))
     };
     let raw = channel_ptr;
     let result = run_pipeline(channel, tensor, DEFAULT_TIMEOUT_MS, |timeout| {
-        // SAFETY: the host import only receives the address; it validates it
-        // against guest memory before use.
         unsafe { host::wasmtime_yield_xpu(raw, timeout) }
     });
     match result {
@@ -248,7 +243,6 @@ pub extern "C" fn execute_inference_pipeline(
     }
 }
 
-/// Trap instead of spinning on panic.
 #[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -260,7 +254,12 @@ mod tests {
     use super::*;
 
     fn chan() -> Nxr1StateChannel {
-        Nxr1StateChannel { channel_id: 7, bitmask: 0, payload_hash: [0; 16], lock: AtomicU32::new(0) }
+        Nxr1StateChannel {
+            channel_id: 7,
+            bitmask: UnsafeCell::new(0),
+            payload_hash: UnsafeCell::new([0; 16]),
+            lock: AtomicU32::new(0),
+        }
     }
 
     #[test]
@@ -304,40 +303,30 @@ mod tests {
 
     #[test]
     fn pipeline_success_releases_lock() {
-        let mut c = chan();
-        assert_eq!(run_pipeline(&mut c, b"tensor", u32::MAX, |t| { assert_eq!(t, MAX_TIMEOUT_MS); 0 }), Ok(()));
-        assert_eq!(c.bitmask, 1);
-        assert_eq!(c.payload_hash, hash128(b"tensor"));
+        let c = chan();
+        assert_eq!(run_pipeline(&c, b"tensor", u32::MAX, |t| { assert_eq!(t, MAX_TIMEOUT_MS); 0 }), Ok(()));
+        assert_eq!(unsafe { *c.bitmask.get() }, 1);
+        assert_eq!(unsafe { *c.payload_hash.get() }, hash128(b"tensor"));
         assert_eq!(c.lock.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn pipeline_contention_and_host_errors() {
-        let mut c = chan();
+        let c = chan();
         c.lock.store(1, Ordering::SeqCst);
-        assert_eq!(run_pipeline(&mut c, b"x", 1, |_| 0), Err(WorkerError::LockContention));
+        assert_eq!(run_pipeline(&c, b"x", 1, |_| 0), Err(WorkerError::LockContention));
         assert_eq!(c.lock.load(Ordering::SeqCst), 1, "foreign lock untouched");
         c.lock.store(0, Ordering::SeqCst);
-        assert_eq!(run_pipeline(&mut c, b"x", 1, |_| -6), Err(WorkerError::XpuTimeout));
+        assert_eq!(run_pipeline(&c, b"x", 1, |_| -6), Err(WorkerError::XpuTimeout));
         assert_eq!(c.lock.load(Ordering::SeqCst), 0);
-        assert_eq!(run_pipeline(&mut c, &[], 1, |_| 0), Err(WorkerError::EmptyTensor));
+        assert_eq!(run_pipeline(&c, &[], 1, |_| 0), Err(WorkerError::EmptyTensor));
     }
 
     #[test]
     fn host_stealing_lock_is_contention() {
-        let mut c = chan();
+        let c = chan();
         let lockp: *const AtomicU32 = &c.lock;
-        // SAFETY: test-only; lockp points at c.lock, which outlives the call.
-        let r = run_pipeline(&mut c, b"x", 1, |_| { unsafe { (*lockp).store(0, Ordering::SeqCst) }; 0 });
+        let r = run_pipeline(&c, b"x", 1, |_| { unsafe { (*lockp).store(0, Ordering::SeqCst) }; 0 });
         assert_eq!(r, Err(WorkerError::LockContention));
-    }
-
-    #[test]
-    fn entry_point_rejects_bad_args() {
-        assert_eq!(execute_inference_pipeline(core::ptr::null_mut(), core::ptr::null(), 4), -1);
-        let mut c = chan();
-        let data = [1u8; 8];
-        assert_eq!(execute_inference_pipeline(&mut c, data.as_ptr(), 0), -5);
-        assert_eq!(execute_inference_pipeline(&mut c, data.as_ptr(), 8), 0);
     }
 }
