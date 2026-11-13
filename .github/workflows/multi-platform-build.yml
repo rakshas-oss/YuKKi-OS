@@ -228,7 +228,7 @@ jobs:
       actions: read
     steps:
       - name: Download qualified build artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
       - name: Create release archives and checksums
