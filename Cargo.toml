@@ -63,7 +63,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 axum = { version = "0.8.9", features = ["json", "ws"] }
 tokio-tungstenite = "0.30.0"
-rstar = { version = "0.13", optional = true }
+rstar = { version = "0.14", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 
 # Enable getrandom's JavaScript backend only for wasm32 builds.
