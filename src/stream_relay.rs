@@ -66,24 +66,28 @@ pub struct StreamRelay {
 fn next_sequence(latest: Option<u64>) -> Result<u64, RelayError> {
     match latest {
         None => Ok(0),
-        Some(sequence) => sequence
-            .checked_add(1)
-            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into())),
+        Some(sequence) => sequence.checked_add(1).ok_or_else(|| {
+            RelayError::Upstream("stream sequence exhausted".into())
+        }),
     }
 }
 
 fn validate_sequence_batch(from: u64, chunks: &[MediaChunk]) -> Result<(), RelayError> {
     if chunks.len() > RELAY_MAX_BATCH as usize {
-        return Err(RelayError::Upstream("upstream batch exceeds requested limit".into()));
+        return Err(RelayError::Upstream(
+            "upstream batch exceeds requested limit".into(),
+        ));
     }
     for (index, chunk) in chunks.iter().enumerate() {
         let offset = u64::try_from(index)
             .map_err(|_| RelayError::Upstream("upstream batch index overflow".into()))?;
-        let expected = from
-            .checked_add(offset)
-            .ok_or_else(|| RelayError::Upstream("stream sequence exhausted".into()))?;
+        let expected = from.checked_add(offset).ok_or_else(|| {
+            RelayError::Upstream("stream sequence exhausted".into())
+        })?;
         if chunk.sequence_no != expected {
-            return Err(RelayError::Upstream("non-contiguous chunk".into()));
+            return Err(RelayError::Upstream(
+                "non-contiguous chunk".into(),
+            ));
         }
     }
     Ok(())
@@ -185,7 +189,6 @@ impl StreamRelay {
             .unwrap_or(false)
     }
 }
-
 
 #[cfg(test)]
 mod adversarial_tests {
