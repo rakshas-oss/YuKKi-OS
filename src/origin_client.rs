@@ -78,10 +78,14 @@ impl OriginChunkClient {
         let request_bytes = request.as_bytes();
         let mut written = 0;
         while written < request_bytes.len() {
-            socket.set_write_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
+            socket
+                .set_write_timeout(Some(remaining().map_err(up)?))
+                .map_err(up)?;
             let count = socket.write(&request_bytes[written..]).map_err(up)?;
             if count == 0 {
-                return Err(RelayError::Upstream("origin closed while receiving request".into()));
+                return Err(RelayError::Upstream(
+                    "origin closed while receiving request".into(),
+                ));
             }
             written += count;
         }
@@ -96,7 +100,9 @@ impl OriginChunkClient {
             if buf.len() > ORIGIN_MAX_HEADER_BYTES {
                 return Err(RelayError::Upstream("response headers too large".into()));
             }
-            socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
+            socket
+                .set_read_timeout(Some(remaining().map_err(up)?))
+                .map_err(up)?;
             let n = socket.read(&mut tmp).map_err(up)?;
             if n == 0 {
                 return Err(RelayError::Upstream("connection closed early".into()));
@@ -145,7 +151,9 @@ impl OriginChunkClient {
             if content_length.is_some_and(|len| body.len() >= len) {
                 break;
             }
-            socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
+            socket
+                .set_read_timeout(Some(remaining().map_err(up)?))
+                .map_err(up)?;
             let n = socket.read(&mut tmp).map_err(up)?;
             if n == 0 {
                 break;

@@ -50,6 +50,9 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
+// Bound synchronous origin socket operations across all websocket sessions.
+const MAX_CONCURRENT_ORIGIN_PULLS: usize = 8;
+static ORIGIN_PULL_PERMITS: Semaphore = Semaphore::const_new(MAX_CONCURRENT_ORIGIN_PULLS);
 const DEFAULT_DRONE_DASHBOARD_MAX_CHUNKS: u64 = 256;
 struct CappedListener {
     listener: TcpListener,
@@ -541,7 +544,14 @@ async fn websocket_tune_in(
     let result = match state.relay.clone() {
         Some(relay) => {
             let id = id.clone();
-            match tokio::task::spawn_blocking(move || relay.tune_in(&id, from)).await {
+            let permit = match ORIGIN_PULL_PERMITS.acquire().await {
+                Ok(permit) => permit,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+            match tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                relay.tune_in(&id, from)
+            }).await {
                 Ok(Ok(subscription)) => Ok(subscription),
                 Ok(Err(RelayError::Registry(error))) => Err(error),
                 Ok(Err(RelayError::Upstream(_))) => {
@@ -642,7 +652,14 @@ async fn websocket_session(
                     Ok(SubscriptionRead::Waiting) => {
                         if let Some(relay) = relay.clone().filter(|r| r.is_mirror(&stream_id)) {
                             let id = stream_id.clone();
-                            let _ = tokio::task::spawn_blocking(move || relay.pump(&id)).await;
+                            // Do not create more blocking work when the shared
+                            // origin budget is exhausted; the next poll can retry.
+                            if let Ok(permit) = ORIGIN_PULL_PERMITS.try_acquire() {
+                                let _ = tokio::task::spawn_blocking(move || {
+                                    let _permit = permit;
+                                    relay.pump(&id)
+                                }).await;
+                            }
                         }
                     }
                     Ok(SubscriptionRead::Finished) => {
