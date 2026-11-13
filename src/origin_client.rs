@@ -56,7 +56,10 @@ impl OriginChunkClient {
         let remaining = || {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "origin request deadline exceeded"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "origin request deadline exceeded",
+                ))
             } else {
                 Ok(left)
             }
@@ -93,7 +96,6 @@ impl OriginChunkClient {
             if buf.len() > ORIGIN_MAX_HEADER_BYTES {
                 return Err(RelayError::Upstream("response headers too large".into()));
             }
-            socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
             socket.set_read_timeout(Some(remaining().map_err(up)?)).map_err(up)?;
             let n = socket.read(&mut tmp).map_err(up)?;
             if n == 0 {
