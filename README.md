@@ -1,5 +1,9 @@
 # YuKKi-OS v6.10.0
 
+> **Coordinate the system. Connect the workload. Keep execution flexible.**
+>
+> A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
+
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
