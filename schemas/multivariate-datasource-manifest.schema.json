@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rakshas-oss/YuKKi-OS/blob/main/schemas/multivariate-datasource-manifest.schema.json",
+  "title": "YuKKi-OS Multivariate Data-Source Manifest",
+  "description": "Domain-independent catalogue of heterogeneous data sources and their variables, temporal/spatial semantics, provenance, transport and access metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "manifest_id", "created_at", "sources"],
+  "properties": {
+    "manifest_version": { "const": "1.0" },
+    "manifest_id": { "$ref": "#/$defs/nonEmptyString" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "description": { "type": "string" },
+    "domain": {
+      "type": "string",
+      "description": "Application domain label; examples include drones, finance, real_estate, environmental, industrial, or mixed."
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "relationships": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relationship" }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Namespaced application-specific metadata. Consumers must ignore unknown extension keys unless explicitly configured to require them.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "kind", "variables", "provenance"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": {
+          "type": "string",
+          "description": "Logical source kind, e.g. drone, satellite, weather_station, market_feed, property_registry, sensor_network, database, file_collection, api."
+        },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "operator": { "type": "string" },
+        "variables": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/variable" }
+        },
+        "temporal": { "$ref": "#/$defs/temporal" },
+        "spatial": { "$ref": "#/$defs/spatial" },
+        "transport": { "$ref": "#/$defs/transport" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "quality": { "$ref": "#/$defs/quality" },
+        "access_policy": {
+          "type": "object",
+          "description": "Reference to an application-managed authorization policy; never place credentials or bearer tokens in the manifest.",
+          "additionalProperties": false,
+          "properties": {
+            "policy_ref": { "type": "string" },
+            "classification": { "type": "string" },
+            "retention": { "type": "string" }
+          }
+        },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variable_id", "value_type"],
+      "properties": {
+        "variable_id": { "$ref": "#/$defs/nonEmptyString" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "value_type": {
+          "enum": ["boolean", "integer", "number", "string", "object", "array", "binary", "categorical"]
+        },
+        "unit": { "type": "string", "description": "Use a stable unit identifier where possible; do not silently convert values." },
+        "dimensions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Named axes such as time, latitude, longitude, altitude, instrument, property, or wavelength."
+        },
+        "coordinate_role": { "enum": ["measurement", "coordinate", "identifier", "metadata"] },
+        "null_semantics": { "type": "string" },
+        "schema_ref": { "type": "string", "format": "uri-reference" }
+      }
+    },
+    "temporal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "timezone": { "type": "string" },
+        "sampling_interval": { "type": "string", "description": "ISO 8601 duration when fixed, e.g. PT1M; omit for irregular sampling." },
+        "calendar": { "type": "string", "description": "Optional domain calendar, e.g. exchange/session calendar." },
+        "timestamp_semantics": { "enum": ["observation_time", "event_time", "ingestion_time", "publication_time"] }
+      }
+    },
+    "spatial": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference_system": { "type": "string", "description": "Coordinate reference system identifier, e.g. EPSG:4326." },
+        "geometry_type": { "enum": ["point", "line", "polygon", "raster", "volume", "trajectory", "none", "other"] },
+        "extent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bbox": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 6,
+              "items": { "type": "number" },
+              "description": "Bounding coordinates in the declared reference system."
+            },
+            "geometry_ref": { "type": "string", "format": "uri-reference" }
+          }
+        },
+        "resolution": { "type": "string" },
+        "vertical_reference": { "type": "string" }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": { "enum": ["http", "https", "websocket", "broker_task", "live_media_stream", "file", "database", "custom"] },
+        "endpoint_ref": { "type": "string", "description": "Non-secret endpoint or configuration reference. Avoid embedding credentials." },
+        "stream_id": { "type": "string" },
+        "media_type": { "type": "string" },
+        "encoding": { "type": "string" },
+        "adapter": { "type": "string" },
+        "adapter_version": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin"],
+      "properties": {
+        "origin": { "$ref": "#/$defs/nonEmptyString" },
+        "publisher": { "type": "string" },
+        "license": { "type": "string" },
+        "collected_at": { "type": "string", "format": "date-time" },
+        "ingested_at": { "type": "string", "format": "date-time" },
+        "source_revision": { "type": "string" },
+        "lineage": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["unknown", "unvalidated", "validated", "degraded", "invalid"] },
+        "calibration_ref": { "type": "string" },
+        "accuracy": { "type": "string" },
+        "completeness": { "type": "number", "minimum": 0, "maximum": 1 },
+        "missing_value_policy": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_source", "to_source", "relation"],
+      "properties": {
+        "from_source": { "$ref": "#/$defs/nonEmptyString" },
+        "to_source": { "$ref": "#/$defs/nonEmptyString" },
+        "relation": { "enum": ["correlates_with", "derived_from", "calibrates", "spatially_overlaps", "temporally_aligns", "references", "other"] },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}
