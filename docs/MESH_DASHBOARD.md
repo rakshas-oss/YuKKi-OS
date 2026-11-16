@@ -18,6 +18,8 @@ A browser or external client can therefore integrate by using the same authentic
 
 ## Manifest-driven multivariate mapping
 
+See the [formal Multivariate Data-Source Manifest specification](MULTIVARIATE_DATASOURCE_MANIFEST.md) and its [JSON Schema](../schemas/multivariate-datasource-manifest.schema.json) for the versioned contract.
+
 The Manifest of Drones can be used as a general multivariate datasource catalogue, not only as a list of aircraft. An application can describe heterogeneous sources—such as drone/satellite observations, weather stations, air-quality sensors, financial time series, or real-estate datasets—and associate each source with its variables, units, timestamps, spatial reference, provenance, update cadence, and payload location.
 
 This enables an application to build map and time-series views that combine multiple measurements. Examples include:
