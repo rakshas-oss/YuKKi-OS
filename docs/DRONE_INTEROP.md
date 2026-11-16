@@ -115,6 +115,7 @@ export YUKKI_PSK_HEX="<64-hex-secret>"
 
 See also
 
+- [Multivariate Data-Source Manifest](MULTIVARIATE_DATASOURCE_MANIFEST.md)
 - docs/DRONE_DASHBOARD.md
 - docs/MESH_DASHBOARD.md
 - docs/USER_HOWTO_STREAMING.md
