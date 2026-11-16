@@ -16,6 +16,18 @@ The UI surfaces are:
 
 A browser or external client can therefore integrate by using the same authenticated endpoints the system already exposes. The static page stores the bearer token only in page memory and does not write it to disk.
 
+## Manifest-driven multivariate mapping
+
+The Manifest of Drones can be used as a general multivariate datasource catalogue, not only as a list of aircraft. An application can describe heterogeneous sources—such as drone/satellite observations, weather stations, air-quality sensors, financial time series, or real-estate datasets—and associate each source with its variables, units, timestamps, spatial reference, provenance, update cadence, and payload location.
+
+This enables an application to build map and time-series views that combine multiple measurements. Examples include:
+
+- Environmental mapping: overlay drone imagery, satellite vegetation observations, rainfall, soil readings, and water-quality samples by location and collection time.
+- Real-estate analysis: combine property locations and valuations with rental history, demographics, zoning, and nearby transport or services.
+- Finance: align prices, trading volume, volatility, FX rates, and macroeconomic indicators over a selected instrument and time window. Financial datasets may be non-geospatial; they can still use the same manifest and stream model without appearing on a geographic map.
+
+The manifest describes sources and their semantics; it does not itself fetch, normalize, or reconcile them. Application-side adapters must ingest each datasource, validate units and schemas, preserve provenance and timestamps, and handle differing sampling intervals and coordinate reference systems. YuKKi-OS supplies the mesh, stream, gateway, and broker primitives that an application can use after those adapters are wired in. The optional drone dashboard remains drone-oriented; a finance or general-purpose analytics UI requires an application-specific frontend.
+
 ## Features
 
 - `GET /v1/mesh` returns a mesh snapshot or bbox-filtered subset
