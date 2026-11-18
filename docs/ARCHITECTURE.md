@@ -318,9 +318,12 @@ memories/tables/instances, a 65,536-element per-table limit, and a
 
 `src/temporal_spatial_scheduler.rs` ranks a program's replicas using an
 exponentially weighted service-time estimate (7/8 previous estimate and
-1/8 latest sample) plus an optional stable spatial/affinity key. The key
-prefers a logical shard for related work; the time score can route around a
-materially slower replica. This is logical workload affinity, not physical
+1/8 latest sample) plus an optional stable spatial/affinity key. The key is
+mapped to a preferred logical slot with a fixed SplitMix64 finalizer. Each
+non-preferred replica receives a 25% penalty relative to its current service-
+time estimate; measured service cost can therefore beat locality when a
+replica is materially faster. A rotating cursor supplies deterministic
+round-robin tie breaking. This is logical workload affinity, not physical
 NUMA pinning or geographic-coordinate scheduling. It complements, but does
 not replace, `SpatiotemporalPayloadResolver`, which handles NXR1 decoding,
 destination queues and per-source sequence policy.
@@ -345,13 +348,14 @@ tenant, entity, tile, sensor or partition. It is not a latitude/longitude
 lookup, geographic route planner, CPU-thread pinning mechanism or physical
 NUMA placement operation.
 
-Replica admission is non-blocking: a busy Store is skipped instead of making
-other calls wait behind its mutex. If all replicas are occupied, the runtime
-returns `CompositionError::ProgramSaturated`. This reduces head-of-line
-blocking while spare replicas exist; it does not guarantee zero stalls when
-all replicas are busy. Fuel is an instruction budget, not a wall-clock
-deadline. Service-time and active-call metrics are exposed for operational
-feedback.
+The scheduler returns a ranked list; the composition caller attempts
+non-blocking Store admission in that order and skips a replica whose Store is
+already locked. If all replicas are occupied, the runtime returns
+`CompositionError::ProgramSaturated`. This reduces head-of-line blocking while
+spare replicas exist; it does not guarantee zero stalls when all replicas are
+busy. Fuel is an instruction budget, not a wall-clock deadline. Per-replica
+EWMA service time, completed-call count and active-call count are exposed for
+operational feedback.
 
 A release containing several programs becomes active with one
 `ProgramSet` routing-map replacement. Calls admitted before the switch keep
