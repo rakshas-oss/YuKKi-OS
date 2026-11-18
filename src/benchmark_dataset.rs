@@ -146,6 +146,7 @@ pub enum DatasetBenchmarkError {
 #[derive(Debug, Clone)]
 struct DatasetRecord {
     sequence: u64,
+    timestamp_ns: u64,
     position: Option<[f64; 3]>,
     features: Vec<f64>,
     raw_json: Vec<u8>,
@@ -422,7 +423,7 @@ fn load_dataset(
         })?;
         let sequence = required_u64(object, &dataset.sequence_field)
             .map_err(|reason| invalid_record(dataset, row, reason))?;
-        let _timestamp_ns = required_u64(object, &dataset.timestamp_ns_field)
+        let timestamp_ns = required_u64(object, &dataset.timestamp_ns_field)
             .map_err(|reason| invalid_record(dataset, row, reason))?;
 
         let position = match (&dataset.latitude_field, &dataset.longitude_field) {
@@ -458,6 +459,7 @@ fn load_dataset(
         }
         records.push(DatasetRecord {
             sequence,
+            timestamp_ns,
             position,
             features,
             raw_json: line,
@@ -661,7 +663,13 @@ fn measure_candidate(
                         let decoded = Nxr1Frame::decode(&bytes)
                             .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
                         local_bytes = local_bytes.saturating_add(bytes.len() as u64);
-                        local_checksum ^= decoded.seq_id ^ decoded.payload.len() as u64;
+                        local_checksum ^= decoded.seq_id
+                            ^ records[begin..end]
+                                .iter()
+                                .find(|record| record.sequence == decoded.seq_id)
+                                .map(|record| record.timestamp_ns)
+                                .unwrap_or(0)
+                            ^ decoded.payload.len() as u64;
                         std::hint::black_box(decoded);
                     }
                     encoded_bytes.fetch_add(local_bytes, Ordering::Relaxed);
