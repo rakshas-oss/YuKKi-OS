@@ -157,8 +157,11 @@ This is appropriate for small/medium covariance and correlation matrices
 Benchmark residuals and orthogonality are reported so throughput cannot hide
 an inaccurate decomposition.
 
-The solver is deterministic and has no runtime dependency on Overhauled.
-Overhauled has its own C++ implementation and consumes the same dataset
-manifest/profile format through its benchmark adapter. The two repositories
-remain independently buildable; compare results on the same host, compiler
-configuration, data revision, and profile before making performance claims.
+The solver is owned and maintained by YuKKi-OS; Overhauled does not duplicate
+the numerical algorithm. Overhauled consumes the same manifest-described
+records through a BRK2 broker workload adapter and measures broker ingress,
+dispatch, request latency and throughput. It does not solve the eigenproblem.
+This keeps numerical semantics and accuracy validation in one repository
+while preserving an end-to-end execution benchmark in the broker repository.
+The two projects remain independently buildable and have no compile-time
+dependency on one another.
