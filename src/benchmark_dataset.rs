@@ -83,6 +83,9 @@ pub struct BenchmarkProfile {
     pub geometric_tolerance_m: Option<f64>,
     #[serde(default)]
     pub max_turn_degrees: Option<f64>,
+    /// When present, the profile runs only for datasets with a matching domain.
+    #[serde(default)]
+    pub applicable_domains: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +244,13 @@ impl BenchmarkDatasetRunner {
             let (records, source_rows) = load_dataset(dataset, &source)?;
             let load_ms = started.elapsed().as_secs_f64() * 1000.0;
             for profile in &profiles {
+                if profile
+                    .applicable_domains
+                    .as_ref()
+                    .is_some_and(|domains| !domains.iter().any(|domain| domain == &dataset.domain))
+                {
+                    continue;
+                }
                 results.push(run_profile(
                     dataset,
                     profile,
@@ -249,6 +259,11 @@ impl BenchmarkDatasetRunner {
                     load_ms,
                 )?);
             }
+        }
+        if results.is_empty() {
+            return Err(DatasetBenchmarkError::InvalidManifest(
+                "none of the selected benchmark profiles apply to the selected datasets".to_string(),
+            ));
         }
         Ok(results)
     }
@@ -364,6 +379,14 @@ fn validate_manifest(manifest: &DatasetManifest) -> Result<(), DatasetBenchmarkE
         {
             return Err(DatasetBenchmarkError::InvalidManifest(format!(
                 "profile '{}' contains an invalid sample, batch, or worker range",
+                profile.id
+            )));
+        }
+        if profile.applicable_domains.as_ref().is_some_and(|domains| {
+            domains.is_empty() || domains.iter().any(|domain| domain.trim().is_empty() || domain.len() > 64)
+        }) {
+            return Err(DatasetBenchmarkError::InvalidManifest(format!(
+                "profile '{}' applicable_domains must be absent or contain non-empty bounded domain names",
                 profile.id
             )));
         }
