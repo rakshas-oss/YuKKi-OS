@@ -1,4 +1,4 @@
-# YuKKi-OS v6.12.0
+# YuKKi-OS v6.13.0
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
@@ -8,11 +8,11 @@
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
 
-> Proposed release: v6.12.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.13.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.12.0**
+- Release line: **v6.13.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios`**
@@ -25,6 +25,20 @@ The project includes defensive validation in native mesh helpers, FHSS synchroni
 ## What's new in v6.12.0
 
 The proposed v6.12.0 release unifies browser spatial processing with benchmark-led native numerics. The browser-WASM path provides WGS84/ECEF and ENU transforms, Hermite interpolation, a bounded 512-entity store, antimeridian-aware queries, freshness- and distance-constrained observation resolution, and iterative arc–secant–tangent trajectory simplification. Native JSONL manifests drive real multivariate workloads across drone, finance, and environmental data; measured profiles select bounded batch/worker policies rather than generating substitute benchmark datasets. YuKKi-OS also owns a bounded CPU real-symmetric Jacobi eigensolver for 1–64 dimensional covariance/correlation matrices, with sorted eigenvalues, column eigenvectors, residual and orthogonality diagnostics, plus a domain-checked real arcsecant mapping. The `yukki_dataset_bench` and `yukki_eigensolver_bench` tools keep dataset semantics and numerical correctness in YuKKi-OS, while Overhauled remains the separate execution/placement tier. Existing YKMC, BRK1/BRK2, NXR1, and WSM1 contracts are preserved; no GPU/NPU eigensolver acceleration or measured power saving is claimed.
+
+## What's new in v6.13.0
+
+The v6.13.0 candidate adds native multi-module WebAssembly program composition
+and time-weighted spatial replica pools. YuKKi-OS can compile declared core-Wasm
+modules with Wasmtime, validate and link a directed acyclic graph of typed
+function imports, instantiate isolated program replicas, and atomically switch
+a prepared multi-program release. Stateless policies may opt into bounded
+replica pools; a logical affinity key prefers a stable shard while measured
+service time can route around a slower replica. Busy stores are skipped, and
+full saturation returns an explicit ProgramSaturated result rather than
+waiting on a held store lock. This is host-side library functionality, not a
+new CLI or HTTP deployment route. The separate Overhauled repository continues
+to own broker dispatch and accelerator placement.
 
 ## CLI and stream gateway
 
@@ -126,7 +140,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.12.0 .
+docker build -t yukkios:6.13.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
