@@ -28,7 +28,11 @@ POSIX shared memory, futexes, pthread workers, and hardware SIMD are not browser
 APIs. Networked data continues to use the authenticated gateway, existing
 YKMC stream framing, and BRK1/BRK2 plus NXR1/WSM1 at the Overhauled broker
 boundary. The WASM resolver is a local computational primitive, not a new
-transport or authentication mechanism.
+transport or authentication mechanism. The user-facing ingestion workflows
+for drone telemetry, finance/market-site data, environmental monitoring, and
+other multivariate sources are covered in [User how-to](USER_HOWTO_MMO.md).
+Browser-WASM performance measurements run against the compiled module with
+the data-driven harness described in [Benchmarking](BENCHMARKING.md).
 
 ## Build and run locally
 
