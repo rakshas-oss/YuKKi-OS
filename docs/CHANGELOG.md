@@ -2,45 +2,72 @@
 
 ## Unreleased
 
-## v6.11.0 (release candidate; tag pending)
+## v6.12.0 (release candidate; tag pending)
 
-### Browser spatial and spatiotemporal feature set
+### Manifest-driven multivariate datasets and benchmark policy
 
-- Consolidated the existing browser-WASM spatial and motion path in the
-  release documentation: WGS84/ECEF and ENU transforms, Hermite interpolation,
-  a bounded 512-entity store, antimeridian-aware bounding-box queries, and
-  freshness/distance-constrained nearest-observation resolution.
-- Documented the iterative arc–secant–tangent trajectory simplifier, including
-  chord/arc deviation, tangent-turn protection, bounded storage, and
-  retained-point reporting.
-- Added a user how-to showing how the drone manifest can catalogue multivariate
-  sources such as drone telemetry, finance/market-site data, environmental
-  monitoring, and real-estate records. Domain attributes remain in host-side
-  records; the spatial ABI accepts only identity, location, time, and radius.
-- Preserved the separate YuKKi-OS control-plane and Overhauled execution-plane
-  repositories and the existing YKMC, BRK1/BRK2, NXR1, and WSM1 boundaries.
+- Added a bounded native JSON/JSONL manifest pipeline. Source rows and declared
+  feature fields are the benchmark inputs; profiles define warm-up/sample
+  windows, batch sizes, worker counts, objectives, and optional latency limits.
+- Added `yukki_dataset_bench` to run NXR1 encode/decode and domain-scoped
+  geospatial workload measurements across drone, finance, and environmental
+  records. Reports preserve source identity, throughput/latency, working-set
+  estimates, checksums, and the measured candidate selected by each profile.
+- Connected measured dataset recommendations to YuKKi-OS bounded queue-policy
+  APIs without changing broker/protocol wire formats or creating an artificial
+  second dataset.
 
-### Data-driven performance measurement
+### Native symmetric numerics
 
-- Made a versioned JSON fixture the input source for native Criterion suites.
-- Added deterministic synthetic drone, finance-site, and environmental
-  profiles for the browser-WASM benchmark runner, with 16/128/512 entity and
-  path sizes.
-- Added a Node runner that instantiates and measures the actual compiled
-  `wasm32-unknown-unknown` module, including spatial queries, transforms,
-  interpolation, and arc–secant–tangent simplification.
-- Updated CI to run native Criterion measurements and browser-WASM workloads
-  and upload their reports. CI artifacts are diagnostic and do not impose
-  unstable shared-runner performance thresholds.
+- Added a bounded cyclic-Jacobi real-symmetric eigensolver for finite matrices
+  with dimensions 1..=64. It returns ascending eigenvalues, column eigenvectors,
+  residual and orthogonality diagnostics, and explicit failures for invalid,
+  asymmetric, non-finite, overflowed, or non-convergent input.
+- Added a domain-checked real arcsecant mapping, defined only for finite
+  eigenvalues with `|lambda| >= 1`; this mapping is an optional representation,
+  not a replacement for the eigensolver.
+- Added `yukki_eigensolver_bench`, which consumes the same manifest feature
+  fields, builds bounded correlation-matrix batches, measures throughput and
+  P95 latency, and reports numerical quality alongside the selected candidate.
+- Kept the numerical implementation in YuKKi-OS. Overhauled can measure
+  broker/backend execution through its existing adapter and must not duplicate
+  the eigensolver algorithm. No GPU/NPU acceleration or power-opex reduction
+  is claimed by this CPU reference implementation.
 
-### Release metadata and documentation
+### Browser spatial, spatiotemporal, and WASM workflows
 
-- Bumped the Rust package and lockfile root package to `6.11.0`.
-- Aligned README, Docker image metadata, versioning, API, browser, and
-  benchmarking documentation.
-- Kept browser-WASM package versioning and WASI guest artifacts independent.
+- Documented the browser-WASM WGS84/ECEF and ENU transforms, Hermite
+  interpolation, bounded 512-entity store, antimeridian-aware bounding boxes,
+  freshness/distance-constrained nearest-observation resolution, and iterative
+  arc–secant–tangent trajectory simplification.
+- Added a user how-to for the browser spatial panel and the Manifest of Drones
+  schema as a domain-neutral catalogue for drone telemetry, finance/market-site
+  data, environmental mapping, real-estate observations, and similar
+  multivariate sources. Full domain attributes and provenance remain on the
+  host side; the spatial WASM ABI carries only the required spatial identity
+  and time fields.
+- Preserved the separate YuKKi-OS and Overhauled repositories, plus existing
+  YKMC, BRK1/BRK2, NXR1, and WSM1 wire contracts.
 
-## v6.10.0 (previous release)
+### Benchmark infrastructure and release metadata
+
+- Retained fixture-driven Criterion microbenchmarks and the browser-WASM Node
+  runner that instantiates the actual compiled `wasm32-unknown-unknown`
+  module. Native Criterion and browser-WASM CI reports remain diagnostic;
+  shared-host timing thresholds are not used.
+- Bumped the Rust package, root lockfile entry, OCI image label, README,
+  versioning guide, API reference, and version assertion to `6.12.0`.
+- Kept browser-WASM package versioning and the WASI guest artifact independent.
+
+## v6.11.0 (superseded merged candidate; no tag published)
+
+- Integrated the first browser spatial/spatiotemporal and native Criterion
+  fixture candidate.
+- This merged candidate was superseded before release tagging after required
+  CI validation exposed benchmark type, ownership, and formatting defects.
+  No `v6.11.0` release artifact or tag should be treated as published.
+
+## v6.10.0 (last published release before the v6.11.0/v6.12.0 candidates)
 
 ### Event-driven draining, mesh validation, and NXR1 interoperability
 
@@ -70,4 +97,3 @@
 - The origin client uses plain HTTP with bounded I/O and response sizes; use a
   trusted network or TLS-terminating proxy. Origin descriptors omit codec
   metadata, so `OriginChunkClient` reports the codec as `unknown`.
-
