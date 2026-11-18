@@ -40,6 +40,9 @@ pub struct DatasetManifest {
     pub version: u32,
     pub datasets: Vec<DatasetDefinition>,
     pub profiles: Vec<BenchmarkProfile>,
+    /// Optional numerical benchmark profiles consumed by yukki_eigensolver_bench.
+    #[serde(default)]
+    pub eigensolver_profiles: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +300,12 @@ fn validate_manifest(manifest: &DatasetManifest) -> Result<(), DatasetBenchmarkE
     if manifest.profiles.is_empty() || manifest.profiles.len() > MAX_PROFILES {
         return Err(DatasetBenchmarkError::InvalidManifest(format!(
             "profile count must be 1..={MAX_PROFILES}"
+        )));
+    }
+
+    if manifest.eigensolver_profiles.len() > MAX_PROFILES {
+        return Err(DatasetBenchmarkError::InvalidManifest(format!(
+            "eigensolver profile count must not exceed {MAX_PROFILES}"
         )));
     }
 
