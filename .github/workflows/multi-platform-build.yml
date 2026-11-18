@@ -228,6 +228,20 @@ jobs:
             throw new Error("WASM arc-secant-tangent simplification did not preserve the sharp turn");
           }
           NODE
+      - name: Run data-driven browser WASM microbenchmarks
+        run: |
+          node browser-wasm/bench/run.mjs \
+            --dataset browser-wasm/bench/datasets/multivariate-v1.json \
+            --iterations 6 \
+            --operations 32 \
+            --output browser-wasm-benchmark.json
+      - name: Upload browser WASM benchmark report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: yukkios-browser-wasm-benchmark
+          path: browser-wasm-benchmark.json
+          if-no-files-found: ignore
       - name: Assemble static browser application
         run: |
           mkdir -p dist

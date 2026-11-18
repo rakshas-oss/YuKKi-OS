@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "dataset_id": "yukkios-browser-spatiotemporal-v1",
+  "synthetic": true,
+  "description": "Deterministic generated benchmark fixtures. Domain attributes remain host-side; only id, WGS84 position, altitude, timestamp and radius are passed to the WASM spatial ABI.",
+  "limits": {
+    "max_entities": 512,
+    "max_path_points": 512,
+    "benchmark_sizes": [
+      16,
+      128,
+      512
+    ]
+  },
+  "runner_defaults": {
+    "iterations": 12,
+    "operations_per_sample": 64,
+    "maximum_observation_age_ns": "86400000000000",
+    "maximum_distance_m": 100000,
+    "bounding_box_padding_degrees": 0.1,
+    "path_shape": "north_then_east",
+    "path_step_degrees": 0.0001,
+    "path_tolerance_m": 5,
+    "path_max_turn_degrees": 35
+  },
+  "datasets": [
+    {
+      "id": "drone-telemetry",
+      "domain": "drone",
+      "description": "Synthetic UAV fleet observations and operational metadata.",
+      "seed": 11,
+      "origin": {
+        "latitude_deg": 43.6532,
+        "longitude_deg": -79.3832,
+        "altitude_m": 110
+      },
+      "grid_step_degrees": 0.00016,
+      "jitter_degrees": 0.000015,
+      "base_timestamp_ns": "1795000000000000000",
+      "timestamp_interval_ns": "1000000000",
+      "radius_m": 8,
+      "attributes": [
+        {
+          "name": "battery_pct",
+          "kind": "linear",
+          "base": 98,
+          "step": -0.035,
+          "unit": "percent"
+        },
+        {
+          "name": "ground_speed_mps",
+          "kind": "linear",
+          "base": 4.2,
+          "step": 0.012,
+          "unit": "m/s"
+        },
+        {
+          "name": "payload_kg",
+          "kind": "linear",
+          "base": 1.2,
+          "step": 0.001,
+          "unit": "kg"
+        },
+        {
+          "name": "mission_phase",
+          "kind": "categorical",
+          "values": [
+            "transit",
+            "survey",
+            "return"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "finance-market-sites",
+      "domain": "finance",
+      "description": "Synthetic geotagged exchange, branch and commodity-site observations; not market prices or investment data.",
+      "seed": 23,
+      "origin": {
+        "latitude_deg": 40.7128,
+        "longitude_deg": -74.006,
+        "altitude_m": 12
+      },
+      "grid_step_degrees": 0.00011,
+      "jitter_degrees": 0.00001,
+      "base_timestamp_ns": "1795001000000000000",
+      "timestamp_interval_ns": "5000000000",
+      "radius_m": 15,
+      "attributes": [
+        {
+          "name": "indicative_price",
+          "kind": "linear",
+          "base": 100,
+          "step": 0.014,
+          "unit": "synthetic quote units"
+        },
+        {
+          "name": "volume",
+          "kind": "linear",
+          "base": 1000,
+          "step": 17,
+          "unit": "synthetic units"
+        },
+        {
+          "name": "spread_bps",
+          "kind": "linear",
+          "base": 2.5,
+          "step": 0.002,
+          "unit": "basis points"
+        },
+        {
+          "name": "venue",
+          "kind": "categorical",
+          "values": [
+            "venue-a",
+            "venue-b",
+            "venue-c"
+          ]
+        },
+        {
+          "name": "currency",
+          "kind": "constant",
+          "value": "USD"
+        }
+      ]
+    },
+    {
+      "id": "environmental-sensors",
+      "domain": "environmental",
+      "description": "Synthetic weather, air-quality and water-monitoring station observations.",
+      "seed": 37,
+      "origin": {
+        "latitude_deg": 37.7749,
+        "longitude_deg": -122.4194,
+        "altitude_m": 18
+      },
+      "grid_step_degrees": 0.00019,
+      "jitter_degrees": 0.00002,
+      "base_timestamp_ns": "1795002000000000000",
+      "timestamp_interval_ns": "30000000000",
+      "radius_m": 25,
+      "attributes": [
+        {
+          "name": "temperature_c",
+          "kind": "linear",
+          "base": 18.5,
+          "step": 0.008,
+          "unit": "degC"
+        },
+        {
+          "name": "pm25_ug_m3",
+          "kind": "linear",
+          "base": 6.2,
+          "step": 0.025,
+          "unit": "ug/m3"
+        },
+        {
+          "name": "water_level_m",
+          "kind": "linear",
+          "base": 1.4,
+          "step": 0.0008,
+          "unit": "m"
+        },
+        {
+          "name": "quality_flag",
+          "kind": "categorical",
+          "values": [
+            "valid",
+            "review",
+            "valid",
+            "valid"
+          ]
+        },
+        {
+          "name": "calibration_revision",
+          "kind": "constant",
+          "value": "cal-2026-01"
+        }
+      ]
+    }
+  ]
+}

@@ -57,10 +57,15 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run benchmarks
-        run: cargo bench --no-run
-      - name: Display benchmark binaries
-        run: find target/release/deps -maxdepth 1 -name "*.d" | head -10
+      - name: Run data-driven native Criterion measurements
+        run: cargo bench --locked -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+      - name: Upload native Criterion reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: yukkios-native-criterion
+          path: target/criterion/
+          if-no-files-found: ignore
 
   metrics:
     name: Code Metrics
