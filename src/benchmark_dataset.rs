@@ -79,6 +79,10 @@ pub struct BenchmarkProfile {
     pub worker_counts: Vec<usize>,
     #[serde(default)]
     pub max_p95_batch_ms: Option<f64>,
+    #[serde(default)]
+    pub geometric_tolerance_m: Option<f64>,
+    #[serde(default)]
+    pub max_turn_degrees: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +100,9 @@ pub struct CandidateMetrics {
     pub estimated_peak_working_set_bytes: u64,
     pub encoded_bytes: u64,
     pub checksum: u64,
+    pub geometry_input_points: usize,
+    pub geometry_output_points: usize,
+    pub geometry_reduction_percent: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,6 +381,15 @@ fn validate_manifest(manifest: &DatasetManifest) -> Result<(), DatasetBenchmarkE
                 profile.id
             )));
         }
+        if profile.objective == BenchmarkObjective::Geospatial
+            && (profile.geometric_tolerance_m.is_none_or(|value| !value.is_finite() || value < 0.0)
+                || profile.max_turn_degrees.is_none_or(|value| !value.is_finite() || value <= 0.0 || value > 180.0))
+        {
+            return Err(DatasetBenchmarkError::InvalidManifest(format!(
+                "geospatial profile '{}' requires a non-negative geometric_tolerance_m and max_turn_degrees in (0, 180]",
+                profile.id
+            )));
+        }
     }
     Ok(())
 }
@@ -589,7 +605,7 @@ fn run_profile(
     let mut candidates = Vec::new();
     for batch_size in &profile.batch_sizes {
         for workers in &profile.worker_counts {
-            candidates.push(measure_candidate(&sample, *batch_size, *workers)?);
+            candidates.push(measure_candidate(&sample, *batch_size, *workers, profile)?);
         }
     }
     let eligible: Vec<&CandidateMetrics> = candidates
@@ -627,6 +643,7 @@ fn measure_candidate(
     records: &[DatasetRecord],
     batch_size: usize,
     workers: usize,
+    profile: &BenchmarkProfile,
 ) -> Result<CandidateMetrics, DatasetBenchmarkError> {
     let batch_count = records.len().div_ceil(batch_size);
     let worker_count = workers.min(batch_count).max(1);
@@ -634,6 +651,8 @@ fn measure_candidate(
     let encoded_bytes = AtomicU64::new(0);
     let checksum = AtomicU64::new(0);
     let latencies = Mutex::new(Vec::<u64>::with_capacity(batch_count));
+    let geometry_input_points = AtomicUsize::new(0);
+    let geometry_output_points = AtomicUsize::new(0);
     let max_record_bytes = records
         .iter()
         .map(|record| record.raw_json.len())
@@ -663,14 +682,20 @@ fn measure_candidate(
                         let decoded = Nxr1Frame::decode(&bytes)
                             .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
                         local_bytes = local_bytes.saturating_add(bytes.len() as u64);
-                        local_checksum ^= decoded.seq_id
-                            ^ records[begin..end]
-                                .iter()
-                                .find(|record| record.sequence == decoded.seq_id)
-                                .map(|record| record.timestamp_ns)
-                                .unwrap_or(0)
-                            ^ decoded.payload.len() as u64;
+                        local_checksum ^= decoded.seq_id ^ record.timestamp_ns ^ decoded.payload.len() as u64;
                         std::hint::black_box(decoded);
+                    }
+                    if profile.objective == BenchmarkObjective::Geospatial {
+                        let tolerance = profile.geometric_tolerance_m.unwrap_or(0.0);
+                        let max_turn = profile.max_turn_degrees.unwrap_or(45.0);
+                        let path = records[begin..end]
+                            .iter()
+                            .map(|record| to_ecef(record.position.expect("geospatial profile requires positions")))
+                            .collect::<Vec<_>>();
+                        let retained = simplify_arc_secant_tangent(&path, tolerance, max_turn);
+                        geometry_input_points.fetch_add(path.len(), Ordering::Relaxed);
+                        geometry_output_points.fetch_add(retained, Ordering::Relaxed);
+                        local_checksum ^= retained as u64;
                     }
                     encoded_bytes.fetch_add(local_bytes, Ordering::Relaxed);
                     checksum.fetch_xor(local_checksum, Ordering::Relaxed);
@@ -721,7 +746,125 @@ fn measure_candidate(
         estimated_peak_working_set_bytes,
         encoded_bytes: encoded_bytes.load(Ordering::Relaxed),
         checksum: checksum.load(Ordering::Relaxed),
+        geometry_input_points: geometry_input_points.load(Ordering::Relaxed),
+        geometry_output_points: geometry_output_points.load(Ordering::Relaxed),
+        geometry_reduction_percent: {
+            let input = geometry_input_points.load(Ordering::Relaxed);
+            let output = geometry_output_points.load(Ordering::Relaxed);
+            if input == 0 { 0.0 } else { 100.0 * input.saturating_sub(output) as f64 / input as f64 }
+        },
     })
+}
+
+
+#[derive(Clone, Copy)]
+struct EcefPoint {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+fn to_ecef([longitude, latitude, altitude]: [f64; 3]) -> EcefPoint {
+    const A: f64 = 6_378_137.0;
+    const E2: f64 = 0.006_694_379_990_14;
+    let latitude = latitude.to_radians();
+    let longitude = longitude.to_radians();
+    let (sin_lat, cos_lat) = latitude.sin_cos();
+    let (sin_lon, cos_lon) = longitude.sin_cos();
+    let n = A / (1.0 - E2 * sin_lat * sin_lat).sqrt();
+    EcefPoint {
+        x: (n + altitude) * cos_lat * cos_lon,
+        y: (n + altitude) * cos_lat * sin_lon,
+        z: (n * (1.0 - E2) + altitude) * sin_lat,
+    }
+}
+
+fn subtract(a: EcefPoint, b: EcefPoint) -> EcefPoint {
+    EcefPoint { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
+}
+
+fn dot(a: EcefPoint, b: EcefPoint) -> f64 {
+    a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+fn distance(a: EcefPoint, b: EcefPoint) -> f64 {
+    let delta = subtract(a, b);
+    dot(delta, delta).sqrt()
+}
+
+/// Iterative arc/secant/tangent reducer. Arc excess and perpendicular secant
+/// distance bound geometric error; a separate tangent guard preserves turns.
+fn simplify_arc_secant_tangent(
+    points: &[EcefPoint],
+    tolerance_m: f64,
+    max_turn_degrees: f64,
+) -> usize {
+    if points.len() <= 2 {
+        return points.len();
+    }
+    let mut keep = vec![false; points.len()];
+    keep[0] = true;
+    keep[points.len() - 1] = true;
+    let cosine_limit = max_turn_degrees.to_radians().cos();
+    let tolerance = tolerance_m.max(1.0e-9);
+    let mut stack = vec![(0usize, points.len() - 1)];
+
+    while let Some((start, end)) = stack.pop() {
+        if end <= start + 1 {
+            continue;
+        }
+        let a = points[start];
+        let b = points[end];
+        let chord = subtract(b, a);
+        let chord_sq = dot(chord, chord);
+        let chord_len = chord_sq.sqrt();
+        let mut worst_score = 1.0;
+        let mut worst_index = None;
+
+        for index in (start + 1)..end {
+            let point = points[index];
+            let from_start = subtract(point, a);
+            let to_end = subtract(b, point);
+            let projection = if chord_sq > 1.0e-18 {
+                (dot(from_start, chord) / chord_sq).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let nearest = EcefPoint {
+                x: a.x + chord.x * projection,
+                y: a.y + chord.y * projection,
+                z: a.z + chord.z * projection,
+            };
+            let perpendicular = distance(point, nearest);
+            let left_len = dot(from_start, from_start).sqrt();
+            let right_len = dot(to_end, to_end).sqrt();
+            let arc_excess = (left_len + right_len - chord_len).max(0.0);
+            let distance_score = perpendicular.max(arc_excess * 0.5) / tolerance;
+            let tangent_cosine = if left_len > 1.0e-9 && right_len > 1.0e-9 {
+                dot(from_start, to_end) / (left_len * right_len)
+            } else {
+                1.0
+            };
+            let tangent_score = if tangent_cosine < cosine_limit {
+                2.0 + (cosine_limit - tangent_cosine).max(0.0)
+                    + left_len.min(right_len) / (left_len.min(right_len) + tolerance)
+            } else {
+                0.0
+            };
+            let score = distance_score.max(tangent_score);
+            if score > worst_score {
+                worst_score = score;
+                worst_index = Some(index);
+            }
+        }
+
+        if let Some(split) = worst_index {
+            keep[split] = true;
+            stack.push((start, split));
+            stack.push((split, end));
+        }
+    }
+    keep.into_iter().filter(|retain| *retain).count()
 }
 
 fn percentile_ms(sorted_ns: &[u64], percentile: f64) -> f64 {
@@ -834,7 +977,9 @@ mod tests {
                 "sample_records": 3,
                 "batch_sizes": [1, 2],
                 "worker_counts": [1, 2],
-                "max_p95_batch_ms": 1000.0
+                "max_p95_batch_ms": 1000.0,
+                "geometric_tolerance_m": 2.0,
+                "max_turn_degrees": 30.0
             }]
         });
         fs::write(root.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
