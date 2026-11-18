@@ -56,7 +56,7 @@ async function loadWasm() {
   const bytes = await response.arrayBuffer();
   const result = await WebAssembly.instantiate(bytes, {});
   wasm = result.instance.exports;
-  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc"]) {
+  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc", "adi_mmo_reset", "adi_mmo_entity_count", "adi_mmo_upsert_entity", "adi_mmo_entity_id", "adi_mmo_entity_lat", "adi_mmo_entity_lon", "adi_mmo_entity_alt", "adi_mmo_entity_timestamp_ns", "adi_mmo_resolve_nearest", "adi_mmo_wgs84_to_ecef", "adi_mmo_simplify_reset", "adi_mmo_simplify_push_wgs84", "adi_mmo_simplify_run", "adi_mmo_simplify_output_count", "adi_mmo_simplify_output_index", "adi_mmo_simplify_output_lat", "adi_mmo_simplify_output_lon", "adi_mmo_simplify_output_alt"]) {
     if (!(name in wasm)) throw new Error("Browser verifier is missing export: " + name);
   }
 }
@@ -397,6 +397,160 @@ chunkForm.addEventListener("submit", (event) => {
 });
 autoRefreshInput.addEventListener("change", updatePolling);
 
+const mmoForm = $("mmo-form");
+const mmoResolveForm = $("mmo-resolve-form");
+const mmoResetButton = $("mmo-reset");
+const mmoStatus = $("mmo-status");
+const mmoEntityList = $("mmo-entity-list");
+const mmoSimplifyForm = $("mmo-simplify-form");
+const mmoSimplifyStatus = $("mmo-simplify-status");
+const mmoSimplifyList = $("mmo-simplify-list");
+
+function wasmVec3(pointer) {
+  if (!pointer) throw new Error("WASM rejected the coordinate input.");
+  // The output is a short-lived view into one shared result slot: copy it now.
+  return Array.from(new Float64Array(wasm.memory.buffer, pointer, 3));
+}
+
+function renderMmoEntities() {
+  mmoEntityList.replaceChildren();
+  mmoSimplifyList.replaceChildren();
+  wasm.adi_mmo_simplify_reset();
+  const count = wasm.adi_mmo_entity_count();
+  if (count === 0) {
+    const empty = document.createElement("li");
+    empty.className = "muted";
+    empty.textContent = "No local entities loaded.";
+    mmoEntityList.append(empty);
+    const noPath = document.createElement("li");
+    noPath.className = "muted";
+    noPath.textContent = "No simplified path yet.";
+    mmoSimplifyList.append(noPath);
+    setStatus(mmoSimplifyStatus, "Add at least two entities to simplify a path.");
+    return;
+  }
+
+  for (let index = 0; index < count; index += 1) {
+    const id = wasm.adi_mmo_entity_id(index);
+    const lat = wasm.adi_mmo_entity_lat(index);
+    const lon = wasm.adi_mmo_entity_lon(index);
+    const alt = wasm.adi_mmo_entity_alt(index);
+    const timestamp = wasm.adi_mmo_entity_timestamp_ns(index);
+    const pathStatus = wasm.adi_mmo_simplify_push_wgs84(lat, lon, alt);
+    if (pathStatus !== 0) throw new Error("Unable to stage path coordinate in WASM (code " + pathStatus + ").");
+    const ecef = wasmVec3(wasm.adi_mmo_wgs84_to_ecef(lat, lon, alt));
+    const item = document.createElement("li");
+    item.textContent = [
+      "Entity " + id,
+      "WGS84 " + lat.toFixed(6) + ", " + lon.toFixed(6) + ", " + alt.toFixed(1) + " m",
+      "ECEF " + ecef.map((value) => value.toFixed(1)).join(", ") + " m",
+      "observed " + timestamp.toString() + " ns"
+    ].join(" · ");
+    mmoEntityList.append(item);
+  }
+}
+
+mmoSimplifyForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const tolerance = Number($("mmo-simplify-tolerance").value);
+  const maxTurn = Number($("mmo-simplify-turn").value);
+  if (!Number.isFinite(tolerance) || tolerance < 0 ||
+      !Number.isFinite(maxTurn) || maxTurn <= 0 || maxTurn > 180) {
+    setStatus(mmoSimplifyStatus, "Enter a non-negative error tolerance and a turn limit from 1 to 180 degrees.", "error");
+    return;
+  }
+  const inputCount = wasm.adi_mmo_simplify_input_count();
+  if (inputCount < 2) {
+    setStatus(mmoSimplifyStatus, "At least two ordered entity observations are required.", "error");
+    return;
+  }
+  const result = wasm.adi_mmo_simplify_run(tolerance, maxTurn);
+  if (result < 0) {
+    setStatus(mmoSimplifyStatus, "WASM path simplification failed (code " + result + ").", "error");
+    return;
+  }
+  const outputCount = wasm.adi_mmo_simplify_output_count();
+  mmoSimplifyList.replaceChildren();
+  for (let outputIndex = 0; outputIndex < outputCount; outputIndex += 1) {
+    const originalIndex = wasm.adi_mmo_simplify_output_index(outputIndex);
+    const item = document.createElement("li");
+    item.textContent = [
+      "Retained point " + originalIndex,
+      wasm.adi_mmo_simplify_output_lat(outputIndex).toFixed(6) + ", " +
+        wasm.adi_mmo_simplify_output_lon(outputIndex).toFixed(6),
+      wasm.adi_mmo_simplify_output_alt(outputIndex).toFixed(1) + " m"
+    ].join(" · ");
+    mmoSimplifyList.append(item);
+  }
+  const reduction = inputCount === 0 ? 0 : (100 * (inputCount - outputCount) / inputCount);
+  setStatus(mmoSimplifyStatus, outputCount + " of " + inputCount +
+    " points retained (" + reduction.toFixed(1) + "% fewer). Tolerance: " +
+    tolerance + " m; maximum tangent turn: " + maxTurn + "°.");
+});
+
+mmoForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const id = Number($("mmo-entity-id").value);
+  const lat = Number($("mmo-lat").value);
+  const lon = Number($("mmo-lon").value);
+  const alt = Number($("mmo-alt").value);
+  if (!Number.isSafeInteger(id) || id < 0 || id >= 0xffffffff ||
+      !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(alt)) {
+    setStatus(mmoStatus, "Entity ID or coordinates are outside the accepted range.", "error");
+    return;
+  }
+  const status = wasm.adi_mmo_upsert_entity(
+    id, lat, lon, alt, BigInt(Date.now()) * 1000000n, 0
+  );
+  if (status !== 0) {
+    setStatus(mmoStatus, status === -2 ? "The 512-entity browser store is full." : "WASM rejected the entity (code " + status + ").", "error");
+    return;
+  }
+  try {
+    renderMmoEntities();
+    const ecef = wasmVec3(wasm.adi_mmo_wgs84_to_ecef(lat, lon, alt));
+    setStatus(mmoStatus, "Entity " + id + " stored in WASM. ECEF: " + ecef.map((value) => value.toFixed(2)).join(", ") + " m.");
+  } catch (error) {
+    setStatus(mmoStatus, error.message || "Unable to render the entity.", "error");
+  }
+});
+
+mmoResolveForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const lat = Number($("mmo-query-lat").value);
+  const lon = Number($("mmo-query-lon").value);
+  const alt = Number($("mmo-query-alt").value);
+  const maxAgeMs = Number($("mmo-max-age").value);
+  const maxDistance = Number($("mmo-max-distance").value);
+  if (![lat, lon, alt, maxAgeMs, maxDistance].every(Number.isFinite) ||
+      maxAgeMs < 0 || maxAgeMs > 86400000 || maxDistance < 0) {
+    setStatus(mmoStatus, "Query coordinates, age, or distance are invalid.", "error");
+    return;
+  }
+  const nowNs = BigInt(Date.now()) * 1000000n;
+  const index = wasm.adi_mmo_resolve_nearest(
+    lat, lon, alt, nowNs, BigInt(Math.trunc(maxAgeMs)) * 1000000n, maxDistance
+  );
+  if (index === 0xffffffff) {
+    setStatus(mmoStatus, "No observation matched the spatial, temporal, and distance constraints.", "error");
+    return;
+  }
+  const id = wasm.adi_mmo_entity_id(index);
+  const matchedLat = wasm.adi_mmo_entity_lat(index);
+  const matchedLon = wasm.adi_mmo_entity_lon(index);
+  const matchedAlt = wasm.adi_mmo_entity_alt(index);
+  const observedAt = wasm.adi_mmo_entity_timestamp_ns(index);
+  setStatus(mmoStatus, "Resolved entity " + id + " at " +
+    matchedLat.toFixed(6) + ", " + matchedLon.toFixed(6) + ", " +
+    matchedAlt.toFixed(1) + " m; observation timestamp " + observedAt.toString() + " ns.");
+});
+
+mmoResetButton.addEventListener("click", () => {
+  wasm.adi_mmo_reset();
+  renderMmoEntities();
+  setStatus(mmoStatus, "Local WASM entity store cleared.");
+});
+
 window.addEventListener("pagehide", () => {
   stopPolling();
   bearerToken = "";
@@ -406,7 +560,9 @@ window.addEventListener("pagehide", () => {
 (async () => {
   try {
     await loadWasm();
-    setStatus(connectionStatus, "Rust WebAssembly verifier ready. Enter gateway credentials to connect.");
+    setStatus(connectionStatus, "Rust WebAssembly verifier and MMO spatial core ready. Enter gateway credentials to connect.");
+    setStatus(mmoStatus, "WASM spatial resolver ready. Add a WGS84 observation to begin.");
+    renderMmoEntities();
   } catch (error) {
     connectButton.disabled = true;
     setStatus(connectionStatus, error.message || "Browser verifier failed to initialize.", "error");

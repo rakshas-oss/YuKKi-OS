@@ -4,6 +4,9 @@
 //! This crate intentionally has no dependency on the native node, Tokio,
 //! Axum, Wasmtime, or a JavaScript binding generator.
 
+/// Bounded geospatial, motion, and spatiotemporal primitives for browser WASM.
+pub mod mmo;
+
 pub const YKMC_HEADER_LEN: usize = 31;
 pub const MAX_STREAM_ID_BYTES: usize = 128;
 pub const MAX_CODEC_BYTES: usize = 64;
