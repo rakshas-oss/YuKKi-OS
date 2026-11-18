@@ -39,8 +39,8 @@ fn make_frame(config: &Value) -> SpatiotemporalFrame {
         u: velocity[0],
         v: velocity[1],
         w: velocity[2],
-        fluidity: config["fluidity"].as_f64().expect("fluidity"),
-        drag: config["drag"].as_f64().expect("drag"),
+        fluidity: config["fluidity"].as_f64().expect("fluidity") as f32,
+        drag: config["drag"].as_f64().expect("drag") as f32,
         divergence: config["divergence"].as_f64().expect("divergence"),
         payload: [payload_byte; 16],
     }
