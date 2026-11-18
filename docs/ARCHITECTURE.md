@@ -141,15 +141,15 @@ or equivalent deployment boundary.
 
 ## Browser spatial and motion runtime
 
-The separate \`browser-wasm/\` application builds a dependency-free Rust
-module for \`wasm32-unknown-unknown\`. It is not a browser build of the native
+The separate `browser-wasm/` application builds a dependency-free Rust
+module for `wasm32-unknown-unknown`. It is not a browser build of the native
 node, the Wasmtime guest runtime, or a network service.
 
-- \`browser-wasm/src/lib.rs\` validates exact YKMC v1 media-chunk framing:
+- `browser-wasm/src/lib.rs` validates exact YKMC v1 media-chunk framing:
   magic/version, audio/video type, flags, UTF-8 metadata, frame lengths and
   configured size bounds. Media payloads remain opaque; no codec decoding or
   transcoding occurs.
-- \`browser-wasm/src/mmo.rs\` provides WGS84/ECEF and WGS84/ENU transforms,
+- `browser-wasm/src/mmo.rs` provides WGS84/ECEF and WGS84/ENU transforms,
   ENU-to-ECEF conversion, cubic Hermite interpolation, a fixed 512-entity
   spatial store, inclusive WGS84 bounding-box queries, and
   freshness/distance-constrained nearest-observation resolution.
@@ -158,12 +158,12 @@ node, the Wasmtime guest runtime, or a network service.
   forces splits at sharp turns. It is intended for ordered trajectories and
   non-safety-critical display or summarization, not flight guidance or
   topology-preserving polygon generalization.
-- \`browser-wasm/app.js\` owns browser HTTP, credentials, forms and rendering.
+- `browser-wasm/app.js` owns browser HTTP, credentials, forms and rendering.
   The WASM module does not open sockets or access browser APIs. Sample spatial
   entities remain in browser WASM memory and are not automatically uploaded to
   the gateway or Overhauled.
 
-The browser spatial store retains an optional \`radius_m\` value, but the
+The browser spatial store retains an optional `radius_m` value, but the
 current nearest resolver does not use it as a match constraint. It compares
 candidate ECEF distance directly against the supplied maximum distance. The
 bounding-box and nearest-observation operations are bounded linear scans, not
@@ -178,8 +178,8 @@ the current gateway WebSocket endpoint. See [BROWSER_WASM.md](BROWSER_WASM.md),
 
 ## Native multivariate datasets and benchmark policy
 
-The native dataset runner is implemented in \`src/benchmark_dataset.rs\` and
-exposed by the \`yukki_dataset_bench\` binary. Its version-1 benchmark manifest
+The native dataset runner is implemented in `src/benchmark_dataset.rs` and
+exposed by the `yukki_dataset_bench` binary. Its version-1 benchmark manifest
 selects JSONL sources, sequence/timestamp fields, optional geographic fields,
 numeric feature mappings, and benchmark profiles.
 
@@ -188,7 +188,7 @@ deterministic sample, batch sizes, worker counts, objective, optional P95
 latency ceiling, and optional geospatial simplification settings. The report
 contains candidate measurements and a recommended batch/worker configuration.
 The selected product is used to derive a bounded queue policy and can be used
-by \`SpatiotemporalPayloadResolver::register_benchmarked_destination\` to
+by `SpatiotemporalPayloadResolver::register_benchmarked_destination` to
 register an actual bounded component queue.
 
 The native loader is bounded (including manifest, dataset, record, row-count,
@@ -201,12 +201,12 @@ profile.
 
 There are two distinct manifest contracts:
 
-- \`schemas/multivariate-datasource-manifest.schema.json\` describes
+- `schemas/multivariate-datasource-manifest.schema.json` describes
   application-level heterogeneous sources, variables, units, temporal/spatial
   semantics, provenance, quality and access-policy references.
-- \`examples/benchmark-datasets/manifest.json\` is the concrete version-1
-  input consumed by \`yukki_dataset_bench\` and
-  \`yukki_eigensolver_bench\`. It names JSONL files and benchmark field
+- `examples/benchmark-datasets/manifest.json` is the concrete version-1
+  input consumed by `yukki_dataset_bench` and
+  `yukki_eigensolver_bench`. It names JSONL files and benchmark field
   mappings.
 
 The general data-source schema is not directly consumed by the native
@@ -217,19 +217,19 @@ provenance, units, quality flags and original attributes.
 ## Native symmetric eigensolver
 
 YuKKi-OS owns a CPU cyclic-Jacobi implementation in
-\`src/symmetric_eigen.rs\`. It accepts finite real-symmetric row-major
+`src/symmetric_eigen.rs`. It accepts finite real-symmetric row-major
 matrices with dimensions 1..=64 and returns ascending eigenvalues, column
 eigenvectors, relative residual, orthogonality error and sweep count. It
 rejects invalid dimensions, lengths, non-finite values, material asymmetry,
 invalid options, non-convergence and numerical overflow.
 
-The separate \`yukki_eigensolver_bench\` binary reads
-\`eigensolver_profiles\` from the native benchmark manifest, constructs
+The separate `yukki_eigensolver_bench` binary reads
+`eigensolver_profiles` from the native benchmark manifest, constructs
 bounded correlation-matrix workloads from the declared feature fields, and
 reports solver throughput, latency and numerical diagnostics. This is a
 small/medium covariance/correlation analysis primitive, not a general
 complex or non-symmetric eigensolver. It does not claim GPU/NPU acceleration.
-The real \`arcsecant\` helper is a domain-checked mapping, not an eigensolver.
+The real `arcsecant` helper is a domain-checked mapping, not an eigensolver.
 
 See [BENCHMARK_DRIVEN_DATASETS.md](BENCHMARK_DRIVEN_DATASETS.md),
 [BENCHMARKING.md](BENCHMARKING.md), and [API.md](API.md) for operational
