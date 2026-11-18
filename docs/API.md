@@ -1,4 +1,4 @@
-# YuKKi OS v6.12.0 — API and ABI Reference
+# YuKKi OS v6.13.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -245,3 +245,44 @@ cargo run --release --bin yukki_eigensolver_bench -- \
 See [Benchmark-driven datasets](BENCHMARK_DRIVEN_DATASETS.md) for manifest
 semantics, workload objectives, geospatial handling, solver limits, and
 validation guidance.
+
+
+## Native composed WebAssembly program API
+
+The `wasm_composition` module exposes the host-side `CompositionRuntime`.
+It is distinct from the one-module `RustasmSandbox`, restricted inference
+guest-worker ABI, `ModuleLifecycleManager` version-replacement API,
+browser-WASM app and Overhauled's WSM1 broker lifecycle.
+
+- `CompositionRuntime::prepare_json(manifest, artifacts)` validates the
+  versioned manifest, compiles/caches module bytes by SHA-256, checks the
+  function-import DAG and exact signatures, and prepares every declared
+  program and replica before activation.
+- `CompositionRuntime::activate(prepared)` atomically replaces the
+  process-local deployment routing map. Preparation errors leave the
+  previous release active; already admitted calls retain the old program set
+  until completion.
+- `call(deployment_id, program_id, args)` ranks replicas by measured
+  service-time estimate. `call_with_spatial_key(..., key)` adds a stable
+  application-defined affinity key. `replica_metrics` exposes per-replica
+  timing and active/completed call counts.
+- Composition v1 links core-Wasm function imports only. It rejects cyclic
+  graphs, unbound namespaces, imported memory/global/table/tag resources,
+  WASI and implicit host imports. A program entrypoint accepts at most eight
+  i32 arguments and returns one i32.
+- The default is one stateful replica. Multi-replica execution requires
+  `stateless: true`; each replica has an independent Wasmtime Store, memory
+  and globals. Default ceilings are eight replicas per program and 32 per
+  deployment, with a 256-entry process-local compiled-module cache.
+- The time-weighted scheduler starts with a 1 ms estimate and updates using a
+  7/8 prior + 1/8 latest-sample EWMA. A non-preferred logical shard incurs a
+  25% locality penalty; measured service time can override locality. Busy
+  Stores are skipped; full saturation returns
+  `CompositionError::ProgramSaturated` without waiting on a busy Store.
+
+The spatial key is an application-defined logical partition hint, not
+geographic routing or physical NUMA pinning. Fuel is an instruction budget,
+not a wall-clock deadline. The API has no built-in CLI or HTTP deployment
+endpoint; the embedding application owns artifact delivery, authorization and
+the host call path. See [WASM program composition](WASM_PROGRAM_COMPOSITION.md)
+for the manifest and end-to-end Rust example.
