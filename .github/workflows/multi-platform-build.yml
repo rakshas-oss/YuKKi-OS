@@ -155,14 +155,6 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Ensure browser WASM target is installed
         run: rustup target add wasm32-unknown-unknown
-      - name: Format browser MMO Rust source
-        run: cargo fmt --manifest-path browser-wasm/Cargo.toml
-      - name: Export formatted MMO source for integration
-        uses: actions/upload-artifact@v7
-        with:
-          name: formatted-browser-mmo-source
-          path: browser-wasm/src/mmo.rs
-          if-no-files-found: error
       - name: Check browser Rust formatting
         run: cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
       - name: Check browser JavaScript syntax
