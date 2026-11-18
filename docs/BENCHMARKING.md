@@ -1,193 +1,231 @@
 # Benchmarking YuKKi-OS
 
-This guide describes the benchmark targets present on `main`, how to run
-repeatable native measurements, and what is (and is not) measured by CI.
-It also gives a measurement plan for the browser-WASM spatial core. The
-browser-WASM plan is not an implemented performance harness and must not be
-reported as measured results.
+This guide describes the native Criterion suites and the browser-WASM
+measurement runner on the v6.11.0 release branch. Benchmark inputs are
+fixture-driven: source datasets live in versioned JSON files, and benchmark
+code consumes those fixtures instead of maintaining independent hard-coded
+sample values.
 
-## 1. Current benchmark inventory
+## 1. Benchmark datasets are the source of truth
+
+### Native Criterion fixture
+
+`benches/datasets/native-v1.json` drives all three native Criterion targets:
+
+- `spatiotemporal_frame_construction` reads the frame values and fixed payload.
+- NXR1 encode/decode and resolver dispatch read their frame, payload size,
+  sequence, and route configuration from the same fixture.
+- X25519 and ChaCha20-Poly1305 measurements read test keys, nonce bytes,
+  message bytes, and payload sizes from the fixture.
+
+The Rust benchmark sources load it using `include_str!`; changing the fixture
+changes benchmark input without editing the measurement loops. The crypto
+material is deterministic and test-only. Never reuse its keys or nonce values
+in production.
+
+### Browser-WASM multivariate fixture
+
+`browser-wasm/bench/datasets/multivariate-v1.json` defines deterministic
+synthetic profiles for:
+
+- drone telemetry (battery, speed, payload, mission phase);
+- finance-site observations (indicative synthetic price, volume, spread,
+  venue, currency); and
+- environmental sensors (temperature, particulate concentration, water
+  level, quality and calibration metadata).
+
+The manifest also sets the supported sample sizes (16, 128, and 512), time
+intervals, spatial origins, attribute generators, and path-simplification
+parameters. `browser-wasm/bench/run.mjs` materializes records from that
+manifest and passes only stable ID, WGS84 location, altitude, timestamp, and
+radius through the WASM spatial ABI. Domain attributes stay in host-side
+records and are identified in the report.
+
+These profiles are synthetic test fixtures, not observations from actual
+drone fleets, markets, exchanges, or environmental stations. Replace or extend
+them with controlled, licensed datasets when representative real-world
+workloads are available. Preserve source provenance, units, and data
+classification.
+
+## 2. Native Criterion inventory
 
 The root `Cargo.toml` declares three Criterion harnesses:
 
 | Target | Benchmark ID | Timed operation |
 |---|---|---|
-| `frame_benchmarks` | `spatiotemporal_frame_construction` | Construct a `SpatiotemporalFrame` from fixed sample values |
-| `frame_benchmarks` | `nxr1_resolver_decode_and_component_dispatch_256b` | Decode a prepared NXR1 broker task, resolve its destination, enqueue the frame, and receive it from the bounded component queue |
+| `frame_benchmarks` | `spatiotemporal_frame_construction` | Construct a `SpatiotemporalFrame` from the native fixture |
+| `frame_benchmarks` | `nxr1_resolver_decode_and_component_dispatch_256b` | Decode a prepared NXR1 broker task, route it, enqueue it, and receive the frame |
 | `adi_benchmarks` | `adi_nxr1_encode_256b` | Encode an NXR1 frame with a 256-byte payload |
 | `adi_benchmarks` | `adi_nxr1_decode_256b` | Decode the encoded NXR1 frame with a 256-byte payload |
-| `crypto_benchmarks` | `x25519_keypair_generation` | Derive an X25519 public key from a fixed 32-byte secret |
+| `crypto_benchmarks` | `x25519_keypair_generation` | Derive an X25519 public key from a fixture secret |
 | `crypto_benchmarks` | `x25519_diffie_hellman` | Derive a shared X25519 secret using a precomputed peer public key |
-| `crypto_benchmarks` | `chacha20_encrypt/{16,64,256,1024}` | ChaCha20-Poly1305 encryption at the listed payload sizes in bytes |
-| `crypto_benchmarks` | `chacha20_decrypt/{16,64,256,1024}` | ChaCha20-Poly1305 decryption at the listed payload sizes in bytes |
-| `crypto_benchmarks` | `session_establishment_heuristic` | Synthetic combined path: two key derivations, cipher construction, and encryption of a short fixed message |
+| `crypto_benchmarks` | `chacha20_encrypt/{16,64,256,1024}` | ChaCha20-Poly1305 encryption at the fixture payload sizes |
+| `crypto_benchmarks` | `chacha20_decrypt/{16,64,256,1024}` | ChaCha20-Poly1305 decryption at the fixture payload sizes |
+| `crypto_benchmarks` | `session_establishment_heuristic` | Synthetic combined key-generation, ECDH, cipher-construction, and message-encryption path |
 
 The `adi_benchmarks` name is historical. Its current cases measure NXR1
 serialization and decoding; they do not run a complete ADI auto-tuning cycle.
 
-### What the resolver measurement includes
+### Resolver benchmark scope
 
-The resolver, registered destination, receiver, and broker task are created
-before the timed loop. Each iteration measures NXR1 extraction/decoding through
-the broker-task adapter, destination routing, bounded queue send, and receive.
-The NXR1 payload is 256 bytes.
+The resolver, registered route, receiver, and broker task are created before
+the timed loop. Each iteration measures NXR1 extraction/decoding from the
+prepared broker task, destination routing, bounded queue send, and receive.
+It is a single-threaded API microbenchmark. It does not measure concurrent
+producer contention, queue saturation, TCP transport, broker-server
+scheduling, NUMA pinning, or GPU/NPU execution. A route's optional NUMA node is
+advisory metadata; the resolver does not apply affinity or NUMA placement.
 
-This is a single-threaded microbenchmark of the resolver API. It does not
-measure concurrent producer contention, queue saturation, network I/O,
-broker-server scheduling, NUMA pinning, or GPU/NPU execution. A registered
-NUMA node is advisory metadata; the resolver does not set CPU affinity or
-perform NUMA memory placement.
+### Crypto benchmark scope
 
-### Cryptographic benchmark caveats
+The crypto tests use deterministic fixture secrets, a fixed test key, and a
+fixed nonce so repeated runs use the same input. They do not measure
+operating-system entropy generation, production key management, a complete
+authenticated peer handshake, or a full session protocol. The
+`session_establishment_heuristic` is explicitly a synthetic heuristic, not a
+production handshake benchmark. Nonce reuse is limited to this isolated
+benchmark fixture and must not be copied into production encryption code.
 
-These cases use deterministic fixed test keys and a fixed nonce so the
-measurement is repeatable. They do not measure operating-system entropy
-generation, a production key-management service, a complete authenticated
-peer handshake, or a full session protocol. The session-establishment case is
-a heuristic microbenchmark, not a benchmark of the production handshake.
-Nonce reuse is confined to this isolated benchmark fixture; never copy the
-fixture's key/nonce pattern into production encryption code.
+## 3. Run native benchmarks
 
-## 2. Run the native benchmarks
-
-Run from the repository root using the Rust toolchain pinned by the project:
+From the repository root:
 
 ```sh
-# Compile every native benchmark target without collecting timings.
-cargo bench --locked --no-run
-
-# Run all native Criterion benchmarks.
+# Run all native Criterion suites.
 cargo bench --locked
 
-# Run one benchmark suite.
+# Run a specific suite.
 cargo bench --locked --bench frame_benchmarks
 cargo bench --locked --bench adi_benchmarks
 cargo bench --locked --bench crypto_benchmarks
-```
 
-Filter to an individual benchmark by passing Criterion arguments after `--`:
-
-```sh
+# Filter to one benchmark ID.
 cargo bench --locked --bench frame_benchmarks -- nxr1_resolver_decode_and_component_dispatch_256b
 cargo bench --locked --bench adi_benchmarks -- adi_nxr1_encode_256b
 cargo bench --locked --bench crypto_benchmarks -- x25519_diffie_hellman
 ```
 
-Criterion writes measurement data and HTML reports below
-`target/criterion/`. The `--no-run` command only builds benchmark
-executables; it does not produce timings.
-
-## 3. Capture and compare baselines
-
-Use the same host and configuration for baseline and candidate runs:
+Capture and compare baselines on the same host:
 
 ```sh
-# Capture the reference measurements.
-cargo bench --locked --bench frame_benchmarks -- --save-baseline main-reference
-
-# Compare a later build with that reference.
-cargo bench --locked --bench frame_benchmarks -- --baseline main-reference
+cargo bench --locked --bench frame_benchmarks -- --save-baseline v6.11.0-reference
+cargo bench --locked --bench frame_benchmarks -- --baseline v6.11.0-reference
 ```
 
-Keep independent baseline names for different machines, operating systems,
-architectures, Rust toolchains, feature sets, or power configurations. Do not
-treat results from unrelated shared CI runners as a controlled before/after
-comparison. Repeat surprising measurements and inspect Criterion's estimates
-and distributions instead of relying on one displayed point estimate.
+Criterion writes measurements and HTML reports under `target/criterion/`.
+Keep separate baselines for different machines, OS versions, architectures,
+toolchains, features, and power profiles. Do not interpret results from
+unrelated shared CI runners as a controlled before/after comparison.
 
-## 4. Reproducibility checklist
+## 4. Run browser-WASM measurements
 
-Attach the following context to any benchmark result or performance claim:
+The browser runner benchmarks the actual compiled `wasm32-unknown-unknown`
+module under Node's WebAssembly runtime. It does not benchmark a native
+reimplementation of the spatial algorithms.
 
-- Git commit SHA and whether the working tree was clean.
-- `rustc -Vv` and `cargo -V` output.
-- OS/kernel, architecture, CPU model, logical/physical core count, and memory.
-- Cargo features, target triple, release profile, and relevant `RUSTFLAGS`.
-- Power/performance mode, thermal state, CPU load, and competing workloads.
-- Exact command, benchmark ID, payload size, and Criterion report.
-- Baseline name and confirmation that the baseline was collected on the same
-  host under equivalent conditions.
+```sh
+rustup target add wasm32-unknown-unknown
+cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
+cargo test --manifest-path browser-wasm/Cargo.toml --locked
+cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
 
-Use a release-mode run, close unrelated CPU-heavy workloads, and repeat the
-measurement. Keep fixture generation and setup outside the timed loop when
-measuring primitive costs. Add a separate end-to-end measurement when parsing,
-host/WASM boundary calls, I/O, source filtering, or application-level joins
-are part of the workload users actually experience.
+node browser-wasm/bench/run.mjs \
+  --dataset browser-wasm/bench/datasets/multivariate-v1.json \
+  --output browser-wasm-benchmark.json
 
-## 5. Browser-WASM spatial and motion performance
+# Shorter local smoke run.
+node browser-wasm/bench/run.mjs \
+  --dataset browser-wasm/bench/datasets/multivariate-v1.json \
+  --quick
+```
 
-The separate `browser-wasm/` package contains the browser spatial core
-documented in [MMO Browser WASM integration](MMO_BROWSER_WASM.md): WGS84/ECEF
-and ENU transforms, Hermite interpolation, a fixed-capacity 512-entity store,
-bounding-box queries, nearest-observation resolution, and bounded path
-simplification.
+The runner measures:
 
-The browser package has its own Cargo manifest and does not declare a Criterion
-target. The root Criterion suites are native benchmarks; they do not measure
-browser-WASM operations. The browser build and unit tests validate compilation,
-ABI behavior, and correctness, not throughput or latency.
-
-The current bounding-box query and nearest-observation resolver scan the
-active entity entries, with a maximum of 512 entities. They are bounded linear
-scans, not R-tree or other indexed spatial queries. The entity upsert also
-searches the current entries for an existing stable ID. Benchmark this current
-implementation as it exists; do not describe it as an indexed spatial engine.
-
-### Recommended browser measurement matrix
-
-When a browser timing harness is implemented, use fixed fixtures at the
-following sizes (subject to the 512-entity/point capacities):
-
-| Operation | Suggested cases | Measurements |
+| WASM operation | Sample sizes | Reported outputs |
 |---|---|---|
-| WGS84/ECEF and ENU transforms | Repeated valid coordinates; include altitude and high-latitude cases | Calls/second, median and tail latency, numeric error against reference fixtures |
-| Hermite interpolation | Fixed endpoints, velocities, and interval | Interpolations/second, median/tail latency, endpoint and reference error |
-| Stable-ID upsert | 1, 16, 128, and 512 entities; new ID and replacement ID | Operation latency and throughput |
-| Bounding-box query | 16, 128, and 512 entities; ordinary and antimeridian-crossing bounds; sparse and dense matches | Query latency, number of records scanned, matches returned |
-| Nearest-observation resolution | 16, 128, and 512 entities; fresh, stale, future, in-range, and out-of-range records | Query latency, selected/rejected counts |
-| Arc–secant–tangent simplifier | 16, 128, and 512 points; straight, curved, and sharp-turn trajectories | Simplification latency, retained count, reduction ratio, endpoint/turn correctness |
+| Reset and stable-ID upsert | 16, 128, 512 entities | Batch time, throughput, entity count |
+| WGS84 bounding-box query | 16, 128, 512 entities | Query time, scanned-set size, match count |
+| Spatiotemporal nearest resolution | 16, 128, 512 entities | Query time, number of successful resolutions |
+| WGS84/ECEF and WGS84/ENU transforms | 16, 128, 512 entities | Median/p95 latency, throughput, checksums |
+| ENU-to-ECEF transform | 16, 128, 512 entities | Median/p95 latency, throughput, checksum |
+| Hermite interpolation | 16, 128, 512 entity-derived endpoints | Median/p95 latency, throughput, checksum |
+| Arc–secant–tangent simplification | 16, 128, 512 path points | Simplification latency, retained points, reduction percentage |
 
-Separate module download/instantiation and first-call costs from warmed steady
-state. Measure both the WASM operation and the complete JavaScript-to-WASM
-call path. Record browser name/version, OS, CPU, WASM release build settings,
-module byte size, fixture identity, number of entities/points, warm-up policy,
-iteration count, and repeated-run spread.
+For repeated operations, the report includes iteration count, operations per
+sample, median batch time, p95 batch time, median nanoseconds per operation,
+and operations per second. Path simplification is timed as one path operation
+per sample; path setup is done before the measured interval.
 
-For drone, finance, environmental, and other multivariate workloads, the
-spatial ABI stores identity, position, and observation time—not arbitrary
-domain attributes. Keep attributes in the host data model. Where the
-application applies timestamp/coordinate normalization, source filtering, or
-joins an entity ID back to its source record, measure those stages separately
-and as a complete workflow. Preserve source units, provenance, quality flags,
-and fixture versions.
+The current spatial store is fixed-capacity (512 entities). Its upsert,
+bounding-box query, and nearest-observation operations scan up to the active
+entity count; they are bounded linear scans, not indexed spatial queries. The
+path simplifier is iterative and bounded at 512 points; its report makes
+geometric reduction visible through retained-point count and reduction
+percentage while the tangent guard preserves sharp changes.
 
-This is a proposed test matrix only. No browser-WASM latency, throughput,
-speedup, or performance regression result is currently published by the
-Criterion suite. Add and run a dedicated browser benchmark harness before
-making such claims.
+The report also records the WASM binary size, Node runtime and architecture,
+dataset identifiers, domain labels, and source attribute names. The runner
+includes the JavaScript-to-WASM call boundary and reads returned values from
+WASM linear memory. It does not measure browser rendering, network I/O, gateway
+throughput, or the native node.
 
-## 6. How to interpret the CI benchmark job
+## 5. CI measurement behavior
+
+### Native Criterion job
 
 The `Performance Benchmarks` job in
-`.github/workflows/coverage-and-metrics.yml` runs:
+`.github/workflows/coverage-and-metrics.yml` executes all native suites using
+a shortened CI configuration:
 
 ```sh
-cargo bench --no-run
+cargo bench --locked -- --warm-up-time 1 --measurement-time 2 --sample-size 10
 ```
 
-This is a compilation gate for the native Criterion targets. It catches
-benchmark build failures but does not execute timed measurements, compare
-baselines, enforce performance thresholds, or upload Criterion timing reports.
-The separate browser-WASM workflow builds and tests the browser package; it
-does not turn the native Criterion job into a browser performance test.
+It uploads `target/criterion/` as the `yukkios-native-criterion` artifact.
+This is a real timed run, not merely a `--no-run` compile check. The shortened
+sampling configuration and shared GitHub runner make it a regression
+visibility aid, not a stable cross-runner performance gate.
 
-For actual performance measurements, run section 2 on a controlled host and
-retain the Criterion report with the reproducibility record from section 4.
+### Browser-WASM job
+
+The browser job in
+`.github/workflows/multi-platform-build.yml` builds and smoke-tests the
+browser module, then runs the dataset-driven Node runner with a shorter
+six-iteration/32-operation configuration. It uploads
+`browser-wasm-benchmark.json` as `yukkios-browser-wasm-benchmark`.
+
+This proves that the WASM module can execute the benchmark workload in the CI
+runtime and produces a report. It is not a browser-engine benchmark and does
+not set hard performance thresholds. Use controlled, same-host repeated runs
+for performance claims.
+
+## 6. Reproducibility and interpretation
+
+Record these details with any published measurement:
+
+- Git commit SHA and clean/dirty state.
+- Rust/Cargo versions for native runs; Node version for browser-WASM runs.
+- OS/kernel, architecture, CPU model, and available memory.
+- Build target, features, release profile, and relevant compiler flags.
+- Dataset file path, schema version, dataset/profile ID, sample count, and
+  whether data is synthetic or externally sourced.
+- Exact command, benchmark ID, iteration count, and Criterion/JSON report.
+- Power profile, thermal state, competing workloads, and baseline host.
+
+Keep coordinate units, timestamp epochs/units, original domain attributes,
+source provenance, and quality flags. The spatial ABI receives only identity,
+WGS84 position, altitude, time, and radius; benchmark and application adapters
+must not silently discard or reinterpret the multivariate host record.
+
+Do not infer an environmental field estimate, financial forecast, portfolio
+risk, or safe drone trajectory from these microbenchmarks. They measure code
+paths and geometric reduction, not domain-model validity or operational safety.
 
 ## 7. Related documentation
 
+- [Browser spatial and multivariate data how-to](USER_HOWTO_MMO.md) — usage and
+  ingestion patterns for drones, finance, environmental and other datasets.
 - [MMO Browser WASM integration](MMO_BROWSER_WASM.md) — spatial operations,
-  exported ABI, capacity limits, and browser/native boundaries.
-- [Browser WASM deployment](BROWSER_WASM.md) — browser build and deployment.
+  ABI exports, and fixed limits.
+- [Browser WASM deployment](BROWSER_WASM.md) — build and hosting instructions.
 - [API and ABI reference](API.md) — NXR1 resolver and broker boundaries.
-- [Changelog](CHANGELOG.md) — release history.
