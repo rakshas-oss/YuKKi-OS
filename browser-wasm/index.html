@@ -88,6 +88,21 @@
       <ol id="mmo-entity-list" class="chunk-list">
         <li class="muted">No local entities loaded.</li>
       </ol>
+      <h3>Arc–secant–tangent path reduction</h3>
+      <p class="hint">Simplify the entity sequence as a path. Arc/secant deviation controls positional error; tangent-angle limits preserve sharp turns.</p>
+      <form id="mmo-simplify-form">
+        <label for="mmo-simplify-tolerance">Maximum geometric error (m)</label>
+        <input id="mmo-simplify-tolerance" type="number" min="0" max="100000" step="any" value="2" required>
+        <label for="mmo-simplify-turn">Maximum tangent turn (degrees)</label>
+        <input id="mmo-simplify-turn" type="number" min="1" max="180" step="1" value="35" required>
+        <div class="actions">
+          <button type="submit">Simplify current entity path</button>
+        </div>
+      </form>
+      <p id="mmo-simplify-status" class="status" role="status" aria-live="polite">Add at least two entities to simplify a path.</p>
+      <ol id="mmo-simplify-list" class="chunk-list">
+        <li class="muted">No simplified path yet.</li>
+      </ol>
       <h3>Resolve a spatiotemporal match</h3>
       <form id="mmo-resolve-form">
         <label for="mmo-query-lat">Query latitude</label>
