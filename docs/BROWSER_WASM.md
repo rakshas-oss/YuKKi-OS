@@ -15,6 +15,21 @@ The browser app intentionally uses authenticated HTTP range reads. The current g
 
 The gateway is codec-agnostic. The client validates YKMC framing and metadata but does not decode or transcode H.264, Opus, or other media payloads.
 
+## MMO spatial WASM core
+
+The same browser WASM module now exposes the portable spatial and motion core
+described in [MMO Browser WASM integration](MMO_BROWSER_WASM.md). The browser
+page includes a local entity panel for WGS84/ECEF conversion and bounded
+spatiotemporal nearest-observation resolution. These sample entities remain in
+the WASM instance's linear memory; they are not posted to the gateway.
+
+The spatial core is deliberately separate from the native daemon sketch.
+POSIX shared memory, futexes, pthread workers, and hardware SIMD are not browser
+APIs. Networked data continues to use the authenticated gateway, existing
+YKMC stream framing, and BRK1/BRK2 plus NXR1/WSM1 at the Overhauled broker
+boundary. The WASM resolver is a local computational primitive, not a new
+transport or authentication mechanism.
+
 ## Build and run locally
 
 From the repository root:
