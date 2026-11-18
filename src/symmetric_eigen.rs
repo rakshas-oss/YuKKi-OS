@@ -11,7 +11,15 @@ pub const MAX_EIGEN_DIMENSION: usize = 64;
 pub const DEFAULT_TOLERANCE: f64 = 1.0e-12;
 pub const DEFAULT_MAX_SWEEPS: usize = 128;
 
-/// Standard real arcsecant: acos(1/x), defined only for finite |x| >= 1.\npub fn arcsecant(value: f64) -> Option<f64> {\n    if value.is_finite() && value.abs() >= 1.0 {\n        Some((1.0 / value).clamp(-1.0, 1.0).acos())\n    } else {\n        None\n    }\n}\n
+/// Standard real arcsecant: acos(1/x), defined only for finite |x| >= 1.
+pub fn arcsecant(value: f64) -> Option<f64> {
+    if value.is_finite() && value.abs() >= 1.0 {
+        Some((1.0 / value).clamp(-1.0, 1.0).acos())
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct EigenDecomposition {
     /// Eigenvalues in ascending order.
