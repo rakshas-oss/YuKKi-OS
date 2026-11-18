@@ -1,4 +1,4 @@
-# YuKKi OS v6.11.0 — API and ABI Reference
+# YuKKi OS v6.12.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -209,3 +209,39 @@ second, parallel binary transport is introduced.
 `Truncated`, `TrailingBytes`, `InvalidMagic`, `UnsupportedVersion`,
 `NonFiniteValue`, `PayloadTooLarge`, `UnexpectedKind`,
 `MissingBrokerPayload`, `MalformedBrokerPayload`.
+
+
+## Symmetric numerical API (`src/symmetric_eigen.rs`)
+
+YuKKi-OS exports a bounded CPU reference implementation for finite real-
+symmetric matrices. The default entry point is
+`symmetric_eigen_decomposition(matrix, dimension)`; advanced callers may use
+`symmetric_eigen_decomposition_with_options(matrix, dimension, tolerance,
+max_sweeps)`.
+
+- Matrix storage is row-major and must contain exactly `dimension * dimension`
+  finite values. Dimensions are limited to 1..=64.
+- The result contains ascending eigenvalues and a row-major eigenvector matrix
+  whose eigenvectors occupy columns, plus relative residual, orthogonality
+  error, and sweep count.
+- The configurable tolerance must be finite and in (0, 1); the sweep limit is
+  bounded to 1..=1024.
+- `EigenError` distinguishes invalid dimensions/length/options, non-finite
+  values, asymmetric input, non-convergence, and numerical overflow.
+- `arcsecant(value)` implements the real branch `acos(1/value)` only when
+  `value` is finite and `abs(value) >= 1`. It is a domain-checked mapping,
+  not an eigensolver or a substitute for the decomposition.
+
+The solver targets small/medium covariance and correlation matrices; it is not
+a general complex or non-symmetric eigensolver and does not claim GPU/NPU
+execution. Run the manifest-driven numerical workload with:
+
+```sh
+cargo run --release --bin yukki_eigensolver_bench -- \
+  --manifest examples/benchmark-datasets/manifest.json \
+  --dataset all --profile all --output eigensolver-results.json
+```
+
+See [Benchmark-driven datasets](BENCHMARK_DRIVEN_DATASETS.md) for manifest
+semantics, workload objectives, geospatial handling, solver limits, and
+validation guidance.
