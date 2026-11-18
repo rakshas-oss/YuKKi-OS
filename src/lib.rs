@@ -3,6 +3,7 @@
 
 pub mod adi_auto_tune;
 pub mod arcgis;
+pub mod benchmark_dataset;
 pub mod broker_client;
 #[rustfmt::skip]
 pub mod brk2;
@@ -21,6 +22,7 @@ pub mod numa;
 pub mod nxr1;
 pub mod origin_client;
 pub mod spatiotemporal_resolver;
+pub mod symmetric_eigen;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
