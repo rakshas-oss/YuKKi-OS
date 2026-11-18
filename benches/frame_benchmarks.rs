@@ -1,7 +1,7 @@
-//! SpatiotemporalFrame Operations Benchmarks
+//! Frame construction and NXR1 resolver dispatch benchmarks.
 //!
-//! Measures frame construction, copy throughput, payload isolation,
-//! and memory footprint heuristics at various queue depths.
+//! Measures fixed-value SpatiotemporalFrame construction and a single-threaded
+//! 256-byte NXR1 decode, bounded component-queue dispatch, and receive path.
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
