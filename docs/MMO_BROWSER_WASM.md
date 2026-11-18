@@ -124,7 +124,10 @@ cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target 
 
 The browser build workflow also smoke-tests the exported ABI. Unit tests cover
 WGS84/ECEF, full ENU transforms, Hermite endpoints, fixed-capacity behavior,
-antimeridian queries, and temporal freshness filtering.
+antimeridian queries, and temporal freshness filtering. These are correctness
+checks, not performance measurements; see [Benchmarking](BENCHMARKING.md) for
+the current native Criterion targets and the proposed browser-WASM measurement
+matrix.
 
 This increment establishes the browser-side computational path. It does not
 claim that the native MMO daemon, multi-process MPMC queue, hardware compositor,
