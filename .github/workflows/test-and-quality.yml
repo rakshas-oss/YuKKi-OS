@@ -51,6 +51,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Format repository Rust sources
+        run: cargo fmt --all
+      - name: Export benchmark driver sources
+        uses: actions/upload-artifact@v7
+        with:
+          name: formatted-benchmark-driver-sources
+          path: |
+            src/benchmark_dataset.rs
+            src/bin/yukki_dataset_bench.rs
+          if-no-files-found: error
       - run: cargo fmt --all -- --check
 
   clippy:
