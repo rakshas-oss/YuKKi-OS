@@ -23,7 +23,8 @@ pub const COMPOSITION_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_FUEL_PER_CALL: u64 = 10_000_000;
 pub const DEFAULT_MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_MAX_TOTAL_MODULE_BYTES: usize = 32 * 1024 * 1024;
-pub const DEFAULT_MAX_LINEAR_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+pub const DEFAULT_MAX_LINEAR_MEMORY_BYTES_PER_MEMORY: usize = 4 * 1024 * 1024;
+pub const DEFAULT_MAX_TABLE_ELEMENTS_PER_TABLE: usize = 65_536;
 const MAX_WASM_STACK_BYTES: usize = 512 * 1024;
 
 /// Resource and validation ceilings for one composition runtime.
@@ -34,7 +35,8 @@ pub struct CompositionLimits {
     pub max_modules_per_program: usize,
     pub max_module_bytes: usize,
     pub max_total_module_bytes: usize,
-    pub max_linear_memory_bytes: usize,
+    pub max_linear_memory_bytes_per_memory: usize,
+    pub max_table_elements_per_table: usize,
     pub max_compiled_cache_entries: usize,
     pub fuel_per_call: u64,
     pub max_entrypoint_arity: usize,
@@ -45,10 +47,11 @@ impl Default for CompositionLimits {
         Self {
             max_manifest_bytes: 64 * 1024,
             max_programs: 16,
-            max_modules_per_program: 32,
+            max_modules_per_program: 16,
             max_module_bytes: DEFAULT_MAX_MODULE_BYTES,
             max_total_module_bytes: DEFAULT_MAX_TOTAL_MODULE_BYTES,
-            max_linear_memory_bytes: DEFAULT_MAX_LINEAR_MEMORY_BYTES,
+            max_linear_memory_bytes_per_memory: DEFAULT_MAX_LINEAR_MEMORY_BYTES_PER_MEMORY,
+            max_table_elements_per_table: DEFAULT_MAX_TABLE_ELEMENTS_PER_TABLE,
             max_compiled_cache_entries: 256,
             fuel_per_call: DEFAULT_FUEL_PER_CALL,
             max_entrypoint_arity: 8,
@@ -348,7 +351,8 @@ impl CompositionRuntime {
             || limits.max_modules_per_program == 0
             || limits.max_module_bytes == 0
             || limits.max_total_module_bytes == 0
-            || limits.max_linear_memory_bytes == 0
+            || limits.max_linear_memory_bytes_per_memory == 0
+            || limits.max_table_elements_per_table == 0
             || limits.max_compiled_cache_entries == 0
             || limits.fuel_per_call == 0
         {
@@ -528,7 +532,11 @@ impl CompositionRuntime {
             let order =
                 validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
             let store_limits = StoreLimitsBuilder::new()
-                .memory_size(self.limits.max_linear_memory_bytes)
+                .memory_size(self.limits.max_linear_memory_bytes_per_memory)
+                .table_elements(self.limits.max_table_elements_per_table)
+                .instances(self.limits.max_modules_per_program)
+                .memories(self.limits.max_modules_per_program)
+                .tables(self.limits.max_modules_per_program)
                 .build();
             let mut store = Store::new(
                 &self.engine,
