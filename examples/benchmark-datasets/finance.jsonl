@@ -1,0 +1,10 @@
+{"sequence":1,"timestamp_ns":2000000000,"mid_price":101.25,"volume":1200,"return_pct":0.03,"volatility":0.12,"spread_bps":1.8,"order_imbalance":0.14,"trade_count":34,"bid_depth":8400,"ask_depth":7300}
+{"sequence":2,"timestamp_ns":2100000000,"mid_price":101.27,"volume":980,"return_pct":0.02,"volatility":0.11,"spread_bps":1.7,"order_imbalance":0.1,"trade_count":29,"bid_depth":8100,"ask_depth":7600}
+{"sequence":3,"timestamp_ns":2200000000,"mid_price":101.24,"volume":1420,"return_pct":-0.03,"volatility":0.13,"spread_bps":1.9,"order_imbalance":-0.08,"trade_count":41,"bid_depth":7900,"ask_depth":8200}
+{"sequence":4,"timestamp_ns":2300000000,"mid_price":101.31,"volume":1800,"return_pct":0.07,"volatility":0.15,"spread_bps":2,"order_imbalance":0.22,"trade_count":52,"bid_depth":9100,"ask_depth":6800}
+{"sequence":5,"timestamp_ns":2400000000,"mid_price":101.29,"volume":1100,"return_pct":-0.02,"volatility":0.14,"spread_bps":1.8,"order_imbalance":0.04,"trade_count":31,"bid_depth":8600,"ask_depth":7900}
+{"sequence":6,"timestamp_ns":2500000000,"mid_price":101.35,"volume":1650,"return_pct":0.06,"volatility":0.16,"spread_bps":2.1,"order_imbalance":0.19,"trade_count":47,"bid_depth":9200,"ask_depth":7200}
+{"sequence":7,"timestamp_ns":2600000000,"mid_price":101.34,"volume":900,"return_pct":-0.01,"volatility":0.13,"spread_bps":1.7,"order_imbalance":-0.02,"trade_count":25,"bid_depth":8300,"ask_depth":8100}
+{"sequence":8,"timestamp_ns":2700000000,"mid_price":101.38,"volume":1550,"return_pct":0.04,"volatility":0.15,"spread_bps":1.9,"order_imbalance":0.11,"trade_count":43,"bid_depth":8700,"ask_depth":7500}
+{"sequence":9,"timestamp_ns":2800000000,"mid_price":101.36,"volume":1300,"return_pct":-0.02,"volatility":0.14,"spread_bps":1.8,"order_imbalance":-0.01,"trade_count":38,"bid_depth":8400,"ask_depth":8000}
+{"sequence":10,"timestamp_ns":2900000000,"mid_price":101.42,"volume":1900,"return_pct":0.06,"volatility":0.17,"spread_bps":2.2,"order_imbalance":0.25,"trade_count":55,"bid_depth":9500,"ask_depth":7000}
