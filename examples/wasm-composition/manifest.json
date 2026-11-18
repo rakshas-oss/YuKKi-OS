@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "deployment_id": "risk-engine",
+  "release_id": "2026.11.18.1",
+  "programs": [
+    {
+      "program_id": "risk-score-policy",
+      "modules": [
+        {
+          "module_id": "math-kernel",
+          "version": "1.0.0"
+        },
+        {
+          "module_id": "risk-score",
+          "version": "1.0.0"
+        }
+      ],
+      "bindings": {
+        "math": "math-kernel"
+      },
+      "entrypoint": {
+        "module_id": "risk-score",
+        "export": "run",
+        "params": 1
+      }
+    },
+    {
+      "program_id": "risk-alert-policy",
+      "modules": [
+        {
+          "module_id": "math-kernel",
+          "version": "1.0.0"
+        },
+        {
+          "module_id": "risk-alert",
+          "version": "1.0.0"
+        }
+      ],
+      "bindings": {
+        "math": "math-kernel"
+      },
+      "entrypoint": {
+        "module_id": "risk-alert",
+        "export": "run",
+        "params": 1
+      }
+    }
+  ]
+}

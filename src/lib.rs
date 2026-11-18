@@ -27,6 +27,7 @@ pub mod spatiotemporal_resolver;
 pub mod stream_gateway;
 pub mod stream_registry;
 pub mod stream_relay;
+pub mod wasm_composition;
 pub mod wasm_ingest;
 #[rustfmt::skip]
 pub mod wasm_sandbox;

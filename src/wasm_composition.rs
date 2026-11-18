@@ -1,723 +1,1221 @@
-//! Bounded composition of multiple core-Wasm modules into versioned live programs.
+//! Host-side composition of multiple core-Wasm modules into live programs.
 //!
-//! A program is a dependency-ordered set of modules. Each module is compiled once
-//! (with a bounded digest cache), instantiated into one Wasmtime Store, and made
-//! available to downstream modules under its manifest module ID. A policy pipeline
-//! then invokes exported \`(i64) -> i64\` functions in order. Several program IDs
-//! and versions can coexist in one manager.
-//!
-//! This is module linking and function composition, not binary rewriting: the
-//! source modules remain separate compiled Wasmtime modules linked at instantiation.
-//! Host imports are denied in v1; modules may import only from declared modules in
-//! the same bundle.
+//! Composition is performed in YuKKi-OS, not in the Overhauled broker.
+//! Modules are compiled by one Wasmtime Engine, function imports are linked
+//! by namespace, and each program receives its own Store and instance graph.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Condvar, Mutex, RwLock,
+        Arc, Mutex, RwLock,
     },
-    time::{Duration, Instant},
 };
 use thiserror::Error;
 use wasmtime::{
-    Config, Engine, ExternType, Instance, Linker, Module, Store, StoreLimits,
-    StoreLimitsBuilder, TypedFunc,
+    Config, Engine, ExternType, Func, FuncType, Instance, Linker, Module, Store, StoreLimits,
+    StoreLimitsBuilder, Val, ValType,
 };
 
-pub const WASM_PROGRAM_SCHEMA_VERSION: u16 = 1;
-pub const MAX_PROGRAM_MODULES: usize = 8;
-pub const MAX_PROGRAM_VERSIONS: usize = 8;
-pub const MAX_POLICY_STEPS: usize = 32;
-pub const MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_PROGRAM_BYTES: usize = 16 * 1024 * 1024;
-pub const MAX_LINEAR_MEMORY_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_MEMORIES_PER_PROGRAM: usize = 4;
-pub const MAX_TABLES_PER_PROGRAM: usize = 4;
-pub const MAX_TABLE_ELEMENTS: usize = 4096;
-pub const DEFAULT_PROGRAM_FUEL: u64 = 10_000_000;
-pub const MAX_COMPILED_MODULE_CACHE_ENTRIES: usize = 64;
+pub const COMPOSITION_SCHEMA_VERSION: u32 = 1;
+pub const DEFAULT_FUEL_PER_CALL: u64 = 10_000_000;
+pub const DEFAULT_MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_MAX_TOTAL_MODULE_BYTES: usize = 32 * 1024 * 1024;
+pub const DEFAULT_MAX_LINEAR_MEMORY_BYTES_PER_MEMORY: usize = 4 * 1024 * 1024;
+pub const DEFAULT_MAX_TABLE_ELEMENTS_PER_TABLE: usize = 65_536;
+const MAX_WASM_STACK_BYTES: usize = 512 * 1024;
 
-/// A digest-pinned composition manifest. \`depends_on\` names other module IDs
-/// whose exports satisfy this module's imports. Cycles are rejected.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// Resource and validation ceilings for one composition runtime.
+#[derive(Debug, Clone)]
+pub struct CompositionLimits {
+    pub max_manifest_bytes: usize,
+    pub max_programs: usize,
+    pub max_modules_per_program: usize,
+    pub max_module_bytes: usize,
+    pub max_total_module_bytes: usize,
+    pub max_linear_memory_bytes_per_memory: usize,
+    pub max_table_elements_per_table: usize,
+    pub max_compiled_cache_entries: usize,
+    pub fuel_per_call: u64,
+    pub max_entrypoint_arity: usize,
+}
+
+impl Default for CompositionLimits {
+    fn default() -> Self {
+        Self {
+            max_manifest_bytes: 64 * 1024,
+            max_programs: 16,
+            max_modules_per_program: 16,
+            max_module_bytes: DEFAULT_MAX_MODULE_BYTES,
+            max_total_module_bytes: DEFAULT_MAX_TOTAL_MODULE_BYTES,
+            max_linear_memory_bytes_per_memory: DEFAULT_MAX_LINEAR_MEMORY_BYTES_PER_MEMORY,
+            max_table_elements_per_table: DEFAULT_MAX_TABLE_ELEMENTS_PER_TABLE,
+            max_compiled_cache_entries: 256,
+            fuel_per_call: DEFAULT_FUEL_PER_CALL,
+            max_entrypoint_arity: 8,
+        }
+    }
+}
+
+/// Versioned manifest describing one atomic deployment with one or more
+/// independently addressable executable programs.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WasmProgramManifest {
-    pub schema_version: u16,
+pub struct CompositionManifest {
+    pub schema_version: u32,
+    pub deployment_id: String,
+    pub release_id: String,
+    pub programs: Vec<ProgramSpec>,
+}
+
+/// One program is a directed acyclic graph of core-Wasm modules.
+///
+/// bindings maps a WebAssembly import namespace to the module ID that provides
+/// its imported functions. For example, namespace "math" can map to
+/// module ID "math-kernel".
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProgramSpec {
     pub program_id: String,
-    pub version: String,
-    pub modules: Vec<WasmModuleDescriptor>,
-    pub policy: Vec<WasmPolicyStep>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct WasmModuleDescriptor {
-    pub module_id: String,
-    /// Lowercase or uppercase hexadecimal SHA-256 digest of the Wasm bytes.
-    pub sha256: String,
+    pub modules: Vec<ModuleRef>,
     #[serde(default)]
-    pub depends_on: Vec<String>,
+    pub bindings: BTreeMap<String, String>,
+    pub entrypoint: EntrypointSpec,
 }
 
-/// One policy stage. Each export must have the exact Wasm type \`(i64) -> i64\`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
-pub struct WasmPolicyStep {
+pub struct ModuleRef {
+    pub module_id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntrypointSpec {
     pub module_id: String,
     pub export: String,
+    /// Number of i32 arguments accepted by the entrypoint. The result is one
+    /// i32. Keeping this ABI small makes policy dispatch predictable.
+    pub params: usize,
 }
 
-/// The executable bytes are supplied separately from the manifest, and matched
-/// by module_id plus SHA-256 before compilation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WasmModuleArtifact {
+/// Wasm bytes are supplied out-of-band from the JSON manifest. The same
+/// artifact can be referenced by several programs in one deployment.
+#[derive(Debug, Clone)]
+pub struct ModuleArtifact {
     pub module_id: String,
-    pub bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WasmProgramState {
-    Prepared,
-    Active,
-    Draining,
-    Drained,
-    Released,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WasmProgramSnapshot {
-    pub program_id: String,
     pub version: String,
-    pub state: WasmProgramState,
-    pub in_flight: usize,
-    pub module_count: usize,
-    pub policy_step_count: usize,
-    pub artifact_digest: String,
-}
-
-/// \`old_drained == false\` means the replacement is already active, but the old
-/// version still has in-flight invocations and remains retained in Draining state.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WasmProgramActivation {
-    pub program_id: String,
-    pub active_version: String,
-    pub retired_version: Option<String>,
-    pub old_drained: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CompilationCacheStats {
-    pub entries: usize,
-    pub hits: usize,
-    pub misses: usize,
+    pub wasm: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
-pub enum WasmCompositionError {
-    #[error("invalid program manifest: {0}")]
+pub enum CompositionError {
+    #[error("invalid composition manifest: {0}")]
     InvalidManifest(String),
-    #[error("too many program versions are prepared (limit {MAX_PROGRAM_VERSIONS})")]
-    ProgramVersionLimit,
-    #[error("program version already exists: {program_id}:{version}")]
-    ProgramAlreadyExists { program_id: String, version: String },
-    #[error("program version not found: {program_id}:{version}")]
-    ProgramNotFound { program_id: String, version: String },
-    #[error("no active version for program '{0}'")]
-    NoActiveProgram(String),
-    #[error("module artifact missing for '{0}'")]
-    MissingArtifact(String),
-    #[error("unexpected module artifact '{0}'")]
-    UnexpectedArtifact(String),
-    #[error("duplicate module ID or artifact: '{0}'")]
-    DuplicateModule(String),
-    #[error("module '{module_id}' is {size} bytes; limit is {MAX_MODULE_BYTES}")]
-    ModuleTooLarge { module_id: String, size: usize },
-    #[error("program is {size} bytes; limit is {MAX_PROGRAM_BYTES}")]
-    ProgramTooLarge { size: usize },
-    #[error("SHA-256 mismatch for module '{module_id}': expected {expected}, got {actual}")]
-    HashMismatch {
+    #[error("composition manifest is {actual} bytes; limit is {max}")]
+    ManifestTooLarge { actual: usize, max: usize },
+    #[error("module artifact {module_id}:{version} is missing")]
+    MissingArtifact { module_id: String, version: String },
+    #[error("duplicate module artifact {module_id}:{version}")]
+    DuplicateArtifact { module_id: String, version: String },
+    #[error("module {module_id}:{version} is {actual} bytes; limit is {max}")]
+    ModuleTooLarge {
         module_id: String,
-        expected: String,
-        actual: String,
+        version: String,
+        actual: usize,
+        max: usize,
     },
-    #[error("module '{module_id}' declares missing dependency '{dependency}'")]
-    MissingDependency {
+    #[error("composition contains {actual} artifact bytes; limit is {max}")]
+    TotalModuleBytesExceeded { actual: usize, max: usize },
+    #[error("module {module_id}:{version} failed Wasmtime compilation: {message}")]
+    Compile {
         module_id: String,
-        dependency: String,
+        version: String,
+        message: String,
     },
-    #[error("module '{module_id}' imports '{dependency}', which is not a declared dependency")]
-    UndeclaredImport {
+    #[error("program '{program_id}' references duplicate module ID '{module_id}'")]
+    DuplicateProgramModule {
+        program_id: String,
         module_id: String,
-        dependency: String,
     },
-    #[error("module '{module_id}' has an import from '{namespace}', which is not an earlier module in this bundle; host imports are disabled")]
-    DisallowedImport {
+    #[error("program '{program_id}' has invalid module binding namespace '{namespace}'")]
+    InvalidNamespace {
+        program_id: String,
+        namespace: String,
+    },
+    #[error("program '{program_id}' binding '{namespace}' targets missing module '{module_id}'")]
+    BindingTargetMissing {
+        program_id: String,
+        namespace: String,
+        module_id: String,
+    },
+    #[error("program '{program_id}' module '{module_id}' imports unbound namespace '{namespace}'")]
+    UnboundImport {
+        program_id: String,
         module_id: String,
         namespace: String,
     },
-    #[error("module dependency graph contains a cycle")]
-    DependencyCycle,
-    #[error("module '{module_id}' uses shared-memory or memory64, which this composition profile does not allow")]
-    UnsupportedMemory { module_id: String },
-    #[error("failed to compile module '{module_id}': {reason}")]
-    Compile { module_id: String, reason: String },
-    #[error("failed to link/instantiate module '{module_id}': {reason}")]
-    Link { module_id: String, reason: String },
-    #[error("policy stage {index} references unknown module '{module_id}'")]
-    PolicyModuleMissing { index: usize, module_id: String },
-    #[error("policy export '{module_id}.{export}' is missing or is not typed (i64) -> i64")]
-    InvalidPolicyExport { module_id: String, export: String },
-    #[error("policy pipeline must contain 1..={MAX_POLICY_STEPS} stages")]
-    InvalidPolicyLength,
-    #[error("program '{program_id}' version '{version}' is not in a state that can be activated")]
-    NotActivatable { program_id: String, version: String },
-    #[error("program '{program_id}' version '{version}' is still active or has in-flight work")]
-    ProgramBusy { program_id: String, version: String },
-    #[error("program '{program_id}' version '{version}' is draining and cannot be released yet")]
-    ProgramDraining { program_id: String, version: String },
-    #[error("program '{program_id}' version '{version}' has already been released")]
-    ProgramReleased { program_id: String, version: String },
-    #[error("failed to initialize Wasmtime engine: {0}")]
-    Engine(String),
-    #[error("failed to reset Wasmtime fuel budget: {0}")]
-    Fuel(String),
-    #[error("policy execution failed at '{module_id}.{export}': {reason}")]
-    Execution {
+    #[error("program '{program_id}' module '{module_id}' imports unsupported non-function item '{namespace}.{name}'")]
+    UnsupportedImportKind {
+        program_id: String,
+        module_id: String,
+        namespace: String,
+        name: String,
+    },
+    #[error("program '{program_id}' module '{module_id}' depends on missing export '{namespace}.{name}' from '{provider}'")]
+    MissingDependencyExport {
+        program_id: String,
+        module_id: String,
+        namespace: String,
+        name: String,
+        provider: String,
+    },
+    #[error("program '{program_id}' import signature mismatch for '{namespace}.{name}' from '{provider}'")]
+    ImportSignatureMismatch {
+        program_id: String,
+        namespace: String,
+        name: String,
+        provider: String,
+    },
+    #[error("program '{program_id}' contains a cyclic module dependency")]
+    DependencyCycle { program_id: String },
+    #[error("program '{program_id}' declares unused binding namespace '{namespace}'")]
+    UnusedBinding {
+        program_id: String,
+        namespace: String,
+    },
+    #[error("program '{program_id}' entrypoint module '{module_id}' is not in the program")]
+    EntrypointModuleMissing {
+        program_id: String,
+        module_id: String,
+    },
+    #[error(
+        "program '{program_id}' is missing function export '{export}' in module '{module_id}'"
+    )]
+    EntrypointMissing {
+        program_id: String,
         module_id: String,
         export: String,
-        reason: String,
     },
+    #[error("program '{program_id}' entrypoint '{module_id}.{export}' must have {params} i32 parameters and one i32 result")]
+    EntrypointSignature {
+        program_id: String,
+        module_id: String,
+        export: String,
+        params: usize,
+    },
+    #[error("program '{program_id}' expects {expected} arguments but received {actual}")]
+    ArgumentCount {
+        program_id: String,
+        expected: usize,
+        actual: usize,
+    },
+    #[error("deployment '{deployment_id}' is not active")]
+    DeploymentNotActive { deployment_id: String },
+    #[error("program '{program_id}' is not present in active deployment '{deployment_id}'")]
+    ProgramNotActive {
+        deployment_id: String,
+        program_id: String,
+    },
+    #[error("Wasmtime execution failed for program '{program_id}': {message}")]
+    Execution { program_id: String, message: String },
+    #[error("composition runtime lock was poisoned")]
+    LockPoisoned,
 }
 
-struct ProgramStoreState {
+struct StoreState {
     limits: StoreLimits,
 }
 
-struct ProgramRuntime {
-    store: Store<ProgramStoreState>,
-    pipeline: Vec<(WasmPolicyStep, TypedFunc<i64, i64>)>,
-    // Keep the compiled modules alive with the linked instances. The bounded
-    // global cache may evict only its own references; active programs retain theirs.
-    _compiled_modules: Vec<Arc<Module>>,
-    fuel_per_execution: u64,
+struct CompiledArtifact {
+    module: Arc<Module>,
 }
 
-impl ProgramRuntime {
-    fn execute(&mut self, input: i64) -> Result<i64, WasmCompositionError> {
-        self.store
-            .set_fuel(self.fuel_per_execution)
-            .map_err(|error| WasmCompositionError::Fuel(error.to_string()))?;
+struct LiveProgram {
+    store: Mutex<Store<StoreState>>,
+    _instances: Vec<Instance>,
+    entrypoint: Func,
+    expected_arity: usize,
+    program_id: String,
+}
 
-        let mut value = input;
-        for (step, function) in &self.pipeline {
-            value = function
-                .call(&mut self.store, value)
-                .map_err(|error| WasmCompositionError::Execution {
-                    module_id: step.module_id.clone(),
-                    export: step.export.clone(),
-                    reason: error.to_string(),
-                })?;
+impl LiveProgram {
+    fn call(&self, args: &[i32], fuel: u64) -> Result<i32, CompositionError> {
+        if args.len() != self.expected_arity {
+            return Err(CompositionError::ArgumentCount {
+                program_id: self.program_id.clone(),
+                expected: self.expected_arity,
+                actual: args.len(),
+            });
         }
-        Ok(value)
+
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        store
+            .set_fuel(fuel)
+            .map_err(|error| CompositionError::Execution {
+                program_id: self.program_id.clone(),
+                message: error.to_string(),
+            })?;
+
+        let params: Vec<Val> = args.iter().copied().map(Val::I32).collect();
+        let mut results = [Val::I32(0)];
+        self.entrypoint
+            .call(&mut *store, &params, &mut results)
+            .map_err(|error| CompositionError::Execution {
+                program_id: self.program_id.clone(),
+                message: error.to_string(),
+            })?;
+
+        match &results[0] {
+            Val::I32(value) => Ok(*value),
+            _ => Err(CompositionError::Execution {
+                program_id: self.program_id.clone(),
+                message: "entrypoint returned a value outside the declared i32 ABI".to_string(),
+            }),
+        }
     }
 }
 
-struct ProgramLifecycle {
-    state: WasmProgramState,
-    in_flight: usize,
+struct ProgramSet {
+    deployment_id: String,
+    release_id: String,
+    programs: BTreeMap<String, Arc<LiveProgram>>,
+    in_flight: AtomicUsize,
 }
 
-struct ProgramVersion {
-    manifest: WasmProgramManifest,
-    artifact_digest: String,
-    runtime: Mutex<ProgramRuntime>,
-    lifecycle: Mutex<ProgramLifecycle>,
-    drained: Condvar,
+impl ProgramSet {
+    fn program_ids(&self) -> Vec<String> {
+        self.programs.keys().cloned().collect()
+    }
 }
 
-struct ProgramRegistry {
-    versions: HashMap<(String, String), Arc<ProgramVersion>>,
-    active: HashMap<String, Arc<ProgramVersion>>,
-}
+struct InFlightGuard(Arc<ProgramSet>);
 
-/// Owns several independently routed programs. Every program version has its own
-/// linked Wasmtime Store and bounded resource limits; compiled module code is
-/// deduplicated by digest within this manager.
-pub struct WasmProgramManager {
-    engine: Engine,
-    fuel_per_execution: u64,
-    registry: RwLock<ProgramRegistry>,
-    compiled_cache: Mutex<HashMap<String, Arc<Module>>>,
-    cache_hits: AtomicUsize,
-    cache_misses: AtomicUsize,
-}
-
-struct ProgramExecutionGuard {
-    program: Arc<ProgramVersion>,
-}
-
-impl Drop for ProgramExecutionGuard {
+impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        let mut lifecycle = self.program.lifecycle.lock().unwrap();
-        lifecycle.in_flight = lifecycle.in_flight.saturating_sub(1);
-        if lifecycle.in_flight == 0 {
-            self.program.drained.notify_all();
-        }
+        self.0.in_flight.fetch_sub(1, Ordering::AcqRel);
     }
 }
-impl WasmProgramManager {
-    /// Construct a manager with the default 10-million-fuel budget per complete
-    /// policy pipeline invocation.
-    pub fn new() -> Result<Self, WasmCompositionError> {
-        Self::with_fuel(DEFAULT_PROGRAM_FUEL)
+
+/// A fully compiled and instantiated deployment that has not yet been made
+/// visible to callers.
+pub struct PreparedProgramSet {
+    inner: Arc<ProgramSet>,
+}
+
+impl PreparedProgramSet {
+    pub fn deployment_id(&self) -> &str {
+        &self.inner.deployment_id
     }
 
-    pub fn with_fuel(fuel_per_execution: u64) -> Result<Self, WasmCompositionError> {
-        if fuel_per_execution == 0 {
-            return Err(WasmCompositionError::InvalidManifest(
-                "fuel_per_execution must be positive".to_string(),
+    pub fn release_id(&self) -> &str {
+        &self.inner.release_id
+    }
+
+    pub fn program_ids(&self) -> Vec<String> {
+        self.inner.program_ids()
+    }
+}
+
+/// Result of the single routing-map update that activates every program in a
+/// deployment together.
+#[derive(Debug, Clone)]
+pub struct ActivationReceipt {
+    pub deployment_id: String,
+    pub active_release: String,
+    pub replaced_release: Option<String>,
+    pub program_ids: Vec<String>,
+}
+
+/// Wasmtime module composition and live-program routing.
+///
+/// Compiled modules are cached by SHA-256 of their source bytes for the
+/// lifetime of this runtime. Each program is instantiated in a separate Store,
+/// so programs can reuse code without sharing mutable guest memory, globals,
+/// or tables.
+pub struct CompositionRuntime {
+    engine: Engine,
+    limits: CompositionLimits,
+    compiled: Mutex<HashMap<[u8; 32], CompiledArtifact>>,
+    active: RwLock<HashMap<String, Arc<ProgramSet>>>,
+}
+
+impl CompositionRuntime {
+    pub fn new(limits: CompositionLimits) -> Result<Self, CompositionError> {
+        if limits.max_manifest_bytes == 0
+            || limits.max_programs == 0
+            || limits.max_modules_per_program == 0
+            || limits.max_module_bytes == 0
+            || limits.max_total_module_bytes == 0
+            || limits.max_linear_memory_bytes_per_memory == 0
+            || limits.max_table_elements_per_table == 0
+            || limits.max_compiled_cache_entries == 0
+            || limits.fuel_per_call == 0
+        {
+            return Err(CompositionError::InvalidManifest(
+                "all resource limits must be positive".to_string(),
             ));
         }
+
         let mut config = Config::new();
         config.consume_fuel(true);
-        config.wasm_threads(false);
-        config.max_wasm_stack(512 * 1024);
-        let engine = Engine::new(&config)
-            .map_err(|error| WasmCompositionError::Engine(error.to_string()))?;
+        config.max_wasm_stack(MAX_WASM_STACK_BYTES);
+        let engine = Engine::new(&config).map_err(|error| CompositionError::Compile {
+            module_id: "<engine>".to_string(),
+            version: "runtime".to_string(),
+            message: error.to_string(),
+        })?;
+
         Ok(Self {
             engine,
-            fuel_per_execution,
-            registry: RwLock::new(ProgramRegistry {
-                versions: HashMap::new(),
-                active: HashMap::new(),
-            }),
-            compiled_cache: Mutex::new(HashMap::new()),
-            cache_hits: AtomicUsize::new(0),
-            cache_misses: AtomicUsize::new(0),
+            limits,
+            compiled: Mutex::new(HashMap::new()),
+            active: RwLock::new(HashMap::new()),
         })
     }
 
-    /// Compile, link and instantiate a candidate version without routing traffic
-    /// to it. The module dependency graph and policy pipeline are validated before
-    /// the version is registered as Prepared.
-    pub fn prepare_program(
+    pub fn with_defaults() -> Self {
+        Self::new(CompositionLimits::default())
+            .expect("default Wasmtime composition limits are valid")
+    }
+
+    /// Parse a bounded JSON manifest and stage the complete deployment.
+    pub fn prepare_json(
         &self,
-        manifest: WasmProgramManifest,
-        artifacts: &[WasmModuleArtifact],
-    ) -> Result<WasmProgramSnapshot, WasmCompositionError> {
-        validate_manifest_header(&manifest)?;
-        let key = (manifest.program_id.clone(), manifest.version.clone());
-        {
-            let registry = self.registry.read().unwrap();
-            if registry.versions.contains_key(&key) {
-                return Err(WasmCompositionError::ProgramAlreadyExists {
-                    program_id: key.0,
+        manifest_bytes: &[u8],
+        artifacts: &[ModuleArtifact],
+    ) -> Result<PreparedProgramSet, CompositionError> {
+        if manifest_bytes.len() > self.limits.max_manifest_bytes {
+            return Err(CompositionError::ManifestTooLarge {
+                actual: manifest_bytes.len(),
+                max: self.limits.max_manifest_bytes,
+            });
+        }
+        let manifest: CompositionManifest = serde_json::from_slice(manifest_bytes)
+            .map_err(|error| CompositionError::InvalidManifest(error.to_string()))?;
+        self.prepare(&manifest, artifacts)
+    }
+
+    /// Compile, validate, link, and instantiate every program before returning
+    /// a prepared release. No program is routed until activate is called.
+    pub fn prepare(
+        &self,
+        manifest: &CompositionManifest,
+        artifacts: &[ModuleArtifact],
+    ) -> Result<PreparedProgramSet, CompositionError> {
+        validate_identifier("deployment_id", &manifest.deployment_id)?;
+        validate_identifier("release_id", &manifest.release_id)?;
+        if manifest.schema_version != COMPOSITION_SCHEMA_VERSION {
+            return Err(CompositionError::InvalidManifest(format!(
+                "unsupported schema_version {}; expected {}",
+                manifest.schema_version, COMPOSITION_SCHEMA_VERSION
+            )));
+        }
+        if manifest.programs.is_empty() || manifest.programs.len() > self.limits.max_programs {
+            return Err(CompositionError::InvalidManifest(format!(
+                "program count must be in 1..={}",
+                self.limits.max_programs
+            )));
+        }
+
+        let max_artifacts = self
+            .limits
+            .max_programs
+            .saturating_mul(self.limits.max_modules_per_program);
+        if artifacts.len() > max_artifacts {
+            return Err(CompositionError::InvalidManifest(format!(
+                "artifact count exceeds configured ceiling {max_artifacts}"
+            )));
+        }
+
+        let mut artifact_index: HashMap<(String, String), &ModuleArtifact> = HashMap::new();
+        let mut total_bytes = 0usize;
+        for artifact in artifacts {
+            validate_identifier("module_id", &artifact.module_id)?;
+            validate_identifier("module_version", &artifact.version)?;
+            if artifact.wasm.len() > self.limits.max_module_bytes {
+                return Err(CompositionError::ModuleTooLarge {
+                    module_id: artifact.module_id.clone(),
+                    version: artifact.version.clone(),
+                    actual: artifact.wasm.len(),
+                    max: self.limits.max_module_bytes,
+                });
+            }
+            total_bytes = total_bytes.checked_add(artifact.wasm.len()).ok_or(
+                CompositionError::TotalModuleBytesExceeded {
+                    actual: usize::MAX,
+                    max: self.limits.max_total_module_bytes,
+                },
+            )?;
+            if total_bytes > self.limits.max_total_module_bytes {
+                return Err(CompositionError::TotalModuleBytesExceeded {
+                    actual: total_bytes,
+                    max: self.limits.max_total_module_bytes,
+                });
+            }
+            let key = (artifact.module_id.clone(), artifact.version.clone());
+            if artifact_index.insert(key.clone(), artifact).is_some() {
+                return Err(CompositionError::DuplicateArtifact {
+                    module_id: key.0,
                     version: key.1,
                 });
             }
-            if registry.versions.len() >= MAX_PROGRAM_VERSIONS {
-                return Err(WasmCompositionError::ProgramVersionLimit);
+        }
+
+        let mut programs = BTreeMap::new();
+        let mut referenced_artifacts = BTreeSet::new();
+        for spec in &manifest.programs {
+            validate_identifier("program_id", &spec.program_id)?;
+            validate_identifier("entrypoint export", &spec.entrypoint.export)?;
+            validate_identifier("entrypoint module_id", &spec.entrypoint.module_id)?;
+            if spec.modules.is_empty() || spec.modules.len() > self.limits.max_modules_per_program {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "program '{}' module count must be in 1..={}",
+                    spec.program_id, self.limits.max_modules_per_program
+                )));
             }
-        }
-
-        let (module_bytes, total_bytes) = match_artifacts(&manifest, artifacts)?;
-        if total_bytes > MAX_PROGRAM_BYTES {
-            return Err(WasmCompositionError::ProgramTooLarge { size: total_bytes });
-        }
-
-        let descriptors: HashMap<&str, &WasmModuleDescriptor> = manifest
-            .modules
-            .iter()
-            .map(|descriptor| (descriptor.module_id.as_str(), descriptor))
-            .collect();
-        let order = dependency_order(&manifest.modules)?;
-
-        let mut compiled = HashMap::<String, Arc<Module>>::new();
-        for descriptor in &manifest.modules {
-            let bytes = module_bytes
-                .get(descriptor.module_id.as_str())
-                .expect("artifact matching validated");
-            let actual = sha256_hex(bytes);
-            if !actual.eq_ignore_ascii_case(&descriptor.sha256) {
-                return Err(WasmCompositionError::HashMismatch {
-                    module_id: descriptor.module_id.clone(),
-                    expected: descriptor.sha256.clone(),
-                    actual,
-                });
+            if programs.contains_key(&spec.program_id) {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "duplicate program_id '{}'",
+                    spec.program_id
+                )));
             }
-            let module = self.compile_cached(&descriptor.module_id, bytes, &actual)?;
-            validate_memory_types(&descriptor.module_id, &module)?;
-            compiled.insert(descriptor.module_id.clone(), module);
-        }
 
-        let limits = StoreLimitsBuilder::new()
-            .memory_size(MAX_LINEAR_MEMORY_BYTES)
-            .memories(MAX_MEMORIES_PER_PROGRAM)
-            .tables(MAX_TABLES_PER_PROGRAM)
-            .table_elements(MAX_TABLE_ELEMENTS)
-            .instances(MAX_PROGRAM_MODULES)
-            .build();
-        let mut store = Store::new(&self.engine, ProgramStoreState { limits });
-        store.limiter(|state| &mut state.limits);
-        store
-            .set_fuel(self.fuel_per_execution)
-            .map_err(|error| WasmCompositionError::Fuel(error.to_string()))?;
-
-        let mut linker = Linker::new(&self.engine);
-        let mut instances = HashMap::<String, Instance>::new();
-        let mut compiled_modules = Vec::with_capacity(order.len());
-        let mut instantiated = HashSet::<String>::new();
-
-        for module_id in order {
-            let descriptor = descriptors
-                .get(module_id.as_str())
-                .expect("topological order contains manifest IDs");
-            let module = compiled
-                .get(&module_id)
-                .expect("every descriptor was compiled");
-
-            for import in module.imports() {
-                let namespace = import.module();
-                if !descriptor.depends_on.iter().any(|dependency| dependency == namespace) {
-                    return Err(WasmCompositionError::UndeclaredImport {
-                        module_id: module_id.clone(),
-                        dependency: namespace.to_string(),
+            let mut compiled_by_id = BTreeMap::new();
+            let mut refs_by_id = BTreeMap::new();
+            for module_ref in &spec.modules {
+                validate_identifier("module_id", &module_ref.module_id)?;
+                validate_identifier("module_version", &module_ref.version)?;
+                if refs_by_id
+                    .insert(module_ref.module_id.clone(), module_ref.version.clone())
+                    .is_some()
+                {
+                    return Err(CompositionError::DuplicateProgramModule {
+                        program_id: spec.program_id.clone(),
+                        module_id: module_ref.module_id.clone(),
                     });
                 }
-                if !instantiated.contains(namespace) {
-                    return Err(WasmCompositionError::DisallowedImport {
-                        module_id: module_id.clone(),
-                        namespace: namespace.to_string(),
+                let key = (module_ref.module_id.clone(), module_ref.version.clone());
+                let artifact =
+                    artifact_index
+                        .get(&key)
+                        .ok_or_else(|| CompositionError::MissingArtifact {
+                            module_id: module_ref.module_id.clone(),
+                            version: module_ref.version.clone(),
+                        })?;
+                referenced_artifacts.insert(key);
+                let compiled = self.compile_cached(artifact)?;
+                compiled_by_id.insert(module_ref.module_id.clone(), compiled);
+            }
+
+            for (namespace, target) in &spec.bindings {
+                validate_identifier("binding namespace", namespace).map_err(|_| {
+                    CompositionError::InvalidNamespace {
+                        program_id: spec.program_id.clone(),
+                        namespace: namespace.clone(),
+                    }
+                })?;
+                if !compiled_by_id.contains_key(target) {
+                    return Err(CompositionError::BindingTargetMissing {
+                        program_id: spec.program_id.clone(),
+                        namespace: namespace.clone(),
+                        module_id: target.clone(),
                     });
                 }
             }
 
-            let instance = linker
-                .instantiate(&mut store, module.as_ref())
-                .map_err(|error| WasmCompositionError::Link {
-                    module_id: module_id.clone(),
-                    reason: error.to_string(),
-                })?;
-            linker
-                .instance(&mut store, &module_id, instance)
-                .map_err(|error| WasmCompositionError::Link {
-                    module_id: module_id.clone(),
-                    reason: error.to_string(),
-                })?;
-            instances.insert(module_id.clone(), instance);
-            instantiated.insert(module_id);
-            compiled_modules.push(module.clone());
-        }
-
-        let mut pipeline = Vec::with_capacity(manifest.policy.len());
-        for (index, step) in manifest.policy.iter().enumerate() {
-            let instance = instances.get(&step.module_id).ok_or_else(|| {
-                WasmCompositionError::PolicyModuleMissing {
-                    index,
-                    module_id: step.module_id.clone(),
+            let order =
+                validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
+            let store_limits = StoreLimitsBuilder::new()
+                .memory_size(self.limits.max_linear_memory_bytes_per_memory)
+                .table_elements(self.limits.max_table_elements_per_table)
+                .instances(self.limits.max_modules_per_program)
+                .memories(self.limits.max_modules_per_program)
+                .tables(self.limits.max_modules_per_program)
+                .build();
+            let mut store = Store::new(
+                &self.engine,
+                StoreState {
+                    limits: store_limits,
+                },
+            );
+            store.limiter(|state| &mut state.limits);
+            store.set_fuel(self.limits.fuel_per_call).map_err(|error| {
+                CompositionError::Execution {
+                    program_id: spec.program_id.clone(),
+                    message: error.to_string(),
                 }
             })?;
-            let function = instance
-                .get_typed_func::<i64, i64>(&mut store, &step.export)
-                .map_err(|_| WasmCompositionError::InvalidPolicyExport {
-                    module_id: step.module_id.clone(),
-                    export: step.export.clone(),
+
+            let mut linker = Linker::new(&self.engine);
+            let mut instances_by_id = BTreeMap::new();
+            let mut instances = Vec::with_capacity(order.len());
+
+            for module_id in order {
+                let compiled = compiled_by_id.get(&module_id).ok_or_else(|| {
+                    CompositionError::InvalidManifest(format!(
+                        "internal module lookup failed for '{}'",
+                        module_id
+                    ))
                 })?;
-            pipeline.push((step.clone(), function));
-        }
+                let instance =
+                    linker
+                        .instantiate(&mut store, &compiled.module)
+                        .map_err(|error| CompositionError::Execution {
+                            program_id: spec.program_id.clone(),
+                            message: format!("instantiate module '{}': {error}", module_id),
+                        })?;
 
-        let artifact_digest = program_digest(&manifest);
-        let program = Arc::new(ProgramVersion {
-            manifest: manifest.clone(),
-            artifact_digest,
-            runtime: Mutex::new(ProgramRuntime {
-                store,
-                pipeline,
-                _compiled_modules: compiled_modules,
-                fuel_per_execution: self.fuel_per_execution,
-            }),
-            lifecycle: Mutex::new(ProgramLifecycle {
-                state: WasmProgramState::Prepared,
-                in_flight: 0,
-            }),
-            drained: Condvar::new(),
-        });
+                // Expose a provider instance under each namespace that targets it.
+                for (namespace, target) in &spec.bindings {
+                    if target == &module_id {
+                        linker
+                            .instance(&mut store, namespace, instance)
+                            .map_err(|error| CompositionError::Execution {
+                                program_id: spec.program_id.clone(),
+                                message: format!(
+                                    "register namespace '{}' for module '{}': {error}",
+                                    namespace, module_id
+                                ),
+                            })?;
+                    }
+                }
 
-        let mut registry = self.registry.write().unwrap();
-        if registry.versions.contains_key(&key) {
-            return Err(WasmCompositionError::ProgramAlreadyExists {
-                program_id: key.0,
-                version: key.1,
-            });
-        }
-        if registry.versions.len() >= MAX_PROGRAM_VERSIONS {
-            return Err(WasmCompositionError::ProgramVersionLimit);
-        }
-        registry.versions.insert(key, program.clone());
-        Ok(snapshot(&program))
-    }
+                instances_by_id.insert(module_id, instance);
+                instances.push(instance);
+            }
 
-    /// Atomically route new calls to a prepared version, then wait for the
-    /// superseded version's in-flight policy invocations. On timeout, the new
-    /// version remains active and the old one remains retained in Draining state.
-    pub fn activate_program(
-        &self,
-        program_id: &str,
-        version: &str,
-        drain_timeout: Duration,
-    ) -> Result<WasmProgramActivation, WasmCompositionError> {
-        let (candidate, previous) = {
-            let mut registry = self.registry.write().unwrap();
-            let candidate = registry
-                .versions
-                .get(&(program_id.to_string(), version.to_string()))
-                .cloned()
-                .ok_or_else(|| WasmCompositionError::ProgramNotFound {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                })?;
-            if registry
-                .active
-                .get(program_id)
-                .is_some_and(|active| Arc::ptr_eq(active, &candidate))
-            {
-                return Ok(WasmProgramActivation {
-                    program_id: program_id.to_string(),
-                    active_version: version.to_string(),
-                    retired_version: None,
-                    old_drained: true,
+            if !compiled_by_id.contains_key(&spec.entrypoint.module_id) {
+                return Err(CompositionError::EntrypointModuleMissing {
+                    program_id: spec.program_id.clone(),
+                    module_id: spec.entrypoint.module_id.clone(),
                 });
             }
-
-            let previous = registry.active.get(program_id).cloned();
-            {
-                let mut candidate_state = candidate.lifecycle.lock().unwrap();
-                if !matches!(
-                    candidate_state.state,
-                    WasmProgramState::Prepared | WasmProgramState::Drained
-                ) {
-                    return Err(WasmCompositionError::NotActivatable {
-                        program_id: program_id.to_string(),
-                        version: version.to_string(),
-                    });
-                }
-                candidate_state.state = WasmProgramState::Active;
+            if spec.entrypoint.params > self.limits.max_entrypoint_arity {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "program '{}' entrypoint arity exceeds {}",
+                    spec.program_id, self.limits.max_entrypoint_arity
+                )));
             }
-            if let Some(old) = previous.as_ref() {
-                let mut old_state = old.lifecycle.lock().unwrap();
-                if old_state.state == WasmProgramState::Active {
-                    old_state.state = WasmProgramState::Draining;
-                }
-            }
-            registry.active.insert(program_id.to_string(), candidate.clone());
-            (candidate, previous)
-        };
+            let entry_instance =
+                instances_by_id
+                    .get(&spec.entrypoint.module_id)
+                    .ok_or_else(|| CompositionError::EntrypointModuleMissing {
+                        program_id: spec.program_id.clone(),
+                        module_id: spec.entrypoint.module_id.clone(),
+                    })?;
+            let entrypoint = entry_instance
+                .get_func(&mut store, &spec.entrypoint.export)
+                .ok_or_else(|| CompositionError::EntrypointMissing {
+                    program_id: spec.program_id.clone(),
+                    module_id: spec.entrypoint.module_id.clone(),
+                    export: spec.entrypoint.export.clone(),
+                })?;
+            validate_entrypoint_signature(
+                &spec.program_id,
+                &spec.entrypoint,
+                &entrypoint.ty(&store),
+            )?;
 
-        let old_drained = if let Some(old) = previous.as_ref() {
-            wait_until_drained(old, drain_timeout)
-        } else {
-            true
-        };
+            programs.insert(
+                spec.program_id.clone(),
+                Arc::new(LiveProgram {
+                    store: Mutex::new(store),
+                    _instances: instances,
+                    entrypoint,
+                    expected_arity: spec.entrypoint.params,
+                    program_id: spec.program_id.clone(),
+                }),
+            );
+        }
 
-        Ok(WasmProgramActivation {
-            program_id: candidate.manifest.program_id.clone(),
-            active_version: candidate.manifest.version.clone(),
-            retired_version: previous.map(|program| program.manifest.version.clone()),
-            old_drained,
+        if referenced_artifacts.len() != artifact_index.len() {
+            let unused = artifact_index
+                .keys()
+                .find(|key| !referenced_artifacts.contains(*key))
+                .expect("length mismatch means an unused artifact exists");
+            return Err(CompositionError::InvalidManifest(format!(
+                "unused artifact {}:{} is not referenced by this deployment",
+                unused.0, unused.1
+            )));
+        }
+
+        Ok(PreparedProgramSet {
+            inner: Arc::new(ProgramSet {
+                deployment_id: manifest.deployment_id.clone(),
+                release_id: manifest.release_id.clone(),
+                programs,
+                in_flight: AtomicUsize::new(0),
+            }),
         })
     }
 
-    /// Wait for a version already in Draining state. Returns false on timeout;
-    /// no resources are released by this operation.
-    pub fn drain_program(
+    /// Atomically make every program in a prepared release visible under one
+    /// deployment ID. Calls already admitted to the previous release keep
+    /// their old Store and instances alive until those calls return.
+    pub fn activate(
         &self,
-        program_id: &str,
-        version: &str,
-        timeout: Duration,
-    ) -> Result<bool, WasmCompositionError> {
-        let program = self.find_version(program_id, version)?;
-        {
-            let lifecycle = program.lifecycle.lock().unwrap();
-            if lifecycle.state == WasmProgramState::Active {
-                return Err(WasmCompositionError::ProgramBusy {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                });
-            }
-            if lifecycle.state == WasmProgramState::Prepared
-                || lifecycle.state == WasmProgramState::Drained
-            {
-                return Ok(true);
-            }
-            if lifecycle.state == WasmProgramState::Released {
-                return Err(WasmCompositionError::ProgramReleased {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                });
-            }
-        }
-        Ok(wait_until_drained(&program, timeout))
-    }
-
-    /// Remove a Prepared or Drained non-active version. Its Store and instances
-    /// are dropped when the final handle is released. Active/Draining versions
-    /// must first be switched away and drained.
-    pub fn release_program(
-        &self,
-        program_id: &str,
-        version: &str,
-    ) -> Result<(), WasmCompositionError> {
-        let key = (program_id.to_string(), version.to_string());
-        let mut registry = self.registry.write().unwrap();
-        let program = registry
-            .versions
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| WasmCompositionError::ProgramNotFound {
-                program_id: program_id.to_string(),
-                version: version.to_string(),
-            })?;
-        if registry
+        prepared: PreparedProgramSet,
+    ) -> Result<ActivationReceipt, CompositionError> {
+        let deployment_id = prepared.inner.deployment_id.clone();
+        let release_id = prepared.inner.release_id.clone();
+        let program_ids = prepared.inner.program_ids();
+        let mut active = self
             .active
-            .get(program_id)
-            .is_some_and(|active| Arc::ptr_eq(active, &program))
-        {
-            return Err(WasmCompositionError::ProgramBusy {
-                program_id: program_id.to_string(),
-                version: version.to_string(),
-            });
-        }
-        let mut lifecycle = program.lifecycle.lock().unwrap();
-        match lifecycle.state {
-            WasmProgramState::Draining if lifecycle.in_flight > 0 => {
-                return Err(WasmCompositionError::ProgramDraining {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                });
-            }
-            WasmProgramState::Active => {
-                return Err(WasmCompositionError::ProgramBusy {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                });
-            }
-            WasmProgramState::Draining => lifecycle.state = WasmProgramState::Drained,
-            WasmProgramState::Prepared | WasmProgramState::Drained => {}
-            WasmProgramState::Released => {
-                return Err(WasmCompositionError::ProgramReleased {
-                    program_id: program_id.to_string(),
-                    version: version.to_string(),
-                });
-            }
-        }
-        if lifecycle.in_flight != 0 {
-            return Err(WasmCompositionError::ProgramBusy {
-                program_id: program_id.to_string(),
-                version: version.to_string(),
-            });
-        }
-        lifecycle.state = WasmProgramState::Released;
-        drop(lifecycle);
-        registry.versions.remove(&key);
-        Ok(())
+            .write()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        let previous = active.insert(deployment_id.clone(), prepared.inner);
+
+        Ok(ActivationReceipt {
+            deployment_id,
+            active_release: release_id,
+            replaced_release: previous.map(|set| set.release_id.clone()),
+            program_ids,
+        })
     }
 
-    /// Execute the active version's ordered policy pipeline. Calls to one program
-    /// are serialized by its Store mutex; different program IDs have independent
-    /// Stores and may execute concurrently.
-    pub fn execute_program(
+    /// Execute an active program using the scalar policy ABI. The deployment
+    /// routing lock is held only while acquiring the selected release.
+    pub fn call(
         &self,
+        deployment_id: &str,
         program_id: &str,
-        input: i64,
-    ) -> Result<i64, WasmCompositionError> {
-        let program = {
-            let registry = self.registry.read().unwrap();
-            let program = registry
+        args: &[i32],
+    ) -> Result<i32, CompositionError> {
+        let (set, program) = {
+            let active = self
                 .active
-                .get(program_id)
-                .cloned()
-                .ok_or_else(|| WasmCompositionError::NoActiveProgram(program_id.to_string()))?;
-            let mut lifecycle = program.lifecycle.lock().unwrap();
-            if lifecycle.state != WasmProgramState::Active {
-                return Err(WasmCompositionError::NoActiveProgram(program_id.to_string()));
-            }
-            lifecycle.in_flight += 1;
-            program
+                .read()
+                .map_err(|_| CompositionError::LockPoisoned)?;
+            let set = active.get(deployment_id).cloned().ok_or_else(|| {
+                CompositionError::DeploymentNotActive {
+                    deployment_id: deployment_id.to_string(),
+                }
+            })?;
+            let program = set.programs.get(program_id).cloned().ok_or_else(|| {
+                CompositionError::ProgramNotActive {
+                    deployment_id: deployment_id.to_string(),
+                    program_id: program_id.to_string(),
+                }
+            })?;
+            // Increment under the read lock. Activation cannot swap the
+            // deployment until this admitted call is counted.
+            set.in_flight.fetch_add(1, Ordering::AcqRel);
+            (set, program)
         };
-        let _guard = ProgramExecutionGuard {
-            program: program.clone(),
-        };
-        program.runtime.lock().unwrap().execute(input)
+
+        let _guard = InFlightGuard(set);
+        program.call(args, self.limits.fuel_per_call)
     }
 
-    pub fn active_version(&self, program_id: &str) -> Option<String> {
-        self.registry
-            .read()
-            .unwrap()
+    pub fn active_release(&self, deployment_id: &str) -> Result<Option<String>, CompositionError> {
+        let active = self
             .active
-            .get(program_id)
-            .map(|program| program.manifest.version.clone())
-    }
-
-    pub fn program_snapshot(
-        &self,
-        program_id: &str,
-        version: &str,
-    ) -> Result<WasmProgramSnapshot, WasmCompositionError> {
-        let program = self.find_version(program_id, version)?;
-        Ok(snapshot(&program))
-    }
-
-    pub fn cache_stats(&self) -> CompilationCacheStats {
-        CompilationCacheStats {
-            entries: self.compiled_cache.lock().unwrap().len(),
-            hits: self.cache_hits.load(Ordering::Relaxed),
-            misses: self.cache_misses.load(Ordering::Relaxed),
-        }
-    }
-
-    fn find_version(
-        &self,
-        program_id: &str,
-        version: &str,
-    ) -> Result<Arc<ProgramVersion>, WasmCompositionError> {
-        self.registry
             .read()
-            .unwrap()
-            .versions
-            .get(&(program_id.to_string(), version.to_string()))
-            .cloned()
-            .ok_or_else(|| WasmCompositionError::ProgramNotFound {
-                program_id: program_id.to_string(),
-                version: version.to_string(),
-            })
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        Ok(active.get(deployment_id).map(|set| set.release_id.clone()))
+    }
+
+    pub fn active_program_ids(&self, deployment_id: &str) -> Result<Vec<String>, CompositionError> {
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        Ok(active
+            .get(deployment_id)
+            .map(|set| set.program_ids())
+            .unwrap_or_default())
+    }
+
+    pub fn active_in_flight(&self, deployment_id: &str) -> Result<Option<usize>, CompositionError> {
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        Ok(active
+            .get(deployment_id)
+            .map(|set| set.in_flight.load(Ordering::Acquire)))
+    }
+
+    pub fn cached_module_count(&self) -> Result<usize, CompositionError> {
+        let cache = self
+            .compiled
+            .lock()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        Ok(cache.len())
     }
 
     fn compile_cached(
         &self,
-        module_id: &str,
-        bytes: &[u8],
-        digest: &str,
-    ) -> Result<Arc<Module>, WasmCompositionError> {
-        let mut cache = self.compiled_cache.lock().unwrap();
-        if let Some(module) = cache.get(digest) {
-            self.cache_hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(module.clone());
+        artifact: &ModuleArtifact,
+    ) -> Result<CompiledArtifact, CompositionError> {
+        let digest: [u8; 32] = Sha256::digest(&artifact.wasm).into();
+        let mut cache = self
+            .compiled
+            .lock()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        if let Some(compiled) = cache.get(&digest) {
+            return Ok(CompiledArtifact {
+                module: Arc::clone(&compiled.module),
+            });
         }
-        self.cache_misses.fetch_add(1, Ordering::Relaxed);
-        let module = Arc::new(
-            Module::new(&self.engine, bytes).map_err(|error| WasmCompositionError::Compile {
-                module_id: module_id.to_string(),
-                reason: error.to_string(),
-            })?,
+
+        let module = Module::new(&self.engine, &artifact.wasm).map_err(|error| {
+            CompositionError::Compile {
+                module_id: artifact.module_id.clone(),
+                version: artifact.version.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        let module = Arc::new(module);
+        if cache.len() >= self.limits.max_compiled_cache_entries {
+            // Existing live instances retain their compiled code. Clearing the
+            // lookup cache bounds this runtime's additional Module references.
+            cache.clear();
+        }
+        cache.insert(
+            digest,
+            CompiledArtifact {
+                module: Arc::clone(&module),
+            },
         );
-        if cache.len() < MAX_COMPILED_MODULE_CACHE_ENTRIES {
-            cache.insert(digest.to_string(), module.clone());
+        Ok(CompiledArtifact { module })
+    }
+}
+
+fn validate_identifier(field: &str, value: &str) -> Result<(), CompositionError> {
+    let valid = !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte));
+    if valid {
+        Ok(())
+    } else {
+        Err(CompositionError::InvalidManifest(format!(
+            "{field} must be 1..=128 ASCII letters, digits, '.', '_' or '-'"
+        )))
+    }
+}
+
+fn validate_and_order_modules(
+    program_id: &str,
+    modules: &BTreeMap<String, CompiledArtifact>,
+    bindings: &BTreeMap<String, String>,
+) -> Result<Vec<String>, CompositionError> {
+    let mut dependencies: BTreeMap<String, BTreeSet<String>> = modules
+        .keys()
+        .map(|module_id| (module_id.clone(), BTreeSet::new()))
+        .collect();
+    let mut used_namespaces = BTreeSet::new();
+
+    for (module_id, compiled) in modules {
+        for import in compiled.module.imports() {
+            let namespace = import.module();
+            let name = import.name();
+            used_namespaces.insert(namespace.to_string());
+            let provider_id =
+                bindings
+                    .get(namespace)
+                    .ok_or_else(|| CompositionError::UnboundImport {
+                        program_id: program_id.to_string(),
+                        module_id: module_id.clone(),
+                        namespace: namespace.to_string(),
+                    })?;
+            if provider_id == module_id {
+                return Err(CompositionError::DependencyCycle {
+                    program_id: program_id.to_string(),
+                });
+            }
+            let provider =
+                modules
+                    .get(provider_id)
+                    .ok_or_else(|| CompositionError::BindingTargetMissing {
+                        program_id: program_id.to_string(),
+                        namespace: namespace.to_string(),
+                        module_id: provider_id.clone(),
+                    })?;
+
+            let required_type = match import.ty() {
+                ExternType::Func(func_type) => func_type,
+                _ => {
+                    return Err(CompositionError::UnsupportedImportKind {
+                        program_id: program_id.to_string(),
+                        module_id: module_id.clone(),
+                        namespace: namespace.to_string(),
+                        name: name.to_string(),
+                    });
+                }
+            };
+            let provided_type = provider
+                .module
+                .exports()
+                .find(|export| export.name() == name)
+                .map(|export| export.ty());
+            match provided_type {
+                Some(ExternType::Func(func_type)) if FuncType::eq(&required_type, &func_type) => {}
+                Some(ExternType::Func(_)) => {
+                    return Err(CompositionError::ImportSignatureMismatch {
+                        program_id: program_id.to_string(),
+                        namespace: namespace.to_string(),
+                        name: name.to_string(),
+                        provider: provider_id.clone(),
+                    });
+                }
+                _ => {
+                    return Err(CompositionError::MissingDependencyExport {
+                        program_id: program_id.to_string(),
+                        module_id: module_id.clone(),
+                        namespace: namespace.to_string(),
+                        name: name.to_string(),
+                        provider: provider_id.clone(),
+                    });
+                }
+            }
+
+            dependencies
+                .get_mut(module_id)
+                .expect("module dependency entry exists")
+                .insert(provider_id.clone());
         }
-        Ok(module)
+    }
+
+    for namespace in bindings.keys() {
+        if !used_namespaces.contains(namespace) {
+            return Err(CompositionError::UnusedBinding {
+                program_id: program_id.to_string(),
+                namespace: namespace.clone(),
+            });
+        }
+    }
+
+    // Stable Kahn topological sort: providers are instantiated before
+    // consumers, and cyclic imports are rejected.
+    let mut pending: BTreeSet<String> = modules.keys().cloned().collect();
+    let mut completed = BTreeSet::new();
+    let mut order = Vec::with_capacity(modules.len());
+
+    while !pending.is_empty() {
+        let ready = pending
+            .iter()
+            .find(|module_id| {
+                dependencies
+                    .get(*module_id)
+                    .is_some_and(|required| required.is_subset(&completed))
+            })
+            .cloned();
+
+        let Some(module_id) = ready else {
+            return Err(CompositionError::DependencyCycle {
+                program_id: program_id.to_string(),
+            });
+        };
+        pending.remove(&module_id);
+        completed.insert(module_id.clone());
+        order.push(module_id);
+    }
+
+    Ok(order)
+}
+
+fn validate_entrypoint_signature(
+    program_id: &str,
+    entrypoint: &EntrypointSpec,
+    function_type: &FuncType,
+) -> Result<(), CompositionError> {
+    let params: Vec<ValType> = function_type.params().collect();
+    let results: Vec<ValType> = function_type.results().collect();
+    let valid = params.len() == entrypoint.params
+        && params.iter().all(|ty| matches!(ty, ValType::I32))
+        && results.len() == 1
+        && matches!(results.first(), Some(ValType::I32));
+
+    if valid {
+        Ok(())
+    } else {
+        Err(CompositionError::EntrypointSignature {
+            program_id: program_id.to_string(),
+            module_id: entrypoint.module_id.clone(),
+            export: entrypoint.export.clone(),
+            params: entrypoint.params,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn artifact(module_id: &str, version: &str, wat_source: &str) -> ModuleArtifact {
+        ModuleArtifact {
+            module_id: module_id.to_string(),
+            version: version.to_string(),
+            wasm: wat::parse_str(wat_source).expect("valid WAT"),
+        }
+    }
+
+    fn program(
+        program_id: &str,
+        modules: &[(&str, &str)],
+        entry_module: &str,
+        export: &str,
+        params: usize,
+    ) -> ProgramSpec {
+        ProgramSpec {
+            program_id: program_id.to_string(),
+            modules: modules
+                .iter()
+                .map(|(module_id, version)| ModuleRef {
+                    module_id: (*module_id).to_string(),
+                    version: (*version).to_string(),
+                })
+                .collect(),
+            bindings: BTreeMap::new(),
+            entrypoint: EntrypointSpec {
+                module_id: entry_module.to_string(),
+                export: export.to_string(),
+                params,
+            },
+        }
+    }
+
+    fn manifest(release: &str, programs: Vec<ProgramSpec>) -> CompositionManifest {
+        CompositionManifest {
+            schema_version: COMPOSITION_SCHEMA_VERSION,
+            deployment_id: "risk-engine".to_string(),
+            release_id: release.to_string(),
+            programs,
+        }
+    }
+
+    #[test]
+    fn links_multiple_modules_and_runs_the_composed_entrypoint() {
+        let mut main = program(
+            "quality-policy",
+            &[("math-kernel", "1.0.0"), ("quality-main", "1.0.0")],
+            "quality-main",
+            "run",
+            1,
+        );
+        main.bindings
+            .insert("math".to_string(), "math-kernel".to_string());
+
+        let manifest = manifest("r1", vec![main]);
+        let artifacts = vec![
+            artifact(
+                "math-kernel",
+                "1.0.0",
+                r#"(module
+                    (func (export "add_ten") (param i32) (result i32)
+                        local.get 0
+                        i32.const 10
+                        i32.add))"#,
+            ),
+            artifact(
+                "quality-main",
+                "1.0.0",
+                r#"(module
+                    (import "math" "add_ten" (func $add_ten (param i32) (result i32)))
+                    (func (export "run") (param i32) (result i32)
+                        local.get 0
+                        call $add_ten))"#,
+            ),
+        ];
+
+        let runtime = CompositionRuntime::with_defaults();
+        let prepared = runtime.prepare(&manifest, &artifacts).expect("prepare");
+        runtime.activate(prepared).expect("activate");
+        assert_eq!(
+            runtime
+                .call("risk-engine", "quality-policy", &[32])
+                .unwrap(),
+            42
+        );
+    }
+
+    #[test]
+    fn one_compiled_module_can_back_multiple_state_isolated_programs() {
+        let counter = artifact(
+            "counter",
+            "1.0.0",
+            r#"(module
+                (global $value (mut i32) (i32.const 0))
+                (func (export "step") (result i32)
+                    global.get $value
+                    i32.const 1
+                    i32.add
+                    global.set $value
+                    global.get $value))"#,
+        );
+        let manifest = manifest(
+            "r1",
+            vec![
+                program("program-a", &[("counter", "1.0.0")], "counter", "step", 0),
+                program("program-b", &[("counter", "1.0.0")], "counter", "step", 0),
+            ],
+        );
+        let runtime = CompositionRuntime::with_defaults();
+        let prepared = runtime.prepare(&manifest, &[counter]).expect("prepare");
+        assert_eq!(runtime.cached_module_count().unwrap(), 1);
+        runtime.activate(prepared).unwrap();
+
+        assert_eq!(runtime.call("risk-engine", "program-a", &[]).unwrap(), 1);
+        assert_eq!(runtime.call("risk-engine", "program-a", &[]).unwrap(), 2);
+        assert_eq!(runtime.call("risk-engine", "program-b", &[]).unwrap(), 1);
+    }
+
+    #[test]
+    fn activation_switches_all_programs_in_a_release_together() {
+        let runtime = CompositionRuntime::with_defaults();
+
+        let release_one = manifest(
+            "r1",
+            vec![
+                program("alpha", &[("policy", "1.0.0")], "policy", "run", 1),
+                program("beta", &[("policy", "1.0.0")], "policy", "run", 1),
+            ],
+        );
+        let first_artifact = artifact(
+            "policy",
+            "1.0.0",
+            r#"(module
+                (func (export "run") (param i32) (result i32)
+                    local.get 0
+                    i32.const 1
+                    i32.add))"#,
+        );
+        runtime
+            .activate(runtime.prepare(&release_one, &[first_artifact]).unwrap())
+            .unwrap();
+        assert_eq!(runtime.call("risk-engine", "alpha", &[10]).unwrap(), 11);
+        assert_eq!(runtime.call("risk-engine", "beta", &[10]).unwrap(), 11);
+
+        let release_two = manifest(
+            "r2",
+            vec![
+                program("alpha", &[("policy", "2.0.0")], "policy", "run", 1),
+                program("beta", &[("policy", "2.0.0")], "policy", "run", 1),
+            ],
+        );
+        let second_artifact = artifact(
+            "policy",
+            "2.0.0",
+            r#"(module
+                (func (export "run") (param i32) (result i32)
+                    local.get 0
+                    i32.const 2
+                    i32.add))"#,
+        );
+        let prepared = runtime.prepare(&release_two, &[second_artifact]).unwrap();
+        let receipt = runtime.activate(prepared).unwrap();
+
+        assert_eq!(receipt.replaced_release.as_deref(), Some("r1"));
+        assert_eq!(
+            runtime.active_release("risk-engine").unwrap().as_deref(),
+            Some("r2")
+        );
+        assert_eq!(runtime.call("risk-engine", "alpha", &[10]).unwrap(), 12);
+        assert_eq!(runtime.call("risk-engine", "beta", &[10]).unwrap(), 12);
+    }
+
+    #[test]
+    fn rejects_import_signature_mismatch_before_activation() {
+        let mut consumer = program(
+            "consumer",
+            &[("provider", "1.0.0"), ("consumer", "1.0.0")],
+            "consumer",
+            "run",
+            1,
+        );
+        consumer
+            .bindings
+            .insert("provider".to_string(), "provider".to_string());
+        let manifest = manifest("r1", vec![consumer]);
+        let artifacts = vec![
+            artifact(
+                "provider",
+                "1.0.0",
+                r#"(module (func (export "convert") (param i64) (result i64)
+                    local.get 0))"#,
+            ),
+            artifact(
+                "consumer",
+                "1.0.0",
+                r#"(module
+                    (import "provider" "convert" (func $convert (param i32) (result i32)))
+                    (func (export "run") (param i32) (result i32)
+                        local.get 0 call $convert))"#,
+            ),
+        ];
+        let runtime = CompositionRuntime::with_defaults();
+        assert!(matches!(
+            runtime.prepare(&manifest, &artifacts),
+            Err(CompositionError::ImportSignatureMismatch { .. })
+        ));
+        assert_eq!(runtime.active_release("risk-engine").unwrap(), None);
+    }
+
+    #[test]
+    fn rejects_cyclic_module_dependencies() {
+        let mut cycle = program("cycle", &[("a", "1"), ("b", "1")], "a", "run", 0);
+        cycle.bindings.insert("b".to_string(), "b".to_string());
+        cycle.bindings.insert("a".to_string(), "a".to_string());
+        let artifacts = vec![
+            artifact(
+                "a",
+                "1",
+                r#"(module
+                    (import "b" "f" (func $f))
+                    (func (export "f"))
+                    (func (export "run") (result i32)
+                        call $f
+                        i32.const 0))"#,
+            ),
+            artifact(
+                "b",
+                "1",
+                r#"(module (import "a" "f" (func $f)) (func (export "f") call $f))"#,
+            ),
+        ];
+        let runtime = CompositionRuntime::with_defaults();
+        assert!(matches!(
+            runtime.prepare(&manifest("r1", vec![cycle]), &artifacts),
+            Err(CompositionError::DependencyCycle { .. })
+        ));
+    }
+
+    #[test]
+    fn applies_fuel_budget_to_each_program_invocation() {
+        let runtime = CompositionRuntime::new(CompositionLimits {
+            fuel_per_call: 1_000,
+            ..CompositionLimits::default()
+        })
+        .unwrap();
+        let infinite = artifact(
+            "spin",
+            "1",
+            r#"(module
+                (func (export "run") (result i32)
+                    (loop $again
+                        br $again)
+                    i32.const 0))"#,
+        );
+        let manifest = manifest(
+            "r1",
+            vec![program("spin-program", &[("spin", "1")], "spin", "run", 0)],
+        );
+        runtime
+            .activate(runtime.prepare(&manifest, &[infinite]).unwrap())
+            .unwrap();
+        assert!(matches!(
+            runtime.call("risk-engine", "spin-program", &[]),
+            Err(CompositionError::Execution { .. })
+        ));
     }
 }
