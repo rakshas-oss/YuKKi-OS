@@ -22,8 +22,8 @@ fn hex_bytes<const N: usize>(value: &str) -> [u8; N] {
     assert_eq!(value.len(), N * 2, "hex fixture length");
     let mut output = [0u8; N];
     for (index, byte) in output.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .expect("valid hex fixture");
+        *byte =
+            u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).expect("valid hex fixture");
     }
     output
 }
@@ -32,7 +32,9 @@ fn bench_x25519_keypair_generation(c: &mut Criterion) {
     let data = dataset();
     let crypto = &data["crypto"];
     let secret_bytes = hex_bytes::<32>(
-        crypto["keypair_secret_hex"].as_str().expect("keypair secret"),
+        crypto["keypair_secret_hex"]
+            .as_str()
+            .expect("keypair secret"),
     );
     c.bench_function("x25519_keypair_generation", |b| {
         b.iter(|| {
@@ -47,7 +49,9 @@ fn bench_x25519_diffie_hellman(c: &mut Criterion) {
     let data = dataset();
     let crypto = &data["crypto"];
     let alice_secret = StaticSecret::from(hex_bytes::<32>(
-        crypto["dh_alice_secret_hex"].as_str().expect("Alice secret"),
+        crypto["dh_alice_secret_hex"]
+            .as_str()
+            .expect("Alice secret"),
     ));
     let bob_secret = StaticSecret::from(hex_bytes::<32>(
         crypto["dh_bob_secret_hex"].as_str().expect("Bob secret"),
@@ -128,15 +132,22 @@ fn bench_session_establishment_heuristic(c: &mut Criterion) {
     let data = dataset();
     let crypto = &data["crypto"];
     let alice_secret_bytes = hex_bytes::<32>(
-        crypto["session_alice_secret_hex"].as_str().expect("session Alice secret"),
+        crypto["session_alice_secret_hex"]
+            .as_str()
+            .expect("session Alice secret"),
     );
     let bob_secret_bytes = hex_bytes::<32>(
-        crypto["session_bob_secret_hex"].as_str().expect("session Bob secret"),
+        crypto["session_bob_secret_hex"]
+            .as_str()
+            .expect("session Bob secret"),
     );
     let nonce = Nonce::from(hex_bytes::<12>(
         crypto["session_nonce_hex"].as_str().expect("session nonce"),
     ));
-    let message = crypto["session_message"].as_str().expect("session message").as_bytes();
+    let message = crypto["session_message"]
+        .as_str()
+        .expect("session message")
+        .as_bytes();
 
     c.bench_function("session_establishment_heuristic", |b| {
         b.iter(|| {
