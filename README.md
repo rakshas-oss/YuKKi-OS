@@ -24,7 +24,7 @@ The project includes defensive validation in native mesh helpers, FHSS synchroni
 
 ## What's new in v6.11.0
 
-The proposed v6.11.0 minor release adds a bounded browser-WASM spatial and motion core: WGS84/ECEF and ENU transforms, Hermite interpolation, a 512-entity spatial store, antimeridian-aware bounding-box queries, freshness- and distance-constrained nearest-observation resolution, and iterative arc–secant–tangent path simplification. It also adds data-driven native and browser-WASM benchmark fixtures and a multivariate-data how-to, while retaining the existing gateway, broker, and protocol boundaries. The v6.10.0 event-driven WASM draining, mesh validation, relay hardening, timeout validation, and NXR1 benchmark cases remain part of the baseline.
+The proposed v6.11.0 minor release adds benchmark-led multivariate native dataset processing and a bounded real-symmetric eigensolver for covariance/correlation analysis, plus a bounded browser-WASM spatial and motion core: WGS84/ECEF and ENU transforms, Hermite interpolation, a 512-entity spatial store, antimeridian-aware bounding-box queries, freshness- and distance-constrained nearest-observation resolution, and iterative arc–secant–tangent path simplification. It also adds data-driven native and browser-WASM benchmark fixtures and a multivariate-data how-to, while retaining the existing gateway, broker, and protocol boundaries. The v6.10.0 event-driven WASM draining, mesh validation, relay hardening, timeout validation, and NXR1 benchmark cases remain part of the baseline.
 
 ## CLI and stream gateway
 
@@ -109,7 +109,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Spatial and multivariate data how-to](docs/USER_HOWTO_MMO.md) · [Benchmarking](docs/BENCHMARKING.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
+- [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Spatial and multivariate data how-to](docs/USER_HOWTO_MMO.md) · [Benchmarking](docs/BENCHMARKING.md) · [Benchmark-driven datasets and eigensolver](docs/BENCHMARK_DRIVEN_DATASETS.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
 - [Changelog](docs/CHANGELOG.md) · [Versioning](docs/VERSIONING.md)
 - [Security hardening notes](docs/SECURITY_HARDENING_NOTES.md)
 
