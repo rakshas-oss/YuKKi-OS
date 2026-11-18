@@ -23,7 +23,6 @@ pub mod numa;
 pub mod nxr1;
 pub mod origin_client;
 pub mod spatiotemporal_resolver;
-pub mod symmetric_eigen;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
