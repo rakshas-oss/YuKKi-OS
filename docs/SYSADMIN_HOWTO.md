@@ -1,8 +1,8 @@
-# YuKKi-OS v6.12.0 — System Administration How-to
+# YuKKi-OS v6.13.0 — System Administration How-to
 
-> Release candidate: the v6.12.0 tag and release archives remain subject to the
+> Release candidate: the v6.13.0 tag and release archives remain subject to the
 > required CI and release qualification gates. This guide describes the
-> implementation currently on `main`.
+> implementation on the v6.13.0 candidate branch.
 
 ## 1. Scope and deployment components
 
@@ -299,9 +299,19 @@ lifecycle.hotswap("worker", "1.2.0").await?;
 ### Compose several policy modules into live programs
 
 The native composition API is a library integration. It does not add a
-`yukki_core_node` subcommand or public HTTP deployment route. Compile module
-sources to core-Wasm binaries (for example, use `wat2wasm` for the shipped WAT
-examples), then pass their bytes and the JSON manifest to
+`yukki_core_node` subcommand or public HTTP deployment route. Install WABT so
+the `wat2wasm` compiler is available, then build the checked-in core-Wasm
+examples from the repository root:
+
+```bash
+wat2wasm examples/wasm-composition/math-kernel.wat -o math-kernel.wasm
+wat2wasm examples/wasm-composition/risk-score.wat -o risk-score.wasm
+wat2wasm examples/wasm-composition/risk-alert.wat -o risk-alert.wasm
+```
+
+Keep these generated artifacts with the application release and record their
+hashes in your deployment's artifact inventory. Load the JSON manifest and the
+module bytes in the embedding Rust application, then pass them to
 `CompositionRuntime::prepare_json`.
 
 The example directory `examples/wasm-composition/` contains two policies
@@ -343,6 +353,15 @@ enforced.
 
 For the manifest schema, end-to-end API example, hot-update process and
 resource limits, see [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md).
+
+For the minimal host-side sequence, the application loads the manifest and
+module binaries, calls `prepare_json` to compile, validate, link and
+instantiate the complete release, and only then calls `activate`. New calls
+can use `call` for service-time-only routing or `call_with_spatial_key` for
+a stable logical shard preference. The application owns authentication,
+artifact storage, version selection and the Rust code that invokes this API.
+Use one replica by default. Set `replicas` above one only when the policy is
+truly stateless across independent guest memories and mutable globals.
 
 ## 9. Configure broker integrations deliberately
 
