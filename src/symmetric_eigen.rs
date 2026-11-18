@@ -88,7 +88,9 @@ pub fn symmetric_eigen_decomposition_with_options(
     }
 
     // Normalize before rotations to avoid overflow in the off-diagonal update.
-    let scale = matrix.iter().fold(0.0_f64, |current, value| current.max(value.abs()));
+    let scale = matrix
+        .iter()
+        .fold(0.0_f64, |current, value| current.max(value.abs()));
     let divisor = if scale == 0.0 { 1.0 } else { scale };
     let mut a: Vec<f64> = matrix.iter().map(|value| value / divisor).collect();
 
@@ -180,9 +182,8 @@ pub fn symmetric_eigen_decomposition_with_options(
     }
 
     let mut order: Vec<usize> = (0..dimension).collect();
-    order.sort_by(|left, right| {
-        a[left * dimension + left].total_cmp(&a[right * dimension + right])
-    });
+    order
+        .sort_by(|left, right| a[left * dimension + left].total_cmp(&a[right * dimension + right]));
     let eigenvalues: Vec<f64> = order
         .iter()
         .map(|index| a[index * dimension + index] * divisor)
@@ -194,8 +195,7 @@ pub fn symmetric_eigen_decomposition_with_options(
     let mut sorted_vectors = vec![0.0; dimension * dimension];
     for row in 0..dimension {
         for (new_column, old_column) in order.iter().copied().enumerate() {
-            sorted_vectors[row * dimension + new_column] =
-                vectors[row * dimension + old_column];
+            sorted_vectors[row * dimension + new_column] = vectors[row * dimension + old_column];
         }
     }
 
@@ -216,8 +216,7 @@ pub fn symmetric_eigen_decomposition_with_options(
 
             let mut dot = 0.0;
             for k in 0..dimension {
-                dot += sorted_vectors[k * dimension + row]
-                    * sorted_vectors[k * dimension + column];
+                dot += sorted_vectors[k * dimension + row] * sorted_vectors[k * dimension + column];
             }
             let expected = if row == column { 1.0 } else { 0.0 };
             orthogonality_squared += (dot - expected).powi(2);
@@ -239,8 +238,9 @@ mod tests {
 
     #[test]
     fn diagonal_matrix_returns_sorted_eigenvalues_and_basis() {
-        let result = symmetric_eigen_decomposition(&[4.0, 0.0, 0.0, 0.0, -2.0, 0.0, 0.0, 0.0, 1.0], 3)
-            .unwrap();
+        let result =
+            symmetric_eigen_decomposition(&[4.0, 0.0, 0.0, 0.0, -2.0, 0.0, 0.0, 0.0, 1.0], 3)
+                .unwrap();
         assert_eq!(result.eigenvalues, vec![-2.0, 1.0, 4.0]);
         assert!(result.relative_residual < 1.0e-12);
         assert!(result.orthogonality_error < 1.0e-12);
