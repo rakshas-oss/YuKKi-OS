@@ -82,6 +82,9 @@ The browser module keeps the existing YKMC exports and additionally exports:
 - `adi_mmo_resolve_nearest`
 - `adi_mmo_wgs84_to_ecef`, `adi_mmo_wgs84_to_enu`,
   `adi_mmo_enu_to_ecef`, `adi_mmo_hermite_position`
+- `adi_mmo_simplify_reset`, `adi_mmo_simplify_push_wgs84`,
+  `adi_mmo_simplify_run`, `adi_mmo_simplify_output_count`,
+  `adi_mmo_simplify_output_index`, and output coordinate accessors
 
 The coordinate and interpolation functions return a pointer to three
 little-endian f64 values in WASM linear memory, or a null pointer when the
