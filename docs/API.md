@@ -1,4 +1,4 @@
-# YuKKi OS v6.9.5 — API and ABI Reference
+# YuKKi OS v6.10.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -152,9 +152,18 @@ boundary. The resolver does not change the BRK1/NXR1 wire format or reinterpret
 the opaque NXR1 payload bytes.
 
 The Criterion benchmark
-`nxr1_resolver_decode_and_component_dispatch_256b` measures decode plus
-bounded queue dispatch and receive. Run with
-`cargo bench --bench frame_benchmarks`.
+`nxr1_resolver_decode_and_component_dispatch_256b` measures NXR1 extraction
+and decode, destination routing, bounded queue dispatch, and receive for a
+256-byte payload. Resolver, route, receiver, and task setup are outside the
+timed loop. It is a single-threaded microbenchmark, not a network, contention,
+NUMA-placement, or accelerator benchmark. Run it with:
+
+```sh
+cargo bench --locked --bench frame_benchmarks -- nxr1_resolver_decode_and_component_dispatch_256b
+```
+
+See [Benchmarking](BENCHMARKING.md) for the complete Criterion inventory,
+reproducible baseline procedure, CI scope, and browser-WASM measurement plan.
 
 ## NXR1 geospatial frame interop (`src/nxr1.rs`)
 
