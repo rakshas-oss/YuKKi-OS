@@ -40,6 +40,33 @@ ranges. Entity storage is bounded; an insert beyond capacity returns a stable
 error code instead of allocating without limit. Timestamps are unsigned
 nanoseconds supplied by the host.
 
+## Arc–secant–tangent geometric reduction
+
+The browser module also provides a bounded path simplifier. It uses an
+iterative Douglas–Peucker-style split stack, with an error metric combining:
+
+- **Secant deviation:** perpendicular distance from each candidate point to
+  the endpoint chord.
+- **Arc excess:** half of the excess of the two-segment path length over the
+  endpoint chord length.
+- **Tangent guard:** an independent maximum-turn constraint that forces a
+  split at sharp direction changes even when the positional tolerance is
+  large.
+
+The input is WGS84 and distances/tangents are evaluated in ECEF metres. The
+algorithm has fixed storage for 512 points, preserves the first and last
+points, avoids recursion, and returns original point indices. The tangent
+limit is configurable from 1 to 180 degrees; the positional tolerance is a
+non-negative metre value. Use regional path segments or pre-tiled geometry
+for efficient map rendering—this is a bounded simplifier, not a general
+topology-preserving polygon generalizer. It operates on ordered trajectories,
+not arbitrary polygon rings.
+
+The browser UI can simplify the current ordered entity sequence and reports
+the retained point count and percentage reduction. This is local processing
+inside WASM; it does not mutate the broker's source data or overwrite
+observations in the YuKKi-OS control plane.
+
 ## Browser WASM exports
 
 The browser module keeps the existing YKMC exports and additionally exports:
