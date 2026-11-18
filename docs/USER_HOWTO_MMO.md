@@ -1,7 +1,7 @@
 # User how-to: browser spatial, spatiotemporal, and multivariate data
 
-This guide covers the browser-side spatial and motion feature set proposed for
-YuKKi-OS v6.12.0. It is additive: the native node, the separate
+This guide covers the browser-side spatial and motion feature set included in the
+YuKKi-OS v6.12.0 release candidate. It is additive: the native node, the separate
 `rakshas-oss/overhauled` repository, and the existing wire protocols remain in
 place. The browser path uses the existing `browser-wasm/` application and
 `wasm32-unknown-unknown` target.
@@ -79,7 +79,9 @@ The entity store and path simplifier each have a 512-entry capacity. The current
 bounding-box and nearest-observation operations scan the active entries; they
 are bounded linear scans, not an R-tree or other indexed spatial engine.
 Invalid coordinates, non-finite numbers, negative distance/tolerance values,
-and capacity overflow are rejected.
+and capacity overflow are rejected. The optional radius_m value is retained
+with each entity but is not currently used by the nearest resolver; apply any
+radius-aware matching policy in the host application.
 
 The simplifier returns indices into the original ordered point list. It
 preserves the first and last point and retains sharp turns even when a large
@@ -103,6 +105,18 @@ sources. Sources do not need to share a sample frequency, unit system,
 coordinate reference system, transport, or spatial resolution. Validate and
 normalize these differences in an application-side adapter; preserve original
 values, units, timestamps, null markers, quality flags, and provenance.
+
+There are two related but distinct manifest contracts. The file
+schemas/multivariate-datasource-manifest.schema.json describes the
+application-level source catalogue: variables, units, transport, temporal and
+spatial semantics, provenance, quality, and access-policy references. The
+native benchmark runner does not ingest that schema directly. It consumes the
+version-1 benchmark manifest at
+examples/benchmark-datasets/manifest.json, which names JSONL source files,
+sequence/timestamp fields, optional geographic fields, numeric feature
+mappings, and benchmark profiles. An application adapter or conversion step
+must map source-catalogue entries into that runner manifest while preserving
+the original record and its provenance.
 
 ### Normalize only the fields needed by the spatial core
 
