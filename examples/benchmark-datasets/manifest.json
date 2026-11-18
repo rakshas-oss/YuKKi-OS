@@ -68,36 +68,88 @@
       "objective": "latency",
       "warmup_records": 1,
       "sample_records": 9,
-      "batch_sizes": [1, 2, 4],
-      "worker_counts": [1, 2],
-      "max_p95_batch_ms": 1000.0
+      "batch_sizes": [
+        1,
+        2,
+        4
+      ],
+      "worker_counts": [
+        1,
+        2
+      ],
+      "max_p95_batch_ms": 1000
     },
     {
       "id": "ingest-throughput",
       "objective": "throughput",
       "warmup_records": 1,
       "sample_records": 9,
-      "batch_sizes": [1, 4, 8],
-      "worker_counts": [1, 2, 4]
+      "batch_sizes": [
+        1,
+        4,
+        8
+      ],
+      "worker_counts": [
+        1,
+        2,
+        4
+      ]
     },
     {
       "id": "bounded-memory",
       "objective": "memory",
       "warmup_records": 1,
       "sample_records": 9,
-      "batch_sizes": [1, 2],
-      "worker_counts": [1, 2]
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "worker_counts": [
+        1,
+        2
+      ]
     },
     {
       "id": "geospatial-reduction",
       "objective": "geospatial",
       "warmup_records": 1,
       "sample_records": 9,
-      "batch_sizes": [2, 4, 8],
-      "worker_counts": [1, 2],
+      "batch_sizes": [
+        2,
+        4,
+        8
+      ],
+      "worker_counts": [
+        1,
+        2
+      ],
       "geometric_tolerance_m": 1.5,
-      "max_turn_degrees": 30.0,
-      "applicable_domains": ["drone", "environment"]
+      "max_turn_degrees": 30,
+      "applicable_domains": [
+        "drone",
+        "environment"
+      ]
+    }
+  ],
+  "eigensolver_profiles": [
+    {
+      "id": "multivariate-correlation-eigenspectrum",
+      "objective": "throughput",
+      "warmup_records": 1,
+      "sample_records": 9,
+      "batch_sizes": [
+        3,
+        6,
+        9
+      ],
+      "worker_counts": [
+        1,
+        2,
+        4
+      ],
+      "iterations_per_batch": 8,
+      "tolerance": 1e-12,
+      "max_sweeps": 128
     }
   ]
 }
