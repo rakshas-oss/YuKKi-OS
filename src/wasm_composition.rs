@@ -447,7 +447,7 @@ impl CompositionRuntime {
             }
             total_bytes = total_bytes
                 .checked_add(artifact.wasm.len())
-                .ok_or_else(|| CompositionError::TotalModuleBytesExceeded {
+                .ok_or(CompositionError::TotalModuleBytesExceeded {
                     actual: usize::MAX,
                     max: self.limits.max_total_module_bytes,
                 })?;
