@@ -97,6 +97,7 @@ pub struct CandidateMetrics {
     pub p50_batch_ms: f64,
     pub p95_batch_ms: f64,
     pub p99_batch_ms: f64,
+    pub geometry_elapsed_ms: f64,
     pub estimated_peak_working_set_bytes: u64,
     pub encoded_bytes: u64,
     pub checksum: u64,
@@ -190,9 +191,6 @@ impl DatasetRecord {
         self.features.get(index).copied().unwrap_or(0.0)
     }
 
-    fn feature_at(&self, index: usize) -> f64 {
-        self.features.get(index).copied().unwrap_or(0.0)
-    }
 }
 
 pub struct BenchmarkDatasetRunner;
@@ -646,8 +644,6 @@ fn measure_candidate(
     let encoded_bytes = AtomicU64::new(0);
     let checksum = AtomicU64::new(0);
     let latencies = Mutex::new(Vec::<u64>::with_capacity(batch_count));
-    let geometry_input_points = AtomicUsize::new(0);
-    let geometry_output_points = AtomicUsize::new(0);
     let max_record_bytes = records
         .iter()
         .map(|record| record.raw_json.len())
@@ -680,18 +676,6 @@ fn measure_candidate(
                         local_checksum ^= decoded.seq_id ^ record.timestamp_ns ^ decoded.payload.len() as u64;
                         std::hint::black_box(decoded);
                     }
-                    if profile.objective == BenchmarkObjective::Geospatial {
-                        let tolerance = profile.geometric_tolerance_m.unwrap_or(0.0);
-                        let max_turn = profile.max_turn_degrees.unwrap_or(45.0);
-                        let path = records[begin..end]
-                            .iter()
-                            .map(|record| to_ecef(record.position.expect("geospatial profile requires positions")))
-                            .collect::<Vec<_>>();
-                        let retained = simplify_arc_secant_tangent(&path, tolerance, max_turn);
-                        geometry_input_points.fetch_add(path.len(), Ordering::Relaxed);
-                        geometry_output_points.fetch_add(retained, Ordering::Relaxed);
-                        local_checksum ^= retained as u64;
-                    }
                     encoded_bytes.fetch_add(local_bytes, Ordering::Relaxed);
                     checksum.fetch_xor(local_checksum, Ordering::Relaxed);
                     latencies
@@ -712,6 +696,25 @@ fn measure_candidate(
     });
     worker_result?;
 
+    // Geometric reduction is measured once over the complete selected path,
+    // never per batch: a batch boundary must not create a synthetic endpoint.
+    let geometry_started = Instant::now();
+    let (geometry_input_points, geometry_output_points) =
+        if profile.objective == BenchmarkObjective::Geospatial {
+            let tolerance = profile.geometric_tolerance_m.unwrap_or(0.0);
+            let max_turn = profile.max_turn_degrees.unwrap_or(45.0);
+            let path = records
+                .iter()
+                .map(|record| {
+                    to_ecef(record.position.expect("geospatial profile requires positions"))
+                })
+                .collect::<Vec<_>>();
+            let retained = simplify_arc_secant_tangent(&path, tolerance, max_turn);
+            (path.len(), retained)
+        } else {
+            (0, 0)
+        };
+    let geometry_elapsed_ms = geometry_started.elapsed().as_secs_f64() * 1000.0;
     let elapsed = started.elapsed();
     let mut times = latencies
         .into_inner()
@@ -738,11 +741,12 @@ fn measure_candidate(
         p50_batch_ms: percentile_ms(&times, 0.50),
         p95_batch_ms: percentile_ms(&times, 0.95),
         p99_batch_ms: percentile_ms(&times, 0.99),
+        geometry_elapsed_ms,
         estimated_peak_working_set_bytes,
         encoded_bytes: encoded_bytes.load(Ordering::Relaxed),
-        checksum: checksum.load(Ordering::Relaxed),
-        geometry_input_points: geometry_input_points.load(Ordering::Relaxed),
-        geometry_output_points: geometry_output_points.load(Ordering::Relaxed),
+        checksum: checksum.load(Ordering::Relaxed) ^ geometry_output_points as u64,
+        geometry_input_points,
+        geometry_output_points,
         geometry_reduction_percent: {
             let input = geometry_input_points.load(Ordering::Relaxed);
             let output = geometry_output_points.load(Ordering::Relaxed);
