@@ -40,6 +40,8 @@ waiting on a held store lock. This is host-side library functionality, not a
 new CLI or HTTP deployment route. The separate Overhauled repository continues
 to own broker dispatch and accelerator placement.
 
+The scheduler starts at a 1 ms service-time estimate, applies a 7/8 prior plus 1/8 latest-sample EWMA, and adds a 25% locality penalty to non-preferred replicas. Its stable logical key is not geographic routing or physical NUMA pinning. Multi-replica execution is only valid for policies explicitly declared stateless; the safe default is one stateful replica. See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md) for limits and the Rust API.
+
 ## CLI and stream gateway
 
 ```text
@@ -126,7 +128,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 ## Documentation
 
 - [Changelog](docs/CHANGELOG.md)
-- [Architecture](docs/ARCHITECTURE.md) · [How-to](docs/SYSADMIN_HOWTO.md) · [Composed WASM programs](docs/WASM_PROGRAM_COMPOSITION.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
+- [Architecture](docs/ARCHITECTURE.md) · [How-to](docs/SYSADMIN_HOWTO.md) · [Composed WASM programs](docs/WASM_PROGRAM_COMPOSITION.md) · [API](docs/API.md) · [Versioning](docs/VERSIONING.md) · [Security](docs/SECURITY.md)
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
