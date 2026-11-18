@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "datasets": [
+    {
+      "id": "drone-flight-east",
+      "domain": "drone",
+      "source": "drone.jsonl",
+      "sequence_field": "sequence",
+      "timestamp_ns_field": "timestamp_ns",
+      "latitude_field": "latitude",
+      "longitude_field": "longitude",
+      "altitude_m_field": "altitude_m",
+      "feature_fields": [
+        "velocity_mps",
+        "vertical_speed_mps",
+        "heading_deg",
+        "battery_pct",
+        "link_rssi_dbm",
+        "motor_temp_c",
+        "wind_speed_mps",
+        "pitch_deg",
+        "roll_deg"
+      ]
+    },
+    {
+      "id": "market-ticks",
+      "domain": "finance",
+      "source": "finance.jsonl",
+      "sequence_field": "sequence",
+      "timestamp_ns_field": "timestamp_ns",
+      "feature_fields": [
+        "mid_price",
+        "volume",
+        "return_pct",
+        "volatility",
+        "spread_bps",
+        "order_imbalance",
+        "trade_count",
+        "bid_depth",
+        "ask_depth"
+      ]
+    },
+    {
+      "id": "urban-air-quality",
+      "domain": "environment",
+      "source": "environment.jsonl",
+      "sequence_field": "sequence",
+      "timestamp_ns_field": "timestamp_ns",
+      "latitude_field": "latitude",
+      "longitude_field": "longitude",
+      "altitude_m_field": "altitude_m",
+      "feature_fields": [
+        "temperature_c",
+        "humidity_pct",
+        "pressure_hpa",
+        "wind_speed_mps",
+        "wind_direction_deg",
+        "co2_ppm",
+        "pm25_ug_m3",
+        "no2_ppb",
+        "ozone_ppb"
+      ]
+    }
+  ],
+  "profiles": [
+    {
+      "id": "realtime-latency",
+      "objective": "latency",
+      "warmup_records": 1,
+      "sample_records": 9,
+      "batch_sizes": [1, 2, 4],
+      "worker_counts": [1, 2],
+      "max_p95_batch_ms": 1000.0
+    },
+    {
+      "id": "ingest-throughput",
+      "objective": "throughput",
+      "warmup_records": 1,
+      "sample_records": 9,
+      "batch_sizes": [1, 4, 8],
+      "worker_counts": [1, 2, 4]
+    },
+    {
+      "id": "bounded-memory",
+      "objective": "memory",
+      "warmup_records": 1,
+      "sample_records": 9,
+      "batch_sizes": [1, 2],
+      "worker_counts": [1, 2]
+    },
+    {
+      "id": "geospatial-reduction",
+      "objective": "geospatial",
+      "warmup_records": 1,
+      "sample_records": 9,
+      "batch_sizes": [2, 4, 8],
+      "worker_counts": [1, 2],
+      "geometric_tolerance_m": 1.5,
+      "max_turn_degrees": 30.0,
+      "applicable_domains": ["drone", "environment"]
+    }
+  ]
+}
