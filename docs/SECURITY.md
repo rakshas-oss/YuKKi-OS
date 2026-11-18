@@ -44,7 +44,8 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 
 ## Memory safety controls
 
-- Session key material and plaintext buffers are zeroized in Rust where implemented.
+- Rust-owned session key material and plaintext buffers use `zeroize` where implemented.
+- The native mbedTLS header-MAC path wipes temporary full/expected MAC buffers with a volatile-write C helper. That helper is compiled only when `USE_MBEDTLS` is enabled; callers retain ownership of input key buffers.
 - FFI calls validate expected pointer/state conditions in C for critical paths.
 - Wasm sandbox enforces explicit memory/fuel limits.
 
