@@ -46,21 +46,30 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Format repository Rust sources
+      - name: Normalize benchmark driver Rust sources
         run: cargo fmt --all
-      - name: Export benchmark driver sources
-        uses: actions/upload-artifact@v7
-        with:
-          name: formatted-benchmark-driver-sources
-          path: |
-            src/benchmark_dataset.rs
-            src/bin/yukki_dataset_bench.rs
-          if-no-files-found: error
+      - name: Commit formatter output to this PR branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- src/benchmark_dataset.rs src/bin/yukki_dataset_bench.rs; then
+            echo "Benchmark driver sources already match rustfmt."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/benchmark_dataset.rs src/bin/yukki_dataset_bench.rs
+          git commit -m "style: format native benchmark driver sources"
+          git push origin "HEAD:${HEAD_BRANCH}"
       - run: cargo fmt --all -- --check
 
   clippy:
