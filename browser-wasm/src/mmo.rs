@@ -790,6 +790,46 @@ mod tests {
     }
 
     #[test]
+    fn arc_secant_tangent_keeps_endpoints_and_simplifies_straight_track() {
+        let mut path = ArcSecantTangentSimplifier::new();
+        for i in 0..5 {
+            path.push(Wgs84 {
+                lat_deg: 0.0,
+                lon_deg: i as f64 * 0.0001,
+                alt_m: 0.0,
+            }).unwrap();
+        }
+        let kept = path.simplify(1.0, 45.0).unwrap();
+        assert_eq!(kept, 2);
+        assert_eq!(path.output_point(0).unwrap().0, 0);
+        assert_eq!(path.output_point(1).unwrap().0, 4);
+    }
+
+    #[test]
+    fn arc_secant_tangent_preserves_sharp_turns() {
+        let mut path = ArcSecantTangentSimplifier::new();
+        path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }).unwrap();
+        path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.001, alt_m: 0.0 }).unwrap();
+        path.push(Wgs84 { lat_deg: 0.001, lon_deg: 0.001, alt_m: 0.0 }).unwrap();
+        assert_eq!(path.simplify(100.0, 30.0).unwrap(), 3);
+        assert_eq!(path.output_point(1).unwrap().0, 1);
+    }
+
+    #[test]
+    fn arc_secant_tangent_rejects_invalid_tolerances_and_caps_input() {
+        let mut path = ArcSecantTangentSimplifier::new();
+        assert_eq!(path.simplify(-1.0, 30.0), Err(ERR_INVALID));
+        assert_eq!(path.simplify(1.0, 181.0), Err(ERR_INVALID));
+        for _ in 0..MAX_PATH_POINTS {
+            path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }).unwrap();
+        }
+        assert_eq!(
+            path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }),
+            Err(ERR_FULL)
+        );
+    }
+
+    #[test]
     fn rejects_invalid_coordinates_and_bounds_capacity() {
         let mut state = SpatialState::new();
         assert_eq!(
