@@ -789,8 +789,8 @@ fn measure_candidate(
         geometry_input_points,
         geometry_output_points,
         geometry_reduction_percent: {
-            let input = geometry_input_points.load(Ordering::Relaxed);
-            let output = geometry_output_points.load(Ordering::Relaxed);
+            let input = geometry_input_points;
+            let output = geometry_output_points;
             if input == 0 {
                 0.0
             } else {
@@ -922,10 +922,10 @@ fn percentile_ms(sorted_ns: &[u64], percentile: f64) -> f64 {
     sorted_ns[index.min(sorted_ns.len() - 1)] as f64 / 1_000_000.0
 }
 
-fn choose_candidate(
-    candidates: &[&CandidateMetrics],
+fn choose_candidate<'a>(
+    candidates: &[&'a CandidateMetrics],
     objective: BenchmarkObjective,
-) -> &CandidateMetrics {
+) -> &'a CandidateMetrics {
     match objective {
         BenchmarkObjective::Latency => candidates
             .iter()
