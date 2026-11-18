@@ -105,7 +105,6 @@ pub fn symmetric_eigen_decomposition_with_options(
     let mut converged = dimension == 1;
     let mut sweeps_used = 0;
     for sweep in 0..max_sweeps {
-        let mut max_off_diagonal = 0.0_f64;
         let mut max_diagonal = 0.0_f64;
         for index in 0..dimension {
             max_diagonal = max_diagonal.max(a[index * dimension + index].abs());
@@ -114,7 +113,6 @@ pub fn symmetric_eigen_decomposition_with_options(
         for p in 0..dimension {
             for q in (p + 1)..dimension {
                 let apq = a[p * dimension + q];
-                max_off_diagonal = max_off_diagonal.max(apq.abs());
                 if apq.abs() <= tolerance * max_diagonal.max(1.0) {
                     continue;
                 }
