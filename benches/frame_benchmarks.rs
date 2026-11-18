@@ -30,7 +30,10 @@ fn make_frame(config: &Value) -> SpatiotemporalFrame {
     let velocity = vector3(&config["velocity"]);
     let payload_byte = config["payload_byte"].as_u64().expect("payload byte") as u8;
     let payload_bytes = config["payload_bytes"].as_u64().expect("payload bytes");
-    assert_eq!(payload_bytes, 16, "SpatiotemporalFrame uses a fixed 16-byte payload");
+    assert_eq!(
+        payload_bytes, 16,
+        "SpatiotemporalFrame uses a fixed 16-byte payload"
+    );
     SpatiotemporalFrame {
         seq_id: config["seq_id"].as_u64().expect("sequence"),
         x: position[0],
@@ -39,8 +42,8 @@ fn make_frame(config: &Value) -> SpatiotemporalFrame {
         u: velocity[0],
         v: velocity[1],
         w: velocity[2],
-        fluidity: config["fluidity"].as_f64().expect("fluidity"),
-        drag: config["drag"].as_f64().expect("drag"),
+        fluidity: config["fluidity"].as_f64().expect("fluidity") as f32,
+        drag: config["drag"].as_f64().expect("drag") as f32,
         divergence: config["divergence"].as_f64().expect("divergence"),
         payload: [payload_byte; 16],
     }
@@ -59,8 +62,8 @@ fn make_nxr1_frame(config: &Value) -> Nxr1Frame {
         u: velocity[0],
         v: velocity[1],
         w: velocity[2],
-        fluidity: config["fluidity"].as_f64().expect("fluidity"),
-        drag: config["drag"].as_f64().expect("drag"),
+        fluidity: config["fluidity"].as_f64().expect("fluidity") as f32,
+        drag: config["drag"].as_f64().expect("drag") as f32,
         divergence: config["divergence"].as_f64().expect("divergence"),
         payload: vec![payload_byte; payload_bytes],
     }
@@ -78,9 +81,13 @@ fn bench_nxr1_resolver_dispatch(c: &mut Criterion) {
     let data = dataset();
     let resolver_config = &data["resolver"];
     let resolver = SpatiotemporalPayloadResolver::new();
-    let destination = resolver_config["destination"].as_str().expect("destination");
+    let destination = resolver_config["destination"]
+        .as_str()
+        .expect("destination");
     let source = resolver_config["source"].as_str().expect("source");
-    let capacity = resolver_config["queue_capacity"].as_u64().expect("capacity") as usize;
+    let capacity = resolver_config["queue_capacity"]
+        .as_u64()
+        .expect("capacity") as usize;
     let priority = resolver_config["priority"].as_u64().expect("priority") as u8;
     let timeout_ms = resolver_config["timeout_ms"].as_u64().expect("timeout") as u32;
     let receiver = resolver
@@ -99,7 +106,10 @@ fn bench_nxr1_resolver_dispatch(c: &mut Criterion) {
     .expect("encode benchmark task");
 
     c.bench_function(
-        &format!("nxr1_resolver_decode_and_component_dispatch_{}b", payload_bytes),
+        &format!(
+            "nxr1_resolver_decode_and_component_dispatch_{}b",
+            payload_bytes
+        ),
         |b| {
             b.iter(|| {
                 let sequence = resolver
