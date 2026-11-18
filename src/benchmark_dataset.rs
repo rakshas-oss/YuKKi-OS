@@ -868,8 +868,8 @@ fn simplify_arc_secant_tangent(
         let mut worst_score = 1.0;
         let mut worst_index = None;
 
-        for index in (start + 1)..end {
-            let point = points[index];
+        for (index, point) in points.iter().enumerate().take(end).skip(start + 1) {
+            let point = *point;
             let from_start = subtract(point, a);
             let to_end = subtract(b, point);
             let projection = if chord_sq > 1.0e-18 {
