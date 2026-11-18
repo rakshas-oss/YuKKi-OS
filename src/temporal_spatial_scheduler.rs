@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 const DEFAULT_SERVICE_TIME_NS: u64 = 1_000_000;
-const LOCALITY_PENALTY_DIVISOR: u64 = 8;
+const LOCALITY_PENALTY_DIVISOR: u64 = 4;
 
 /// Time-weighted measurements for one execution replica.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
