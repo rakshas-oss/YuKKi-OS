@@ -1,4 +1,4 @@
-# YuKKi-OS v6.10.0
+# YuKKi-OS v6.11.0
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
@@ -8,11 +8,11 @@
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
 
-> Current stable release: v6.10.0. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Current stable release: v6.11.0. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.10.0**
+- Release line: **v6.11.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios`**
@@ -22,9 +22,9 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
 
-## What's new in v6.10.0
+## What's new in v6.11.0
 
-The v6.10.0 release adds event-driven WASM module draining, mesh coordinate and peer-address validation, hardened remote stream relay batch handling, negative-timeout rejection at the WASM bridge, and real 256-byte NXR1 encode/decode benchmarks.
+The v6.11.0 release adds event-driven WASM module draining, mesh coordinate and peer-address validation, hardened remote stream relay batch handling, negative-timeout rejection at the WASM bridge, and real 256-byte NXR1 encode/decode benchmarks.
 
 ## CLI and stream gateway
 
@@ -118,7 +118,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.10.0 .
+docker build -t yukkios:6.11.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
