@@ -530,3 +530,194 @@ impl WasmProgramManager {
             old_drained,
         })
     }
+
+    /// Wait for a version already in Draining state. Returns false on timeout;
+    /// no resources are released by this operation.
+    pub fn drain_program(
+        &self,
+        program_id: &str,
+        version: &str,
+        timeout: Duration,
+    ) -> Result<bool, WasmCompositionError> {
+        let program = self.find_version(program_id, version)?;
+        {
+            let lifecycle = program.lifecycle.lock().unwrap();
+            if lifecycle.state == WasmProgramState::Active {
+                return Err(WasmCompositionError::ProgramBusy {
+                    program_id: program_id.to_string(),
+                    version: version.to_string(),
+                });
+            }
+            if lifecycle.state == WasmProgramState::Prepared
+                || lifecycle.state == WasmProgramState::Drained
+            {
+                return Ok(true);
+            }
+            if lifecycle.state == WasmProgramState::Released {
+                return Err(WasmCompositionError::ProgramReleased {
+                    program_id: program_id.to_string(),
+                    version: version.to_string(),
+                });
+            }
+        }
+        Ok(wait_until_drained(&program, timeout))
+    }
+
+    /// Remove a Prepared or Drained non-active version. Its Store and instances
+    /// are dropped when the final handle is released. Active/Draining versions
+    /// must first be switched away and drained.
+    pub fn release_program(
+        &self,
+        program_id: &str,
+        version: &str,
+    ) -> Result<(), WasmCompositionError> {
+        let key = (program_id.to_string(), version.to_string());
+        let mut registry = self.registry.write().unwrap();
+        let program = registry
+            .versions
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| WasmCompositionError::ProgramNotFound {
+                program_id: program_id.to_string(),
+                version: version.to_string(),
+            })?;
+        if registry
+            .active
+            .get(program_id)
+            .is_some_and(|active| Arc::ptr_eq(active, &program))
+        {
+            return Err(WasmCompositionError::ProgramBusy {
+                program_id: program_id.to_string(),
+                version: version.to_string(),
+            });
+        }
+        let mut lifecycle = program.lifecycle.lock().unwrap();
+        match lifecycle.state {
+            WasmProgramState::Draining if lifecycle.in_flight > 0 => {
+                return Err(WasmCompositionError::ProgramDraining {
+                    program_id: program_id.to_string(),
+                    version: version.to_string(),
+                });
+            }
+            WasmProgramState::Active => {
+                return Err(WasmCompositionError::ProgramBusy {
+                    program_id: program_id.to_string(),
+                    version: version.to_string(),
+                });
+            }
+            WasmProgramState::Draining => lifecycle.state = WasmProgramState::Drained,
+            WasmProgramState::Prepared | WasmProgramState::Drained => {}
+            WasmProgramState::Released => {
+                return Err(WasmCompositionError::ProgramReleased {
+                    program_id: program_id.to_string(),
+                    version: version.to_string(),
+                });
+            }
+        }
+        if lifecycle.in_flight != 0 {
+            return Err(WasmCompositionError::ProgramBusy {
+                program_id: program_id.to_string(),
+                version: version.to_string(),
+            });
+        }
+        lifecycle.state = WasmProgramState::Released;
+        drop(lifecycle);
+        registry.versions.remove(&key);
+        Ok(())
+    }
+
+    /// Execute the active version's ordered policy pipeline. Calls to one program
+    /// are serialized by its Store mutex; different program IDs have independent
+    /// Stores and may execute concurrently.
+    pub fn execute_program(
+        &self,
+        program_id: &str,
+        input: i64,
+    ) -> Result<i64, WasmCompositionError> {
+        let program = {
+            let registry = self.registry.read().unwrap();
+            let program = registry
+                .active
+                .get(program_id)
+                .cloned()
+                .ok_or_else(|| WasmCompositionError::NoActiveProgram(program_id.to_string()))?;
+            let mut lifecycle = program.lifecycle.lock().unwrap();
+            if lifecycle.state != WasmProgramState::Active {
+                return Err(WasmCompositionError::NoActiveProgram(program_id.to_string()));
+            }
+            lifecycle.in_flight += 1;
+            program
+        };
+        let _guard = ProgramExecutionGuard {
+            program: program.clone(),
+        };
+        program.runtime.lock().unwrap().execute(input)
+    }
+
+    pub fn active_version(&self, program_id: &str) -> Option<String> {
+        self.registry
+            .read()
+            .unwrap()
+            .active
+            .get(program_id)
+            .map(|program| program.manifest.version.clone())
+    }
+
+    pub fn program_snapshot(
+        &self,
+        program_id: &str,
+        version: &str,
+    ) -> Result<WasmProgramSnapshot, WasmCompositionError> {
+        let program = self.find_version(program_id, version)?;
+        Ok(snapshot(&program))
+    }
+
+    pub fn cache_stats(&self) -> CompilationCacheStats {
+        CompilationCacheStats {
+            entries: self.compiled_cache.lock().unwrap().len(),
+            hits: self.cache_hits.load(Ordering::Relaxed),
+            misses: self.cache_misses.load(Ordering::Relaxed),
+        }
+    }
+
+    fn find_version(
+        &self,
+        program_id: &str,
+        version: &str,
+    ) -> Result<Arc<ProgramVersion>, WasmCompositionError> {
+        self.registry
+            .read()
+            .unwrap()
+            .versions
+            .get(&(program_id.to_string(), version.to_string()))
+            .cloned()
+            .ok_or_else(|| WasmCompositionError::ProgramNotFound {
+                program_id: program_id.to_string(),
+                version: version.to_string(),
+            })
+    }
+
+    fn compile_cached(
+        &self,
+        module_id: &str,
+        bytes: &[u8],
+        digest: &str,
+    ) -> Result<Arc<Module>, WasmCompositionError> {
+        let mut cache = self.compiled_cache.lock().unwrap();
+        if let Some(module) = cache.get(digest) {
+            self.cache_hits.fetch_add(1, Ordering::Relaxed);
+            return Ok(module.clone());
+        }
+        self.cache_misses.fetch_add(1, Ordering::Relaxed);
+        let module = Arc::new(
+            Module::new(&self.engine, bytes).map_err(|error| WasmCompositionError::Compile {
+                module_id: module_id.to_string(),
+                reason: error.to_string(),
+            })?,
+        );
+        if cache.len() < MAX_COMPILED_MODULE_CACHE_ENTRIES {
+            cache.insert(digest.to_string(), module.clone());
+        }
+        Ok(module)
+    }
+}
