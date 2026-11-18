@@ -93,10 +93,17 @@ Available IDs are in the manifest.
 
 For each dataset/profile pair, the report includes every measured candidate
 and the selected candidate. The CLI applies the selected batch size and worker
-count to the native \`ADIAutoTuner\` policy, deriving a bounded queue depth
-(\`batch_size × workers\`, clamped to 1..=1024) and a profile identifier. This
+count to the native `ADIAutoTuner` policy, deriving a bounded queue depth
+(`batch_size × workers`, clamped to 1..=1024) and a profile identifier. This
 means the benchmark result, rather than a static queue constant, drives the
 reported native policy.
+
+The result can also allocate an actual YuKKi-OS MPMC component destination via
+`SpatiotemporalPayloadResolver::register_benchmarked_destination`. That API
+uses the chosen batch/worker product as queue capacity while retaining the
+existing bounded MPMC queue and caller-selected sequence policy. Runtime
+components therefore do not need to select queue depth independently of the
+benchmarked dataset workload.
 
 This initial native runner is a local dataset/codec/geospatial benchmark and
 policy selector. It does not claim to measure GPU/NPU execution, wall power,
