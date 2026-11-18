@@ -237,7 +237,7 @@ commands, manifest details, API shape and benchmark scope.
 
 ## WebAssembly compilation, guest execution, lifecycle, and accelerator boundary
 
-The native Rust build enables Wasmtime's `cranelift` compiler feature. Wasmtime compiles WebAssembly modules on the native host; guests do not receive native pointers or execute outside the sandbox. The repository currently has two distinct native-host execution paths. They should not be confused with the separate `browser-wasm/` application described above.
+The native Rust build enables Wasmtime's `cranelift` compiler feature. Wasmtime compiles WebAssembly modules on the native host; guests do not receive native pointers or execute outside the sandbox. The repository currently has three distinct native-host WebAssembly paths: the basic sandbox API, the restricted inference guest-worker ABI, and the multi-module CompositionRuntime. They should not be confused with the separate `browser-wasm/` application described above.
 
 ### Native sandbox API
 
