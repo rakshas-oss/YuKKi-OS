@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-## v6.10.0 (current)
+## v6.11.0 (current)
+
+### Browser MMO spatial core and spatiotemporal resolution
+
+- Added a bounded, portable spatial and motion core to the existing browser-WASM application, preserving the original YuKKi-OS and Overhauled repository boundary.
+- Added WGS84/ECEF and ENU transforms, cubic Hermite interpolation, bounded entity storage, antimeridian-aware bounding-box queries, and freshness- and distance-constrained spatiotemporal nearest-observation resolution.
+- Added iterative arc–secant–tangent path simplification with bounded storage, endpoint preservation, and sharp-turn protection.
+- Exposed the MMO primitives through a stable browser-WASM ABI and integrated the local spatial resolver into the browser application and its smoke tests.
+- Preserved existing YKMC, BRK1/BRK2, NXR1, and WSM1 interoperability boundaries.
+
+## v6.10.0
 
 ### Event-driven draining, mesh validation, and NXR1 interoperability
 
@@ -15,7 +25,7 @@
 
 ---
 
-## v6.9.5 (current)
+## v6.9.5
 
 ### Remote stream relay and dashboard
 
