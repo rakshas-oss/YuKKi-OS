@@ -1,0 +1,34 @@
+name: One-shot composed Wasm formatter
+
+on:
+  push:
+    branches:
+      - feature/wasm-composed-programs
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feature/wasm-composed-programs
+          persist-credentials: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format the new composition module
+        run: rustfmt --edition 2021 src/wasm_composition.rs
+      - name: Commit formatter output
+        run: |
+          if git diff --quiet -- src/wasm_composition.rs; then
+            echo "Rust source is already formatted."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/wasm_composition.rs
+          git commit -m "style(wasm): format composed program runtime"
+          git push origin HEAD:feature/wasm-composed-programs
