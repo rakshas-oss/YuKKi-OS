@@ -77,13 +77,6 @@ pub struct CompositionManifest {
     pub programs: Vec<ProgramSpec>,
 }
 
-/// One program is a directed acyclic graph of core-Wasm modules.
-///
-/// bindings maps a WebAssembly import namespace to the module ID that provides
-/// its imported functions. For example, namespace "math" can map to
-/// module ID "math-kernel".
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 fn default_replica_count() -> usize {
     1
 }
@@ -654,6 +647,12 @@ impl CompositionRuntime {
 
             let order =
                 validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
+            if spec.entrypoint.params > self.limits.max_entrypoint_arity {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "program '{}' entrypoint arity exceeds {}",
+                    spec.program_id, self.limits.max_entrypoint_arity
+                )));
+            }
             let mut replicas = Vec::with_capacity(spec.replicas);
             for _replica_index in 0..spec.replicas {
                 // Each replica has its own Store and module instances. Compiled
