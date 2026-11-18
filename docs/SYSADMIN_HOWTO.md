@@ -324,9 +324,11 @@ for the safe one-replica default; do not fan out stateful programs.
 After staging, call `CompositionRuntime::activate` once to route all programs
 in the release together. Use `call` for time-weighted selection by service
 time, or `call_with_spatial_key` to add a stable logical affinity key (such
-as a tenant, entity, tile, sensor or partition ID). The scheduler prefers a
-local logical shard but can route around a slow replica based on recent
-service-time measurements. This is not physical NUMA pinning.
+as a tenant, entity, tile, sensor or partition ID). The scheduler updates service time as a 7/8 previous estimate plus 1/8 latest
+sample. An optional u64 logical key is mapped to a stable preferred replica
+with a SplitMix64 finalizer. Other replicas receive a 25% service-time penalty,
+but a materially faster replica can win; a rotating cursor breaks ties. This is
+logical affinity, not physical NUMA pinning or geographic routing.
 
 Every replica has its own Wasmtime Store. The runtime uses non-blocking Store
 admission: busy replicas are skipped; when every replica is busy the call
