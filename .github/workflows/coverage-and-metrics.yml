@@ -58,7 +58,10 @@ jobs:
             target
           key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
       - name: Run data-driven native Criterion measurements
-        run: cargo bench --locked -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+        run: |
+          cargo bench --locked --bench frame_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+          cargo bench --locked --bench adi_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+          cargo bench --locked --bench crypto_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
       - name: Upload native Criterion reports
         if: always()
         uses: actions/upload-artifact@v7

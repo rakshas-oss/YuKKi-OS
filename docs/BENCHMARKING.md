@@ -215,10 +215,12 @@ The `Performance Benchmarks` job in
 a shortened CI configuration:
 
 ```sh
-cargo bench --locked -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+cargo bench --locked --bench frame_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+cargo bench --locked --bench adi_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
+cargo bench --locked --bench crypto_benchmarks -- --warm-up-time 1 --measurement-time 2 --sample-size 10
 ```
 
-It uploads `target/criterion/` as the `yukkios-native-criterion` artifact.
+It runs each Criterion target explicitly so Criterion-only CLI flags are never forwarded to the library or ordinary binary test harnesses. It uploads `target/criterion/` as the `yukkios-native-criterion` artifact.
 This is a real timed run, not merely a `--no-run` compile check. The shortened
 sampling configuration and shared GitHub runner make it a regression
 visibility aid, not a stable cross-runner performance gate.
