@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Benchmarking and documentation accuracy
+
+- Added a benchmark guide documenting the exact native Criterion cases, repeatable baseline comparisons, and CI's compile-only benchmark job.
+- Defined a separate browser-WASM spatial performance measurement matrix and made clear that no browser timing harness or performance results are currently published.
+- Corrected stale benchmark descriptions and documentation version labels to match the current main branch.
+
+
 ## v6.10.0 (current)
 
 ### Event-driven draining, mesh validation, and NXR1 interoperability
