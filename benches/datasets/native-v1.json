@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "description": "Deterministic synthetic inputs for native Criterion suites. Never use these keys or nonce values in production.",
+  "spatiotemporal_frame": {
+    "seq_id": 42,
+    "position": [
+      0.42,
+      0.84,
+      1.26
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ],
+    "fluidity": 0.9,
+    "drag": 0.1,
+    "divergence": 0,
+    "payload_bytes": 16,
+    "payload_byte": 42
+  },
+  "nxr1_frame": {
+    "seq_id": 42,
+    "position": [
+      1,
+      2,
+      3
+    ],
+    "velocity": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "fluidity": 0.9,
+    "drag": 0.1,
+    "divergence": 0,
+    "payload_bytes": 256,
+    "payload_byte": 165
+  },
+  "resolver": {
+    "source": "benchmark-source",
+    "destination": "benchmark-component",
+    "queue_capacity": 64,
+    "priority": 1,
+    "timeout_ms": 1000
+  },
+  "crypto": {
+    "keypair_secret_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+    "dh_alice_secret_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+    "dh_bob_secret_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+    "session_alice_secret_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+    "session_bob_secret_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+    "chacha_key_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+    "chacha_nonce_hex": "000000000000000000000000",
+    "session_nonce_hex": "010101010101010101010101",
+    "payload_sizes_bytes": [
+      16,
+      64,
+      256,
+      1024
+    ],
+    "payload_byte": 171,
+    "session_message": "session init"
+  }
+}

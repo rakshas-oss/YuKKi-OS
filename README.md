@@ -1,4 +1,4 @@
-# YuKKi-OS v6.10.0
+# YuKKi-OS v6.11.0
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
@@ -8,23 +8,23 @@
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
 
-> Current stable release: v6.10.0. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.11.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 
-- Release line: **v6.10.0**
+- Release line: **v6.11.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
 - Binary: **`yukki_core_node`**
 - Library crate: **`yukkios`**
-- Status: **stable release**
+- Status: **release candidate — CI and release checks pending**
 
 ## Security and hardening notes
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
 
-## What's new in v6.10.0
+## What's new in v6.11.0
 
-The v6.10.0 release adds event-driven WASM module draining, mesh coordinate and peer-address validation, hardened remote stream relay batch handling, negative-timeout rejection at the WASM bridge, and real 256-byte NXR1 encode/decode benchmarks.
+The proposed v6.11.0 minor release adds a bounded browser-WASM spatial and motion core: WGS84/ECEF and ENU transforms, Hermite interpolation, a 512-entity spatial store, antimeridian-aware bounding-box queries, freshness- and distance-constrained nearest-observation resolution, and iterative arc–secant–tangent path simplification. It also adds data-driven native and browser-WASM benchmark fixtures and a multivariate-data how-to, while retaining the existing gateway, broker, and protocol boundaries. The v6.10.0 event-driven WASM draining, mesh validation, relay hardening, timeout validation, and NXR1 benchmark cases remain part of the baseline.
 
 ## CLI and stream gateway
 

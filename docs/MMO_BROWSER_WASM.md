@@ -110,6 +110,18 @@ When a future deployment needs shared-memory transport, the browser host must
 use the existing authenticated gateway/stream path or a separately qualified
 host bridge. Do not expose raw process pointers or credentials to the page.
 
+## User workflows and benchmarking
+
+For step-by-step browser usage and guidance on mapping drone telemetry,
+finance/market-site, environmental, and other multivariate sources into the
+spatial ABI, see [User how-to](USER_HOWTO_MMO.md). The domain attributes remain
+in host-side application records; only identity, location, observation time,
+and radius are projected into the bounded spatial store.
+
+The native Criterion suites and browser-WASM runner are documented in
+[Benchmarking](BENCHMARKING.md). The browser runner instantiates the compiled
+`wasm32-unknown-unknown` module; it is distinct from native Criterion timing.
+
 ## Build and test
 
 From the YuKKi-OS repository root:
@@ -126,8 +138,7 @@ The browser build workflow also smoke-tests the exported ABI. Unit tests cover
 WGS84/ECEF, full ENU transforms, Hermite endpoints, fixed-capacity behavior,
 antimeridian queries, and temporal freshness filtering. These are correctness
 checks, not performance measurements; see [Benchmarking](BENCHMARKING.md) for
-the current native Criterion targets and the proposed browser-WASM measurement
-matrix.
+the native Criterion targets and the browser-WASM measurement runner.
 
 This increment establishes the browser-side computational path. It does not
 claim that the native MMO daemon, multi-process MPMC queue, hardware compositor,

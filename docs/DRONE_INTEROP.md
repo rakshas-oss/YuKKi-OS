@@ -37,6 +37,8 @@ Use the manifest as the source catalogue and metadata contract; use YuKKi-OS's e
 - Use `BrokerTasks` for bounded request/response work such as validation, transformation, aggregation, feature extraction, or inference.
 - Use mesh/gateway APIs for discovery and distribution where the application has wired the relevant source adapters and authorization.
 
+The [browser spatial and multivariate data how-to](USER_HOWTO_MMO.md) shows how to project normalized identity, WGS84 position, and observation time into the 512-entry WASM store while keeping complete source attributes host-side. It covers drone telemetry, finance/market-site mapping, environmental monitoring, and real-estate records.
+
 The manifest itself does not create a connector, ingest external systems, harmonize units, or guarantee temporal/spatial alignment. Implement and test a domain-specific adapter for each external datasource, validate its schema and trust boundary, and record the adapter/version used to produce normalized observations.
 
 ## Common integration patterns

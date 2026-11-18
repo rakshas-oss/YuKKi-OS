@@ -2,118 +2,72 @@
 
 ## Unreleased
 
-### Benchmarking and documentation accuracy
+## v6.11.0 (release candidate; tag pending)
 
-- Added a benchmark guide documenting the exact native Criterion cases, repeatable baseline comparisons, and CI's compile-only benchmark job.
-- Defined a separate browser-WASM spatial performance measurement matrix and made clear that no browser timing harness or performance results are currently published.
-- Corrected stale benchmark descriptions and documentation version labels to match the current main branch.
+### Browser spatial and spatiotemporal feature set
 
+- Consolidated the existing browser-WASM spatial and motion path in the
+  release documentation: WGS84/ECEF and ENU transforms, Hermite interpolation,
+  a bounded 512-entity store, antimeridian-aware bounding-box queries, and
+  freshness/distance-constrained nearest-observation resolution.
+- Documented the iterative arc–secant–tangent trajectory simplifier, including
+  chord/arc deviation, tangent-turn protection, bounded storage, and
+  retained-point reporting.
+- Added a user how-to showing how the drone manifest can catalogue multivariate
+  sources such as drone telemetry, finance/market-site data, environmental
+  monitoring, and real-estate records. Domain attributes remain in host-side
+  records; the spatial ABI accepts only identity, location, time, and radius.
+- Preserved the separate YuKKi-OS control-plane and Overhauled execution-plane
+  repositories and the existing YKMC, BRK1/BRK2, NXR1, and WSM1 boundaries.
 
-## v6.10.0 (current)
+### Data-driven performance measurement
+
+- Made a versioned JSON fixture the input source for native Criterion suites.
+- Added deterministic synthetic drone, finance-site, and environmental
+  profiles for the browser-WASM benchmark runner, with 16/128/512 entity and
+  path sizes.
+- Added a Node runner that instantiates and measures the actual compiled
+  `wasm32-unknown-unknown` module, including spatial queries, transforms,
+  interpolation, and arc–secant–tangent simplification.
+- Updated CI to run native Criterion measurements and browser-WASM workloads
+  and upload their reports. CI artifacts are diagnostic and do not impose
+  unstable shared-runner performance thresholds.
+
+### Release metadata and documentation
+
+- Bumped the Rust package and lockfile root package to `6.11.0`.
+- Aligned README, Docker image metadata, versioning, API, browser, and
+  benchmarking documentation.
+- Kept browser-WASM package versioning and WASI guest artifacts independent.
+
+## v6.10.0 (previous release)
 
 ### Event-driven draining, mesh validation, and NXR1 interoperability
 
-- Replaced polling in WASM module draining with event-driven `tokio::sync::Notify` wakeups registered before counter inspection.
+- Replaced polling in WASM module draining with event-driven
+  `tokio::sync::Notify` wakeups registered before counter inspection.
 - Rejected non-finite mesh coordinates before R-tree insertion.
-- Validated peer-advertised address lengths before broadcasting node-fleet updates.
-- Hardened remote stream relay sequence arithmetic and validated complete upstream batches before mutating the mirror.
+- Validated peer-advertised address lengths before broadcasting node-fleet
+  updates.
+- Hardened remote stream relay sequence arithmetic and validated complete
+  upstream batches before mutating the mirror.
 - Added real 256-byte NXR1 encode/decode Criterion benchmarks.
 - Rejected negative WASM bridge timeouts before invoking the host handler.
 
 ---
 
-## v6.9.5 (current)
+## v6.9.5 (archived)
 
 ### Remote stream relay and dashboard
 
 - Added `StreamRelay` to mirror discovered remote streams locally with shared,
   rate-limited upstream pulls, plus `OriginChunkClient` for authenticated HTTP
   metadata and chunk-range requests.
-- Added the gateway stream dashboard at `/dashboard`; its static page is public,
-  while stream data requests still require the bearer token.
+- Added the gateway stream dashboard at `/dashboard`; the static page is
+  public, while stream data still requires the bearer token.
 - Applications opt in by wiring a relay into `serve_with_relay`; the CLI does
   not configure an origin or relay automatically.
-- The origin client uses plain HTTP, with bounded I/O and response sizes; use a
+- The origin client uses plain HTTP with bounded I/O and response sizes; use a
   trusted network or TLS-terminating proxy. Origin descriptors omit codec
   metadata, so `OriginChunkClient` reports the codec as `unknown`.
 
-## v6.9.3
-
-### Stream registry, gateway, discovery, and WASM access
-
-- Added `StreamRegistry` descriptors derived from live store lifecycle snapshots,
-  bounded per-subscriber cursors, aggregate acknowledgements, hop-limited
-  announcement deduplication, stale-entry expiry, and SHA-256 anti-entropy
-  digests.
-- Added authenticated HTTP list/describe/range endpoints and an ack-driven
-  WebSocket chunk endpoint. Added gateway and `streams list`/`streams tune`
-  CLI commands; gateway startup requires `YUKKI_GATEWAY_TOKEN` unless the
-  explicit `--insecure-dev` option is used.
-- Nodes relay bounded stream announcements and digest messages over the
-  existing authenticated encrypted bootstrap transport.
-- Added the optional Wasmtime `env::yukki_select_stream` host import, which
-  copies one bounded encoded YKMC chunk from a host store into validated guest
-  memory without exposing native pointers.
-- Added registry, gateway HTTP/WebSocket/auth, subscriber backpressure, and
-  WASM selector tests; documented operational limits and TLS reverse-proxy
-  guidance.
-
-### Version bump and documentation refresh
-
-- Bumped the Cargo package and active release baseline to `v6.9.3`, keeping
-  the library crate name unchanged.
-- Refreshed the README, version metadata, and deployment docs for the 6.9.3
-  release line.
-- Updated Docker image metadata and release references to match the active
-  baseline.
-
-## v6.9.0
-
-### Streaming and documentation
-
-- Bumped the Cargo package and active release baseline to `v6.9.0`, keeping
-  the library crate name unchanged.
-- Refreshed the README for v6.9.0 and added a streaming binaries and data
-  section.
-- Added `docs/USER_HOWTO_STREAMING.md` with user guidance for bounded media
-  streams, broker delivery, GeoJSON/NXR1 frames, and WASM deployment.
-
-## v6.8.0
-
-### Version baseline refresh
-
-- Bumped the Cargo package and active release baseline to `v6.8.0`
-- Updated versioned crate and deployment helper identifiers
-- Refreshed active documentation, examples, and version metadata references
-
-## v6.7.0 (archived)
-
-### NXR1 geospatial frame interoperability
-
-- Added `src/nxr1.rs`: a dependency-free NXR1 binary codec for
-  `geospatial.frame.v1` messages, matching the `rakshas-oss/overhauled`
-  wire contract (magic `0x4E585231`, version `1`, big-endian fixed
-  geospatial/velocity/fluidity/drag/divergence fields, `u32` BE
-  length-prefixed opaque payload).
-- Added `to_broker_task`/`from_broker_task` adapters to carry NXR1 frames in the
-  existing `BrokerTask` JSON envelope and documented the wire contract in
-  `docs/API.md`.
-
-### Baseline cleanup and coherence refresh
-
-- Normalized repository version baseline to `v6.7.0`
-- Corrected stale `v6.6.6`/`v6.6.4` references in active docs and scripts
-- Kept `yukki_core_node` executable name stable for compatibility
-- Updated tests/benches to current crate name (`yukkios_6_7_0_inet3`)
-- Replaced stale deploy script path with a maintainable v6.7.0 deployment wrapper
-- Updated deployment/sysadmin docs to match actual CLI and supported configuration
-- Refreshed architecture/API/security/versioning docs to match current code paths
-
-### Validation status
-
-Validation commands and benchmark outcomes for this refresh are documented in the task execution report and release notes context.
-
-## Archived
-
-- `v6.6.6` — see [RELEASE_v6.6.6.md](RELEASE_v6.6.6.md)
-- `v6.6.4` — see [RELEASE_v6.6.4.md](RELEASE_v6.6.4.md)
