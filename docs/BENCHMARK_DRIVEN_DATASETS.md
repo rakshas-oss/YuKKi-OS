@@ -75,7 +75,7 @@ cargo run --release --bin yukki_dataset_bench -- \\
   --output benchmark-results.json
 \`\`\`
 
-The supplied fixture manifest covers three domains:
+The supplied fixture manifest covers three domains. Its checked-in JSONL rows are deterministic synthetic examples, not collected operational, market, or environmental observations:
 
 - \`drone-flight-east\`: WGS84 position, altitude, velocity, heading, battery,
   link quality, and motor telemetry.
