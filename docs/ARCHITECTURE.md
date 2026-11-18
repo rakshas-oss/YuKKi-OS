@@ -1,4 +1,4 @@
-# YuKKi-OS v6.9.9 — Architecture
+# YuKKi-OS v6.12.0 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
 
-This document describes the architecture implemented in the current repository state, v6.9.9 stable release.
+This document describes the v6.12.0 release-candidate implementation. The release tag remains pending the required CI and release qualification gates.
 
 ## Runtime topology
 
@@ -25,8 +25,7 @@ YuKKi-OS runs as a control-plane mesh with two process roles:
 - `node <bootstrap-address> <advertised-address>`: registers to bootstrap and receives fleet updates
 
 The CLI also provides an authenticated stream gateway and `streams list` /
-`streams tune` clients. When `YUKKI_GATEWAY_TOKEN` is set, a node starts a
-loopback HTTP/WebSocket gateway sharing its in-process stream registry.
+`streams tune` clients. When `YUKKI_GATEWAY_TOKEN` is set, a node starts an HTTP/WebSocket gateway sharing its in-process stream registry. Its default bind address is `127.0.0.1:7670`, configurable with `YUKKI_GATEWAY_LISTEN`.
 
 ## Control-plane transport
 
@@ -81,7 +80,7 @@ These FFI APIs are currently library-side primitives; the node CLI path does not
 - Independent request and connect timeout controls
 - Request/response shape validation before/after I/O
 
-Security note: broker transport auth is outside YuKKi-OS today.
+The generic broker client is a separate integration from the Overhauled adapter. Its raw TCP transport is not authenticated by the peer-mesh session. `YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy` records the expected deployment boundary; it does not enable TLS or authenticate the socket.
 
 ## Geospatial and live media codecs
 
@@ -138,6 +137,103 @@ memory ranges before copying one bounded encoded chunk through
 `env::yukki_select_stream`. No raw pointers or direct store handles are exposed.
 Applications must still protect broker TCP links with an authenticated proxy
 or equivalent deployment boundary.
+
+
+## Browser spatial and motion runtime
+
+The separate \`browser-wasm/\` application builds a dependency-free Rust
+module for \`wasm32-unknown-unknown\`. It is not a browser build of the native
+node, the Wasmtime guest runtime, or a network service.
+
+- \`browser-wasm/src/lib.rs\` validates exact YKMC v1 media-chunk framing:
+  magic/version, audio/video type, flags, UTF-8 metadata, frame lengths and
+  configured size bounds. Media payloads remain opaque; no codec decoding or
+  transcoding occurs.
+- \`browser-wasm/src/mmo.rs\` provides WGS84/ECEF and WGS84/ENU transforms,
+  ENU-to-ECEF conversion, cubic Hermite interpolation, a fixed 512-entity
+  spatial store, inclusive WGS84 bounding-box queries, and
+  freshness/distance-constrained nearest-observation resolution.
+- The browser module also provides an iterative arc–secant–tangent path
+  simplifier with fixed storage for 512 points. It preserves endpoints and
+  forces splits at sharp turns. It is intended for ordered trajectories and
+  non-safety-critical display or summarization, not flight guidance or
+  topology-preserving polygon generalization.
+- \`browser-wasm/app.js\` owns browser HTTP, credentials, forms and rendering.
+  The WASM module does not open sockets or access browser APIs. Sample spatial
+  entities remain in browser WASM memory and are not automatically uploaded to
+  the gateway or Overhauled.
+
+The browser spatial store retains an optional \`radius_m\` value, but the
+current nearest resolver does not use it as a match constraint. It compares
+candidate ECEF distance directly against the supplied maximum distance. The
+bounding-box and nearest-observation operations are bounded linear scans, not
+an indexed spatial engine.
+
+The browser client uses authenticated HTTP GET range reads for gateway
+streams. It does not put bearer tokens in URLs or use the browser WebSocket
+API, because that API cannot set the custom Authorization header required by
+the current gateway WebSocket endpoint. See [BROWSER_WASM.md](BROWSER_WASM.md),
+[MMO_BROWSER_WASM.md](MMO_BROWSER_WASM.md), and
+[USER_HOWTO_MMO.md](USER_HOWTO_MMO.md).
+
+## Native multivariate datasets and benchmark policy
+
+The native dataset runner is implemented in \`src/benchmark_dataset.rs\` and
+exposed by the \`yukki_dataset_bench\` binary. Its version-1 benchmark manifest
+selects JSONL sources, sequence/timestamp fields, optional geographic fields,
+numeric feature mappings, and benchmark profiles.
+
+Each profile drives actual candidate measurements: warm-up records, a
+deterministic sample, batch sizes, worker counts, objective, optional P95
+latency ceiling, and optional geospatial simplification settings. The report
+contains candidate measurements and a recommended batch/worker configuration.
+The selected product is used to derive a bounded queue policy and can be used
+by \`SpatiotemporalPayloadResolver::register_benchmarked_destination\` to
+register an actual bounded component queue.
+
+The native loader is bounded (including manifest, dataset, record, row-count,
+feature, batch and worker ceilings) and rejects malformed or non-finite
+records and invalid geographic coordinates. The native workload performs
+NXR1 encode/decode round trips while retaining each complete JSONL source row
+as opaque payload. The first nine declared numeric features map to the generic
+NXR1 fields; geographic coordinates are handled separately by the geospatial
+profile.
+
+There are two distinct manifest contracts:
+
+- \`schemas/multivariate-datasource-manifest.schema.json\` describes
+  application-level heterogeneous sources, variables, units, temporal/spatial
+  semantics, provenance, quality and access-policy references.
+- \`examples/benchmark-datasets/manifest.json\` is the concrete version-1
+  input consumed by \`yukki_dataset_bench\` and
+  \`yukki_eigensolver_bench\`. It names JSONL files and benchmark field
+  mappings.
+
+The general data-source schema is not directly consumed by the native
+benchmark runner. An application adapter or conversion step must map a
+source-catalogue entry into the benchmark manifest and preserve source
+provenance, units, quality flags and original attributes.
+
+## Native symmetric eigensolver
+
+YuKKi-OS owns a CPU cyclic-Jacobi implementation in
+\`src/symmetric_eigen.rs\`. It accepts finite real-symmetric row-major
+matrices with dimensions 1..=64 and returns ascending eigenvalues, column
+eigenvectors, relative residual, orthogonality error and sweep count. It
+rejects invalid dimensions, lengths, non-finite values, material asymmetry,
+invalid options, non-convergence and numerical overflow.
+
+The separate \`yukki_eigensolver_bench\` binary reads
+\`eigensolver_profiles\` from the native benchmark manifest, constructs
+bounded correlation-matrix workloads from the declared feature fields, and
+reports solver throughput, latency and numerical diagnostics. This is a
+small/medium covariance/correlation analysis primitive, not a general
+complex or non-symmetric eigensolver. It does not claim GPU/NPU acceleration.
+The real \`arcsecant\` helper is a domain-checked mapping, not an eigensolver.
+
+See [BENCHMARK_DRIVEN_DATASETS.md](BENCHMARK_DRIVEN_DATASETS.md),
+[BENCHMARKING.md](BENCHMARKING.md), and [API.md](API.md) for operational
+commands, manifest details, API shape and benchmark scope.
 
 ## WebAssembly sandbox and GPU interop
 
