@@ -1,16 +1,21 @@
-# YuKKi-OS v6.13.0
+# YuKKi-OS v6.13.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
+> **Release status:** v6.13.0 is a feature candidate for composition and time-weighted replica pools. Merge, tag, and release publication remain subject to required CI and review.
+
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
-YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, and optional GPU/NPU integration.
+YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
 > Proposed release: v6.13.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
+- **Release line:** v6.13.0 candidate; the last published release remains v6.12.0.
+- **Runtime:** `yukki_core_node`; native library package `yukkios`.
+- **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
 
 - Release line: **v6.13.0**
 - Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
@@ -29,16 +34,21 @@ The published v6.12.0 release unified browser spatial processing with benchmark-
 ## What's new in v6.13.0
 
 The v6.13.0 candidate adds native multi-module WebAssembly program composition
-and time-weighted spatial replica pools. YuKKi-OS can compile declared core-Wasm
-modules with Wasmtime, validate and link a directed acyclic graph of typed
-function imports, instantiate isolated program replicas, and atomically switch
-a prepared multi-program release. Stateless policies may opt into bounded
-replica pools; a logical affinity key prefers a stable shard while measured
-service time can route around a slower replica. Busy stores are skipped, and
-full saturation returns an explicit ProgramSaturated result rather than
-waiting on a held store lock. This is host-side library functionality, not a
-new CLI or HTTP deployment route. The separate Overhauled repository continues
-to own broker dispatch and accelerator placement.
+and time-weighted spatial replica pools. YuKKi-OS compiles declared core-Wasm
+modules with Wasmtime, validates a directed acyclic module graph and exact
+function signatures, instantiates isolated Store/instance replicas, and
+atomically activates a prepared multi-program release. Stateless policies
+may opt into bounded pools (up to eight replicas per program and 32 per
+deployment); time-weighted service measurements and an optional stable
+logical key influence replica selection. Busy stores are skipped, and full
+saturation returns ProgramSaturated rather than waiting on a blocked store.
+
+The composition API is a native Rust library integration. It does not add a
+`yukki_core_node` subcommand or public HTTP deployment route. Stateful
+programs retain the one-replica default; multi-replica execution requires an
+explicit `stateless: true` declaration. The replica key is logical workload
+affinity, not physical NUMA pinning. The separate Overhauled repository
+continues to own broker dispatch and accelerator placement.
 
 The scheduler starts at a 1 ms service-time estimate, applies a 7/8 prior plus 1/8 latest-sample EWMA, and adds a 25% locality penalty to non-preferred replicas. Its stable logical key is not geographic routing or physical NUMA pinning. Multi-replica execution is only valid for policies explicitly declared stateless; the safe default is one stateful replica. See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md) for limits and the Rust API.
 
@@ -126,6 +136,10 @@ CPU is the always-available correctness baseline. GPU and NPU are optional, best
 See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC, WASI Preview 1 guest, and browser-WASM deployment profiles. The browser client targets `wasm32-unknown-unknown`, using the Rust verifier to validate chunk metadata before fetch/retention operations.
 
 ## Documentation
+
+- [Architecture and implementation map](docs/ARCHITECTURE.md) · [Step-by-step system administration how-to](docs/SYSADMIN_HOWTO.md) · [API reference](docs/API.md)
+- [Composed WASM programs and time-weighted replica routing](docs/WASM_PROGRAM_COMPOSITION.md) · [WASM guest worker](guest-worker/README.md)
+- [Versioning](docs/VERSIONING.md) · [Changelog](docs/CHANGELOG.md)
 
 - [Changelog](docs/CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md) · [How-to](docs/SYSADMIN_HOWTO.md) · [Composed WASM programs](docs/WASM_PROGRAM_COMPOSITION.md) · [API](docs/API.md) · [Versioning](docs/VERSIONING.md) · [Security](docs/SECURITY.md)
