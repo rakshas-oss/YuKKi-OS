@@ -88,6 +88,13 @@ See [docs/API.md](docs/API.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 
 The optional `src/gpu_adapter.rs` boundary supports Overhauled via BRK1/BRK2 plus WSM1 task and lifecycle payloads. The adapter is disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`); ordinary mesh traffic remains available without GPU backend activation.
 
+The native `wasm_composition` runtime also links multiple core-Wasm modules
+into one or several live policy programs. Stateless programs can opt into
+isolated replica pools; a time-weighted spatial scheduler uses recent service
+time and a logical workload key to route around busy or slow replicas.
+Saturated pools fail fast rather than queueing behind a locked Store. See
+[WASM program composition](docs/WASM_PROGRAM_COMPOSITION.md).
+
 Adapter variables:
 
 - `YUKKI_GPU_ADAPTER_ENABLED` (`true` / `false`, default `false`)

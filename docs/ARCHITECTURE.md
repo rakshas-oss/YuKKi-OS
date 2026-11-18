@@ -290,48 +290,65 @@ The Wasm linear-memory and host-buffer ceilings above are not a VRAM reservation
 
 See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md), [guest-worker/README.md](../guest-worker/README.md), and [Overhauled WASM interoperability](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 
-### Composed executable programs
+### Composed executable programs and time-weighted replica routing
 
-`src/wasm_composition.rs` adds a native-host module composition runtime for
-multi-module policy programs. A versioned JSON manifest declares one or more
-programs, the modules in each program, import-namespace bindings, and a
-program entrypoint. YuKKi-OS compiles each core-Wasm module through the shared
-Wasmtime Engine, validates exact imported function signatures, topologically
-orders the module graph, and instantiates the modules into one program Store.
+`src/wasm_composition.rs` provides a native-host composition runtime for one
+or several live policy programs. A versioned JSON manifest declares each
+program's module graph, import-namespace bindings and entrypoint. YuKKi-OS
+compiles core-Wasm modules through one Wasmtime Engine, checks exact imported
+function signatures, orders the module DAG, and instantiates a program's
+module graph into one or more isolated Stores.
 
 Composition v1 accepts cross-module function imports only. Imported memory,
-globals, tables, tags, WASI imports, unbound host namespaces, and cyclic module
-graphs are rejected. This keeps each module's mutable memory and globals
-private while allowing its exported policy functions to be called by other
-modules. The public program entrypoint accepts zero to eight i32 arguments and
-returns one i32. Internal function imports can use other core-Wasm function
+globals, tables, tags, WASI imports, unbound host namespaces and cyclic graphs
+are rejected. The public entrypoint accepts zero to eight i32 arguments and
+returns one i32; internal imported functions may use other core-Wasm function
 signatures.
 
-The same compiled module can be reused by several programs. Compiled modules
-are cached in-process by SHA-256 content digest (256 entries by default);
-instances and state are not shared. Each program has its own Store, a 4 MiB
-per-memory ceiling, at most 16 memories/tables/instances, a 65,536-element
-per-table ceiling, and a 10,000,000-fuel budget reset per call. Calls to one
-program serialize through its Store mutex; different programs can execute in
-parallel.
+The same compiled module can be reused by multiple programs and replicas.
+Compiled modules are cached in-process by SHA-256 content digest (256 entries
+by default). Every replica has its own Store and instances, so guest memory,
+globals and tables are not shared. The default is one stateful replica per
+program. Multi-replica execution must be explicitly declared with
+`stateless: true`, because requests can run against separate copies of guest
+state. The default resource ceiling is eight replicas per program and 32
+replicas per deployment. Each Store has a 4 MiB per-memory limit, up to 16
+memories/tables/instances, a 65,536-element per-table limit, and a
+10,000,000-fuel budget reset for each call.
 
-A deployment contains one or several programs and is activated as one
-`ProgramSet` routing-map replacement. New calls use the new release after
-the switch. Calls already admitted to the previous release retain its
-instances until completion, after which those old resources become eligible
-for release. Preparation compiles, links, and instantiates every program
-before activation, so a failed preparation does not modify live routing.
+`src/temporal_spatial_scheduler.rs` ranks a program's replicas using an
+exponentially weighted service-time estimate (7/8 previous estimate and
+1/8 latest sample) plus an optional stable spatial/affinity key. The key
+prefers a logical shard for related work; the time score can route around a
+materially slower replica. This is logical workload affinity, not physical
+NUMA pinning or geographic-coordinate scheduling. It complements, but does
+not replace, `SpatiotemporalPayloadResolver`, which handles NXR1 decoding,
+destination queues and per-source sequence policy.
 
-This is a host-side Wasm module graph, not a merged native binary and not a
-multi-module AOT artifact. The cache is process-local, not a persistent
-compiled-code store. This API currently has no deployment CLI or built-in
-HTTP endpoint; the embedding application owns module artifact delivery and
-authorization. It is intended for deterministic policy/orchestration modules,
-not LLM weights or a general WASI runtime.
+Replica admission is non-blocking: a busy Store is skipped instead of making
+other calls wait behind its mutex. If all replicas are occupied, the runtime
+returns `CompositionError::ProgramSaturated`. This reduces head-of-line
+blocking while spare replicas exist; it does not guarantee zero stalls when
+all replicas are busy. Fuel is an instruction budget, not a wall-clock
+deadline. Service-time and active-call metrics are exposed for operational
+feedback.
+
+A release containing several programs becomes active with one
+`ProgramSet` routing-map replacement. Calls admitted before the switch keep
+the old release alive until completion; new calls use the new release.
+Preparation compiles, validates, links and instantiates all programs and
+replicas before activation, so a preparation error leaves live routing
+unchanged.
+
+This is a host-side Wasm module graph, not a merged native binary or
+persistent AOT artifact. The compiled cache is process-local. The API has no
+built-in deployment CLI or HTTP endpoint; the embedding application owns
+artifact delivery and authorization. It is designed for policy/orchestration
+modules, not LLM weights or a general WASI runtime.
 
 See [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md) for the
-manifest, end-to-end example, update sequence, limits, and explicit v1
-boundaries.
+manifest, replica configuration, scheduler behavior, API examples and
+resource boundaries.
 
 ## Known implementation limitations
 

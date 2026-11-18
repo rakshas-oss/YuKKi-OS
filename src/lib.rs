@@ -23,6 +23,7 @@ pub mod numa;
 pub mod nxr1;
 pub mod origin_client;
 pub mod spatiotemporal_resolver;
+pub mod temporal_spatial_scheduler;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;

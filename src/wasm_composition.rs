@@ -10,9 +10,12 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex, RwLock, TryLockError,
     },
+    time::Instant,
 };
+
+use crate::temporal_spatial_scheduler::{ReplicaTimingSnapshot, TimeWeightedSpatialScheduler};
 use thiserror::Error;
 use wasmtime::{
     Config, Engine, ExternType, Func, FuncType, Instance, Linker, Module, Store, StoreLimits,
@@ -38,6 +41,8 @@ pub struct CompositionLimits {
     pub max_linear_memory_bytes_per_memory: usize,
     pub max_table_elements_per_table: usize,
     pub max_compiled_cache_entries: usize,
+    pub max_replicas_per_program: usize,
+    pub max_total_replicas_per_deployment: usize,
     pub fuel_per_call: u64,
     pub max_entrypoint_arity: usize,
 }
@@ -53,6 +58,8 @@ impl Default for CompositionLimits {
             max_linear_memory_bytes_per_memory: DEFAULT_MAX_LINEAR_MEMORY_BYTES_PER_MEMORY,
             max_table_elements_per_table: DEFAULT_MAX_TABLE_ELEMENTS_PER_TABLE,
             max_compiled_cache_entries: 256,
+            max_replicas_per_program: 8,
+            max_total_replicas_per_deployment: 32,
             fuel_per_call: DEFAULT_FUEL_PER_CALL,
             max_entrypoint_arity: 8,
         }
@@ -70,6 +77,10 @@ pub struct CompositionManifest {
     pub programs: Vec<ProgramSpec>,
 }
 
+fn default_replica_count() -> usize {
+    1
+}
+
 /// One program is a directed acyclic graph of core-Wasm modules.
 ///
 /// bindings maps a WebAssembly import namespace to the module ID that provides
@@ -82,6 +93,14 @@ pub struct ProgramSpec {
     pub modules: Vec<ModuleRef>,
     #[serde(default)]
     pub bindings: BTreeMap<String, String>,
+    /// Number of isolated Stores/instances backing this program. Values above
+    /// one require stateless=true so callers never observe split mutable state.
+    #[serde(default = "default_replica_count")]
+    pub replicas: usize,
+    /// Explicitly declares that routing the same logical work across isolated
+    /// Stores is semantically safe (no reliance on guest mutable globals/memory).
+    #[serde(default)]
+    pub stateless: bool,
     pub entrypoint: EntrypointSpec,
 }
 
@@ -220,6 +239,8 @@ pub enum CompositionError {
         deployment_id: String,
         program_id: String,
     },
+    #[error("program '{program_id}' is saturated: all {replicas} replicas are busy")]
+    ProgramSaturated { program_id: String, replicas: usize },
     #[error("Wasmtime execution failed for program '{program_id}': {message}")]
     Execution { program_id: String, message: String },
     #[error("composition runtime lock was poisoned")]
@@ -234,16 +255,44 @@ struct CompiledArtifact {
     module: Arc<Module>,
 }
 
-struct LiveProgram {
+struct ProgramReplica {
     store: Mutex<Store<StoreState>>,
     _instances: Vec<Instance>,
     entrypoint: Func,
+    active_calls: AtomicUsize,
+}
+
+struct ReplicaActiveGuard<'a>(&'a AtomicUsize);
+
+impl Drop for ReplicaActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Observable scheduling metrics for one program replica.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgramReplicaMetrics {
+    pub replica_index: usize,
+    pub service_time_ewma_ns: u64,
+    pub completed_calls: u64,
+    pub active_calls: usize,
+}
+
+struct LiveProgram {
+    replicas: Vec<ProgramReplica>,
+    scheduler: TimeWeightedSpatialScheduler,
     expected_arity: usize,
     program_id: String,
 }
 
 impl LiveProgram {
-    fn call(&self, args: &[i32], fuel: u64) -> Result<i32, CompositionError> {
+    fn call(
+        &self,
+        args: &[i32],
+        fuel: u64,
+        spatial_key: Option<u64>,
+    ) -> Result<i32, CompositionError> {
         if args.len() != self.expected_arity {
             return Err(CompositionError::ArgumentCount {
                 program_id: self.program_id.clone(),
@@ -252,33 +301,73 @@ impl LiveProgram {
             });
         }
 
-        let mut store = self
-            .store
-            .lock()
-            .map_err(|_| CompositionError::LockPoisoned)?;
-        store
-            .set_fuel(fuel)
-            .map_err(|error| CompositionError::Execution {
-                program_id: self.program_id.clone(),
-                message: error.to_string(),
-            })?;
+        // Candidate ranking blends each replica's recent service-time EWMA
+        // with a stable spatial affinity hint. A busy Store is skipped rather
+        // than waiting on its mutex, so one slow guest cannot head-of-line block
+        // callers assigned to other replicas.
+        for replica_index in self.scheduler.ranked_candidates(spatial_key) {
+            let replica = &self.replicas[replica_index];
+            let mut store = match replica.store.try_lock() {
+                Ok(store) => store,
+                Err(TryLockError::WouldBlock) => continue,
+                Err(TryLockError::Poisoned(_)) => return Err(CompositionError::LockPoisoned),
+            };
 
-        let params: Vec<Val> = args.iter().copied().map(Val::I32).collect();
-        let mut results = [Val::I32(0)];
-        self.entrypoint
-            .call(&mut *store, &params, &mut results)
-            .map_err(|error| CompositionError::Execution {
-                program_id: self.program_id.clone(),
-                message: error.to_string(),
-            })?;
+            replica.active_calls.fetch_add(1, Ordering::AcqRel);
+            let _active = ReplicaActiveGuard(&replica.active_calls);
+            let started = Instant::now();
+            let result = (|| {
+                store.set_fuel(fuel).map_err(|error| CompositionError::Execution {
+                    program_id: self.program_id.clone(),
+                    message: error.to_string(),
+                })?;
 
-        match &results[0] {
-            Val::I32(value) => Ok(*value),
-            _ => Err(CompositionError::Execution {
-                program_id: self.program_id.clone(),
-                message: "entrypoint returned a value outside the declared i32 ABI".to_string(),
-            }),
+                let params: Vec<Val> = args.iter().copied().map(Val::I32).collect();
+                let mut results = [Val::I32(0)];
+                replica
+                    .entrypoint
+                    .call(&mut *store, &params, &mut results)
+                    .map_err(|error| CompositionError::Execution {
+                        program_id: self.program_id.clone(),
+                        message: error.to_string(),
+                    })?;
+
+                match &results[0] {
+                    Val::I32(value) => Ok(*value),
+                    _ => Err(CompositionError::Execution {
+                        program_id: self.program_id.clone(),
+                        message: "entrypoint returned a value outside the declared i32 ABI"
+                            .to_string(),
+                    }),
+                }
+            })();
+            self.scheduler.record_completion(replica_index, started.elapsed());
+            return result;
         }
+
+        Err(CompositionError::ProgramSaturated {
+            program_id: self.program_id.clone(),
+            replicas: self.replicas.len(),
+        })
+    }
+
+    fn replica_metrics(&self) -> Vec<ProgramReplicaMetrics> {
+        self.scheduler
+            .metrics()
+            .into_iter()
+            .map(|ReplicaTimingSnapshot {
+                      replica_index,
+                      service_time_ewma_ns,
+                      completed_calls,
+                  }| ProgramReplicaMetrics {
+                replica_index,
+                service_time_ewma_ns,
+                completed_calls,
+                active_calls: self.replicas[replica_index]
+                    .active_calls
+                    .load(Ordering::Acquire),
+            })
+            .collect()
     }
 }
 
@@ -356,6 +445,8 @@ impl CompositionRuntime {
             || limits.max_linear_memory_bytes_per_memory == 0
             || limits.max_table_elements_per_table == 0
             || limits.max_compiled_cache_entries == 0
+            || limits.max_replicas_per_program == 0
+            || limits.max_total_replicas_per_deployment == 0
             || limits.fuel_per_call == 0
         {
             return Err(CompositionError::InvalidManifest(
@@ -470,6 +561,7 @@ impl CompositionRuntime {
 
         let mut programs = BTreeMap::new();
         let mut referenced_artifacts = BTreeSet::new();
+        let mut total_replicas = 0usize;
         for spec in &manifest.programs {
             validate_identifier("program_id", &spec.program_id)?;
             validate_identifier("entrypoint export", &spec.entrypoint.export)?;
@@ -478,6 +570,29 @@ impl CompositionRuntime {
                 return Err(CompositionError::InvalidManifest(format!(
                     "program '{}' module count must be in 1..={}",
                     spec.program_id, self.limits.max_modules_per_program
+                )));
+            }
+            if spec.replicas == 0 || spec.replicas > self.limits.max_replicas_per_program {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "program '{}' replica count must be in 1..={}",
+                    spec.program_id, self.limits.max_replicas_per_program
+                )));
+            }
+            if spec.replicas > 1 && !spec.stateless {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "program '{}' requests multiple replicas but is not declared stateless",
+                    spec.program_id
+                )));
+            }
+            total_replicas = total_replicas
+                .checked_add(spec.replicas)
+                .ok_or_else(|| CompositionError::InvalidManifest(
+                    "total replica count overflowed".to_string()
+                ))?;
+            if total_replicas > self.limits.max_total_replicas_per_deployment {
+                return Err(CompositionError::InvalidManifest(format!(
+                    "deployment replica count exceeds configured ceiling {}",
+                    self.limits.max_total_replicas_per_deployment
                 )));
             }
             if programs.contains_key(&spec.program_id) {
@@ -532,103 +647,111 @@ impl CompositionRuntime {
 
             let order =
                 validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
-            let store_limits = StoreLimitsBuilder::new()
-                .memory_size(self.limits.max_linear_memory_bytes_per_memory)
-                .table_elements(self.limits.max_table_elements_per_table)
-                .instances(self.limits.max_modules_per_program)
-                .memories(self.limits.max_modules_per_program)
-                .tables(self.limits.max_modules_per_program)
-                .build();
-            let mut store = Store::new(
-                &self.engine,
-                StoreState {
-                    limits: store_limits,
-                },
-            );
-            store.limiter(|state| &mut state.limits);
-            store.set_fuel(self.limits.fuel_per_call).map_err(|error| {
-                CompositionError::Execution {
-                    program_id: spec.program_id.clone(),
-                    message: error.to_string(),
-                }
-            })?;
-
-            let mut linker = Linker::new(&self.engine);
-            let mut instances_by_id = BTreeMap::new();
-            let mut instances = Vec::with_capacity(order.len());
-
-            for module_id in order {
-                let compiled = compiled_by_id.get(&module_id).ok_or_else(|| {
-                    CompositionError::InvalidManifest(format!(
-                        "internal module lookup failed for '{}'",
-                        module_id
-                    ))
-                })?;
-                let instance =
-                    linker
-                        .instantiate(&mut store, &compiled.module)
-                        .map_err(|error| CompositionError::Execution {
-                            program_id: spec.program_id.clone(),
-                            message: format!("instantiate module '{}': {error}", module_id),
-                        })?;
-
-                // Expose a provider instance under each namespace that targets it.
-                for (namespace, target) in &spec.bindings {
-                    if target == &module_id {
-                        linker
-                            .instance(&mut store, namespace, instance)
-                            .map_err(|error| CompositionError::Execution {
-                                program_id: spec.program_id.clone(),
-                                message: format!(
-                                    "register namespace '{}' for module '{}': {error}",
-                                    namespace, module_id
-                                ),
-                            })?;
-                    }
-                }
-
-                instances_by_id.insert(module_id, instance);
-                instances.push(instance);
-            }
-
-            if !compiled_by_id.contains_key(&spec.entrypoint.module_id) {
-                return Err(CompositionError::EntrypointModuleMissing {
-                    program_id: spec.program_id.clone(),
-                    module_id: spec.entrypoint.module_id.clone(),
-                });
-            }
             if spec.entrypoint.params > self.limits.max_entrypoint_arity {
                 return Err(CompositionError::InvalidManifest(format!(
                     "program '{}' entrypoint arity exceeds {}",
                     spec.program_id, self.limits.max_entrypoint_arity
                 )));
             }
-            let entry_instance =
-                instances_by_id
+            let mut replicas = Vec::with_capacity(spec.replicas);
+            for _replica_index in 0..spec.replicas {
+                // Each replica has its own Store and module instances. Compiled
+                // Module objects are shared through the content-addressed cache,
+                // while guest memories, globals and tables remain isolated.
+                let store_limits = StoreLimitsBuilder::new()
+                    .memory_size(self.limits.max_linear_memory_bytes_per_memory)
+                    .table_elements(self.limits.max_table_elements_per_table)
+                    .instances(self.limits.max_modules_per_program)
+                    .memories(self.limits.max_modules_per_program)
+                    .tables(self.limits.max_modules_per_program)
+                    .build();
+                let mut store = Store::new(
+                    &self.engine,
+                    StoreState {
+                        limits: store_limits,
+                    },
+                );
+                store.limiter(|state| &mut state.limits);
+                store.set_fuel(self.limits.fuel_per_call).map_err(|error| {
+                    CompositionError::Execution {
+                        program_id: spec.program_id.clone(),
+                        message: error.to_string(),
+                    }
+                })?;
+
+                let mut linker = Linker::new(&self.engine);
+                let mut instances_by_id = BTreeMap::new();
+                let mut instances = Vec::with_capacity(order.len());
+
+                for module_id in &order {
+                    let compiled = compiled_by_id.get(module_id).ok_or_else(|| {
+                        CompositionError::InvalidManifest(format!(
+                            "internal module lookup failed for '{}'",
+                            module_id
+                        ))
+                    })?;
+                    let instance = linker
+                        .instantiate(&mut store, &compiled.module)
+                        .map_err(|error| CompositionError::Execution {
+                            program_id: spec.program_id.clone(),
+                            message: format!("instantiate module '{}': {error}", module_id),
+                        })?;
+
+                    // Expose a provider instance under each namespace that targets it.
+                    for (namespace, target) in &spec.bindings {
+                        if target == module_id {
+                            linker
+                                .instance(&mut store, namespace, instance)
+                                .map_err(|error| CompositionError::Execution {
+                                    program_id: spec.program_id.clone(),
+                                    message: format!(
+                                        "register namespace '{}' for module '{}': {error}",
+                                        namespace, module_id
+                                    ),
+                                })?;
+                        }
+                    }
+
+                    instances_by_id.insert(module_id.clone(), instance);
+                    instances.push(instance);
+                }
+
+                let entry_instance = instances_by_id
                     .get(&spec.entrypoint.module_id)
                     .ok_or_else(|| CompositionError::EntrypointModuleMissing {
                         program_id: spec.program_id.clone(),
                         module_id: spec.entrypoint.module_id.clone(),
                     })?;
-            let entrypoint = entry_instance
-                .get_func(&mut store, &spec.entrypoint.export)
-                .ok_or_else(|| CompositionError::EntrypointMissing {
-                    program_id: spec.program_id.clone(),
-                    module_id: spec.entrypoint.module_id.clone(),
-                    export: spec.entrypoint.export.clone(),
-                })?;
-            validate_entrypoint_signature(
-                &spec.program_id,
-                &spec.entrypoint,
-                &entrypoint.ty(&store),
-            )?;
+                let entrypoint = entry_instance
+                    .get_func(&mut store, &spec.entrypoint.export)
+                    .ok_or_else(|| CompositionError::EntrypointMissing {
+                        program_id: spec.program_id.clone(),
+                        module_id: spec.entrypoint.module_id.clone(),
+                        export: spec.entrypoint.export.clone(),
+                    })?;
+                validate_entrypoint_signature(
+                    &spec.program_id,
+                    &spec.entrypoint,
+                    &entrypoint.ty(&store),
+                )?;
 
-            programs.insert(
-                spec.program_id.clone(),
-                Arc::new(LiveProgram {
+                replicas.push(ProgramReplica {
                     store: Mutex::new(store),
                     _instances: instances,
                     entrypoint,
+                    active_calls: AtomicUsize::new(0),
+                });
+            }
+
+            let scheduler =
+                TimeWeightedSpatialScheduler::new(spec.replicas).map_err(|message| {
+                    CompositionError::InvalidManifest(message.to_string())
+                })?;
+            programs.insert(
+                spec.program_id.clone(),
+                Arc::new(LiveProgram {
+                    replicas,
+                    scheduler,
                     expected_arity: spec.entrypoint.params,
                     program_id: spec.program_id.clone(),
                 }),
@@ -688,6 +811,29 @@ impl CompositionRuntime {
         program_id: &str,
         args: &[i32],
     ) -> Result<i32, CompositionError> {
+        self.call_internal(deployment_id, program_id, args, None)
+    }
+
+    /// Execute a program while supplying a stable spatial/affinity key. Related
+    /// work prefers the same logical replica to improve warm-cache locality, but
+    /// spills to another replica when its time-weighted score is materially better.
+    pub fn call_with_spatial_key(
+        &self,
+        deployment_id: &str,
+        program_id: &str,
+        args: &[i32],
+        spatial_key: u64,
+    ) -> Result<i32, CompositionError> {
+        self.call_internal(deployment_id, program_id, args, Some(spatial_key))
+    }
+
+    fn call_internal(
+        &self,
+        deployment_id: &str,
+        program_id: &str,
+        args: &[i32],
+        spatial_key: Option<u64>,
+    ) -> Result<i32, CompositionError> {
         let (set, program) = {
             let active = self
                 .active
@@ -711,7 +857,31 @@ impl CompositionRuntime {
         };
 
         let _guard = InFlightGuard(set);
-        program.call(args, self.limits.fuel_per_call)
+        program.call(args, self.limits.fuel_per_call, spatial_key)
+    }
+
+    /// Inspect the live replica pool's service-time estimates and occupancy.
+    pub fn replica_metrics(
+        &self,
+        deployment_id: &str,
+        program_id: &str,
+    ) -> Result<Vec<ProgramReplicaMetrics>, CompositionError> {
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
+        let set = active.get(deployment_id).ok_or_else(|| {
+            CompositionError::DeploymentNotActive {
+                deployment_id: deployment_id.to_string(),
+            }
+        })?;
+        let program = set.programs.get(program_id).ok_or_else(|| {
+            CompositionError::ProgramNotActive {
+                deployment_id: deployment_id.to_string(),
+                program_id: program_id.to_string(),
+            }
+        })?;
+        Ok(program.replica_metrics())
     }
 
     pub fn active_release(&self, deployment_id: &str) -> Result<Option<String>, CompositionError> {
@@ -977,6 +1147,8 @@ mod tests {
                 })
                 .collect(),
             bindings: BTreeMap::new(),
+            replicas: 1,
+            stateless: false,
             entrypoint: EntrypointSpec {
                 module_id: entry_module.to_string(),
                 export: export.to_string(),
@@ -1218,4 +1390,115 @@ mod tests {
             Err(CompositionError::Execution { .. })
         ));
     }
+
+    #[test]
+    fn stateless_policy_can_run_on_multiple_time_weighted_spatial_replicas() {
+        let runtime = CompositionRuntime::with_defaults();
+        let mut spec = program(
+            "parallel-policy",
+            &[("policy", "1.0.0")],
+            "policy",
+            "run",
+            1,
+        );
+        spec.replicas = 3;
+        spec.stateless = true;
+        let manifest = manifest("r1", vec![spec]);
+        let wasm = artifact(
+            "policy",
+            "1.0.0",
+            r#"(module
+                (func (export "run") (param i32) (result i32)
+                    local.get 0
+                    i32.const 7
+                    i32.add))"#,
+        );
+        runtime.activate(runtime.prepare(&manifest, &[wasm]).unwrap()).unwrap();
+
+        for key in 0..48u64 {
+            assert_eq!(
+                runtime
+                    .call_with_spatial_key("risk-engine", "parallel-policy", &[key as i32], key)
+                    .unwrap(),
+                key as i32 + 7
+            );
+        }
+
+        let metrics = runtime
+            .replica_metrics("risk-engine", "parallel-policy")
+            .unwrap();
+        assert_eq!(
+            metrics.iter().map(|m| m.completed_calls).sum::<u64>(),
+            48
+        );
+        assert!(metrics.iter().all(|m| m.service_time_ewma_ns > 0));
+        assert!(metrics.iter().all(|m| m.active_calls == 0));
+        assert!(metrics.iter().filter(|m| m.completed_calls > 0).count() > 1);
+    }
+
+    #[test]
+    fn stateful_program_cannot_enable_replica_fanout() {
+        let runtime = CompositionRuntime::with_defaults();
+        let mut spec = program(
+            "stateful",
+            &[("policy", "1.0.0")],
+            "policy",
+            "run",
+            0,
+        );
+        spec.replicas = 2;
+        let manifest = manifest("r1", vec![spec]);
+        let wasm = artifact(
+            "policy",
+            "1.0.0",
+            r#"(module (func (export "run") (result i32) i32.const 1))"#,
+        );
+        assert!(matches!(
+            runtime.prepare(&manifest, &[wasm]),
+            Err(CompositionError::InvalidManifest(message))
+                if message.contains("not declared stateless")
+        ));
+    }
+
+    #[test]
+    fn saturated_replica_pool_returns_without_waiting_for_store_lock() {
+        use std::time::{Duration, Instant};
+
+        let runtime = CompositionRuntime::with_defaults();
+        let mut spec = program(
+            "parallel-policy",
+            &[("policy", "1.0.0")],
+            "policy",
+            "run",
+            0,
+        );
+        spec.replicas = 2;
+        spec.stateless = true;
+        let manifest = manifest("r1", vec![spec]);
+        let wasm = artifact(
+            "policy",
+            "1.0.0",
+            r#"(module (func (export "run") (result i32) i32.const 1))"#,
+        );
+        let prepared = runtime.prepare(&manifest, &[wasm]).unwrap();
+        let program_handle = prepared.inner.programs["parallel-policy"].clone();
+        let locks: Vec<_> = program_handle
+            .replicas
+            .iter()
+            .map(|replica| replica.store.lock().unwrap())
+            .collect();
+        runtime.activate(prepared).unwrap();
+
+        let started = Instant::now();
+        let error = runtime
+            .call("risk-engine", "parallel-policy", &[])
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            CompositionError::ProgramSaturated { replicas: 2, .. }
+        ));
+        assert!(started.elapsed() < Duration::from_millis(100));
+        drop(locks);
+    }
+
 }
