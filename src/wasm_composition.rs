@@ -35,6 +35,7 @@ pub struct CompositionLimits {
     pub max_module_bytes: usize,
     pub max_total_module_bytes: usize,
     pub max_linear_memory_bytes: usize,
+    pub max_compiled_cache_entries: usize,
     pub fuel_per_call: u64,
     pub max_entrypoint_arity: usize,
 }
@@ -48,6 +49,7 @@ impl Default for CompositionLimits {
             max_module_bytes: DEFAULT_MAX_MODULE_BYTES,
             max_total_module_bytes: DEFAULT_MAX_TOTAL_MODULE_BYTES,
             max_linear_memory_bytes: DEFAULT_MAX_LINEAR_MEMORY_BYTES,
+            max_compiled_cache_entries: 256,
             fuel_per_call: DEFAULT_FUEL_PER_CALL,
             max_entrypoint_arity: 8,
         }
@@ -347,6 +349,7 @@ impl CompositionRuntime {
             || limits.max_module_bytes == 0
             || limits.max_total_module_bytes == 0
             || limits.max_linear_memory_bytes == 0
+            || limits.max_compiled_cache_entries == 0
             || limits.fuel_per_call == 0
         {
             return Err(CompositionError::InvalidManifest(
@@ -415,6 +418,16 @@ impl CompositionRuntime {
             )));
         }
 
+        let max_artifacts = self
+            .limits
+            .max_programs
+            .saturating_mul(self.limits.max_modules_per_program);
+        if artifacts.len() > max_artifacts {
+            return Err(CompositionError::InvalidManifest(format!(
+                "artifact count exceeds configured ceiling {max_artifacts}"
+            )));
+        }
+
         let mut artifact_index: HashMap<(String, String), &ModuleArtifact> = HashMap::new();
         let mut total_bytes = 0usize;
         for artifact in artifacts {
@@ -453,6 +466,8 @@ impl CompositionRuntime {
         let mut referenced_artifacts = BTreeSet::new();
         for spec in &manifest.programs {
             validate_identifier("program_id", &spec.program_id)?;
+            validate_identifier("entrypoint export", &spec.entrypoint.export)?;
+            validate_identifier("entrypoint module_id", &spec.entrypoint.module_id)?;
             if spec.modules.is_empty()
                 || spec.modules.len() > self.limits.max_modules_per_program
             {
@@ -733,6 +748,11 @@ impl CompositionRuntime {
             }
         })?;
         let module = Arc::new(module);
+        if cache.len() >= self.limits.max_compiled_cache_entries {
+            // Existing live instances retain their compiled code. Clearing the
+            // lookup cache bounds this runtime's additional Module references.
+            cache.clear();
+        }
         cache.insert(
             digest,
             CompiledArtifact {
@@ -1111,7 +1131,12 @@ mod tests {
             artifact(
                 "a",
                 "1",
-                r#"(module (import "b" "f" (func $f)) (func (export "run") call $f))"#,
+                r#"(module
+                    (import "b" "f" (func $f))
+                    (func (export "f"))
+                    (func (export "run") (result i32)
+                        call $f
+                        i32.const 0))"#,
             ),
             artifact(
                 "b",
