@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "yukki_dataset_bench"
 path = "src/bin/yukki_dataset_bench.rs"
 
+[[bin]]
+name = "yukki_eigensolver_bench"
+path = "src/bin/yukki_eigensolver_bench.rs"
+
 [features]
 default = []
 mesh_dashboard = ["dep:rstar", "dep:serde_cbor"]
