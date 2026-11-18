@@ -1,4 +1,4 @@
-# YuKKi OS v6.10.0 — API and ABI Reference
+# YuKKi OS v6.11.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
