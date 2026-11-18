@@ -1,4 +1,8 @@
-# YuKKi OS v6.9.5 — Deployment Guide
+# YuKKi-OS v6.12.0 — Deployment Guide
+
+## Release status
+
+The repository currently tracks v6.12.0 as a release candidate. A successful local build or versioned image label is not release qualification; use the CI gates in [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Supported runtime shape
 
@@ -55,10 +59,10 @@ export YUKKI_BROKER_MAX_FRAME_BYTES=65536
 export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
 ```
 
-The gateway token is required unless `--insecure-dev` is explicitly selected
-for local development. The optional node gateway shares the node's in-memory
-store; a standalone gateway owns a separate store. The `/dashboard` page is
-public, but its stream data API remains bearer-token authenticated.
+The gateway token is required by default. The optional node gateway shares
+the node's in-memory store; a standalone gateway owns a separate store. The
+`/dashboard` page is public, while stream APIs require the bearer token unless
+`--insecure-dev` bypasses that check for local development only.
 
 `YUKKI_BROKER_CONNECT_TIMEOUT_MS` and `YUKKI_BROKER_REQUEST_TIMEOUT_MS` must
 each be greater than `0` and no more than `600000` (10 minutes); values
@@ -97,6 +101,10 @@ Peer:
 ./target/release/yukki_core_node node 10.0.0.10:7660 10.0.0.21:9999
 ```
 
+## Browser, WASI and platform targets
+
+The browser application (wasm32-unknown-unknown) and isolated WASI guest (wasm32-wasip1) are separate build products, not native-node targets. See [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [BROWSER_WASM.md](BROWSER_WASM.md), and [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for artifact and hosting procedures.
+
 ## Health and logging
 
 - Logs are JSON via `tracing_subscriber`
@@ -112,13 +120,13 @@ See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for hardened service examples, env fi
 Build image:
 
 ```bash
-docker build -t yukkios:6.9.5 .
+docker build -t yukkios:6.12.0 .
 ```
 
 Run bootstrap:
 
 ```bash
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.9.5 bootstrap 0.0.0.0:7660
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.12.0 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: container image does not add TLS/mTLS termination; deploy with external network controls.

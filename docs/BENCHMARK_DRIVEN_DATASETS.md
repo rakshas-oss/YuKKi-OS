@@ -2,8 +2,8 @@
 
 This guide describes the native dataset and eigensolver workflows included in the YuKKi-OS v6.12.0 release candidate. The source manifest remains authoritative; release status and validation gates are tracked in [Versioning](VERSIONING.md).
 
-YuKKi-OS now has a native benchmark runner in \`src/benchmark_dataset.rs\`
-and the \`yukki_dataset_bench\` command. Its direction is deliberate:
+YuKKi-OS now has a native benchmark runner in `src/benchmark_dataset.rs`
+and the `yukki_dataset_bench` command. Its direction is deliberate:
 
 **The dataset and benchmark profile are the inputs; the benchmark result selects
 the execution policy.** The runner does not synthesize a replacement dataset
@@ -21,9 +21,9 @@ non-empty JSONL row must be an object containing:
 - Both latitude and longitude when geographic fields are mapped. Altitude is
   optional and defaults to zero.
 
-The \`feature_fields\` array defines the stable numeric feature order. The first
+The `feature_fields` array defines the stable numeric feature order. The first
 nine numeric features feed the generic NXR1 numeric fields. Geographic
-coordinates are deliberately not written into NXR1's generic \`x/y/z\` vector:
+coordinates are deliberately not written into NXR1's generic `x/y/z` vector:
 they are processed separately by the geographic benchmark, and the complete
 source row stays in NXR1's opaque payload.
 
@@ -36,18 +36,18 @@ JSONL, and incomplete geographic mappings.
 
 Each profile controls the measurement rather than simply labeling a report:
 
-- \`warmup_records\` chooses records run before measurements.
-- \`sample_records\` selects a deterministic, evenly spaced sample from the
+- `warmup_records` chooses records run before measurements.
+- `sample_records` selects a deterministic, evenly spaced sample from the
   remaining source records.
-- \`batch_sizes\` and \`worker_counts\` define the actual native candidate
+- `batch_sizes` and `worker_counts` define the actual native candidate
   configurations that are executed.
-- \`objective\` chooses the candidate policy: lowest P95 batch latency,
+- `objective` chooses the candidate policy: lowest P95 batch latency,
   highest records per second, lowest estimated working set, or the geospatial
   throughput objective.
-- \`max_p95_batch_ms\` filters candidates against a latency ceiling. If none
-  meet the ceiling, the result is explicit: \`met_latency_target=false\`.
+- `max_p95_batch_ms` filters candidates against a latency ceiling. If none
+  meet the ceiling, the result is explicit: `met_latency_target=false`.
 
-A profile may set \`applicable_domains\`, so a geospatial profile can run on
+A profile may set `applicable_domains`, so a geospatial profile can run on
 drone and environmental datasets without being incorrectly applied to
 financial data.
 
@@ -67,28 +67,28 @@ separately. Batch boundaries do not create artificial path endpoints.
 
 From the repository root:
 
-\`\`\`sh
+```sh
 cargo run --release --bin yukki_dataset_bench -- \\
   --manifest examples/benchmark-datasets/manifest.json \\
   --dataset all \\
   --profile all \\
   --output benchmark-results.json
-\`\`\`
+```
 
-The supplied fixture manifest covers three domains:
+The supplied fixture manifest covers three domains. Its checked-in JSONL rows are deterministic synthetic examples, not collected operational, market, or environmental observations:
 
-- \`drone-flight-east\`: WGS84 position, altitude, velocity, heading, battery,
+- `drone-flight-east`: WGS84 position, altitude, velocity, heading, battery,
   link quality, and motor telemetry.
-- \`market-ticks\`: price, volume, return, volatility, spread, order imbalance,
+- `market-ticks`: price, volume, return, volatility, spread, order imbalance,
   trade count, and depth.
-- \`urban-air-quality\`: WGS84 station location, temperature, humidity,
+- `urban-air-quality`: WGS84 station location, temperature, humidity,
   pressure, wind, CO2, PM2.5, NO2, and ozone.
 
 Profiles include latency, throughput, bounded-memory, and geospatial
 simplification. The geospatial profile declares applicability to the
-\`drone\` and \`environment\` domains, so it is skipped for the finance dataset.
+`drone` and `environment` domains, so it is skipped for the finance dataset.
 
-Run a single dataset or profile by changing \`--dataset\` or \`--profile\`.
+Run a single dataset or profile by changing `--dataset` or `--profile`.
 Available IDs are in the manifest.
 
 ## Where the result goes
