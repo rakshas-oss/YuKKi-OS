@@ -266,3 +266,4 @@ paths and geometric reduction, not domain-model validity or operational safety.
   ABI exports, and fixed limits.
 - [Browser WASM deployment](BROWSER_WASM.md) — build and hosting instructions.
 - [API and ABI reference](API.md) — NXR1 resolver and broker boundaries.
+- [Benchmark-driven native datasets and eigensolver](BENCHMARK_DRIVEN_DATASETS.md) — manifest-driven records, queue policy, and accuracy-checked symmetric eigensolver.
