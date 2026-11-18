@@ -4,6 +4,12 @@
 
 ## v6.11.0 (current)
 
+### Benchmark documentation
+
+- Added a benchmark guide covering the native Criterion targets, baseline capture, reproducibility requirements, and the distinction between benchmark compilation and measured CI performance.
+- Documented a separate measurement matrix for the browser-WASM spatial feature set without presenting unmeasured performance claims.
+
+
 ### Browser MMO spatial core and spatiotemporal resolution
 
 - Added a bounded, portable spatial and motion core to the existing browser-WASM application, preserving the original YuKKi-OS and Overhauled repository boundary.
