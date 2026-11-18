@@ -22,7 +22,9 @@
         "module_id": "risk-score",
         "export": "run",
         "params": 1
-      }
+      },
+      "replicas": 4,
+      "stateless": true
     },
     {
       "program_id": "risk-alert-policy",
@@ -43,7 +45,9 @@
         "module_id": "risk-alert",
         "export": "run",
         "params": 1
-      }
+      },
+      "replicas": 2,
+      "stateless": true
     }
   ]
 }
