@@ -110,6 +110,10 @@ When a future deployment needs shared-memory transport, the browser host must
 use the existing authenticated gateway/stream path or a separately qualified
 host bridge. Do not expose raw process pointers or credentials to the page.
 
+## User workflows
+
+For step-by-step browser usage, including drone-manifest ingestion patterns and examples for finance and environmental multivariate data, see [User how-to: browser spatial and spatiotemporal features](USER_HOWTO_MMO.md). That guide also covers timestamp normalization, attribute joins, freshness/distance policy, and safe deployment boundaries.
+
 ## Build and test
 
 From the YuKKi-OS repository root:
