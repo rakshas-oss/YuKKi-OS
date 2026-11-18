@@ -30,8 +30,6 @@ YKMC stream framing, and BRK1/BRK2 plus NXR1/WSM1 at the Overhauled broker
 boundary. The WASM resolver is a local computational primitive, not a new
 transport or authentication mechanism.
 
-For practical spatial resolver, drone, finance, and environmental-data workflows, see [User how-to: browser spatial and spatiotemporal features](USER_HOWTO_MMO.md).
-
 ## Build and run locally
 
 From the repository root:
