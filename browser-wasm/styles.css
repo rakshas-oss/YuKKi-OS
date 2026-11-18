@@ -35,6 +35,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .chunk-list li { margin: .6rem 0; overflow-wrap: anywhere; }
 .chunk-meta { color: #b9c9d1; font-size: .9rem; }
 footer { margin-top: 2rem; font-size: .85rem; }
+
+#mmo-form, #mmo-resolve-form { display: grid; grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr); align-items: center; gap: .55rem .8rem; }
+#mmo-form .actions, #mmo-resolve-form .actions { grid-column: 1 / -1; }
+#mmo-entity-list li { margin: .55rem 0; overflow-wrap: anywhere; }
+
 @media (min-width: 640px) {
   #connect-form { grid-template-columns: 10rem minmax(0, 1fr); align-items: center; }
   #connect-form .actions, #connect-form .status, #connect-form .hint { grid-column: 1 / -1; }
