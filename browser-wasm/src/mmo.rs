@@ -143,8 +143,7 @@ impl SpatialState {
         }
 
         self.query_len = 0;
-        for index in 0..self.len {
-            let entity = self.entities[index];
+        for (index, entity) in self.entities[..self.len].iter().copied().enumerate() {
             if !entity.used { continue; }
             let lon_matches = if west <= east {
                 entity.position.lon_deg >= west && entity.position.lon_deg <= east
@@ -190,8 +189,7 @@ impl SpatialState {
         let mut best: Option<usize> = None;
         let mut best_distance_sq = max_distance_sq;
 
-        for index in 0..self.len {
-            let entity = self.entities[index];
+        for (index, entity) in self.entities[..self.len].iter().copied().enumerate() {
             if !entity.used || entity.timestamp_ns > at_ns { continue; }
             if at_ns - entity.timestamp_ns > max_age_ns { continue; }
             let distance_sq = distance_squared(target, entity.ecef);
@@ -242,11 +240,11 @@ fn sin_cos(mut angle: f64) -> (f64, f64) {
     let sin_poly = 1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0
         + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362880.0
         + x2 * (-1.0 / 39916800.0 + x2 * (1.0 / 6227020800.0
-        + x2 * (-1.0 / 1307674368000.0 + x2 * (1.0 / 355687428096000.0)))))));
+        + x2 * (-1.0 / 1307674368000.0 + x2 * (1.0 / 355687428096000.0))))))));
     let cos_poly = 1.0 + x2 * (-1.0 / 2.0 + x2 * (1.0 / 24.0
         + x2 * (-1.0 / 720.0 + x2 * (1.0 / 40320.0
         + x2 * (-1.0 / 3628800.0 + x2 * (1.0 / 479001600.0
-        + x2 * (-1.0 / 87178291200.0 + x2 * (1.0 / 20922789888000.0)))))));
+        + x2 * (-1.0 / 87178291200.0 + x2 * (1.0 / 20922789888000.0))))))));
     (angle * sin_poly, cos_sign * cos_poly)
 }
 
@@ -476,6 +474,7 @@ pub extern "C" fn adi_mmo_enu_to_ecef(
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub extern "C" fn adi_mmo_hermite_position(
     p0x: f64, p0y: f64, p0z: f64,
     v0x: f64, v0y: f64, v0z: f64,
