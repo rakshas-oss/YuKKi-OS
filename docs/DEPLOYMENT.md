@@ -59,10 +59,10 @@ export YUKKI_BROKER_MAX_FRAME_BYTES=65536
 export YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy
 ```
 
-The gateway token is required unless `--insecure-dev` is explicitly selected
-for local development. The optional node gateway shares the node's in-memory
-store; a standalone gateway owns a separate store. The `/dashboard` page is
-public, but its stream data API remains bearer-token authenticated.
+The gateway token is required by default. The optional node gateway shares
+the node's in-memory store; a standalone gateway owns a separate store. The
+`/dashboard` page is public, while stream APIs require the bearer token unless
+`--insecure-dev` bypasses that check for local development only.
 
 `YUKKI_BROKER_CONNECT_TIMEOUT_MS` and `YUKKI_BROKER_REQUEST_TIMEOUT_MS` must
 each be greater than `0` and no more than `600000` (10 minutes); values
