@@ -298,36 +298,51 @@ lifecycle.hotswap("worker", "1.2.0").await?;
 
 ### Compose several policy modules into live programs
 
-The native composition API is a library integration. It does not add a new
+The native composition API is a library integration. It does not add a
 `yukki_core_node` subcommand or public HTTP deployment route. Compile module
 sources to core-Wasm binaries (for example, use `wat2wasm` for the shipped WAT
 examples), then pass their bytes and the JSON manifest to
 `CompositionRuntime::prepare_json`.
 
-The example directory
-`examples/wasm-composition/` contains a manifest for two live policies,
-`risk-score-policy` and `risk-alert-policy`, which both reuse the same
-`math-kernel:1.0.0` compiled artifact. After staging, call
-`CompositionRuntime::activate` once to route all programs in that release
-together. Calls use `CompositionRuntime::call(deployment_id, program_id,
-&[i32])`.
+The example directory `examples/wasm-composition/` contains two policies
+that reuse the same compiled `math-kernel:1.0.0` artifact. The example
+manifest configures four replicas for `risk-score-policy` and two for
+`risk-alert-policy`. Both declare `stateless: true`, because each replica
+has independent guest memory and mutable globals. Omit the replica fields
+for the safe one-replica default; do not fan out stateful programs.
 
-Run the focused tests with:
+After staging, call `CompositionRuntime::activate` once to route all programs
+in the release together. Use `call` for time-weighted selection by service
+time, or `call_with_spatial_key` to add a stable logical affinity key (such
+as a tenant, entity, tile, sensor or partition ID). The scheduler prefers a
+local logical shard but can route around a slow replica based on recent
+service-time measurements. This is not physical NUMA pinning.
+
+Every replica has its own Wasmtime Store. The runtime uses non-blocking Store
+admission: busy replicas are skipped; when every replica is busy the call
+returns `CompositionError::ProgramSaturated` immediately rather than
+waiting behind a guest. This reduces head-of-line blocking when spare
+replicas exist, but it is not a promise of zero stalls under full saturation.
+Use bounded retries/backpressure and inspect `replica_metrics` before
+increasing pool sizes. Fuel is an instruction budget, not a wall-clock
+deadline.
+
+Run focused tests with:
 
 ```bash
 cargo test wasm_composition
+cargo test temporal_spatial_scheduler
 ```
 
-The application must own artifact storage, access control, version selection
-and any HTTP deployment API. Composition v1 links declared function imports
+The application owns artifact storage, access control, version selection and
+any HTTP deployment API. Composition v1 links declared function imports
 only; it rejects imported memory/global/table resources, host/WASI imports
-and cyclic graphs. Each program has an isolated Store, while identical module
-bytes share an in-memory SHA-256 compilation cache. Per-call fuel, memory,
-table and instance limits remain enforced. Calls to the same program are
-serialized; separate programs can run concurrently.
+and cyclic graphs. Identical module bytes share an in-memory SHA-256 compile
+cache. Per-call fuel, memory, table, instance and replica limits remain
+enforced.
 
-For the manifest schema, API example, staged-upgrade process and resource
-limits, see [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md).
+For the manifest schema, end-to-end API example, hot-update process and
+resource limits, see [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md).
 
 ## 9. Configure broker integrations deliberately
 
