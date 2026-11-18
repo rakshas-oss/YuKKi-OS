@@ -332,6 +332,250 @@ pub fn hermite_position(p0: Vec3, v0: Vec3, p1: Vec3, v1: Vec3, t: f64, dt: f64)
     })
 }
 
+
+const MAX_PATH_POINTS: usize = 512;
+
+#[derive(Clone, Copy, Debug)]
+struct PathSegment {
+    start: u16,
+    end: u16,
+}
+
+#[derive(Clone)]
+pub struct ArcSecantTangentSimplifier {
+    points: [Wgs84; MAX_PATH_POINTS],
+    len: usize,
+    keep: [bool; MAX_PATH_POINTS],
+    output: [u16; MAX_PATH_POINTS],
+    output_len: usize,
+}
+
+impl ArcSecantTangentSimplifier {
+    pub const fn new() -> Self {
+        const EMPTY: Wgs84 = Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 };
+        Self {
+            points: [EMPTY; MAX_PATH_POINTS],
+            len: 0,
+            keep: [false; MAX_PATH_POINTS],
+            output: [0; MAX_PATH_POINTS],
+            output_len: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.len = 0;
+        self.output_len = 0;
+        self.keep = [false; MAX_PATH_POINTS];
+    }
+
+    pub fn push(&mut self, point: Wgs84) -> Result<(), i32> {
+        if !valid_wgs84(point) { return Err(ERR_INVALID); }
+        if self.len >= MAX_PATH_POINTS { return Err(ERR_FULL); }
+        self.points[self.len] = point;
+        self.len += 1;
+        self.output_len = 0;
+        Ok(())
+    }
+
+    pub fn input_len(&self) -> usize { self.len }
+    pub fn output_len(&self) -> usize { self.output_len }
+
+    pub fn output_point(&self, index: usize) -> Option<(usize, Wgs84)> {
+        if index >= self.output_len { return None; }
+        let original_index = self.output[index] as usize;
+        Some((original_index, self.points[original_index]))
+    }
+
+    /// Iterative Douglas-Peucker variant using arc/secant deviation and a
+    /// tangent-turn guard. Geometry is measured in ECEF metres.
+    pub fn simplify(&mut self, tolerance_m: f64, max_turn_degrees: f64) -> Result<usize, i32> {
+        if !tolerance_m.is_finite()
+            || tolerance_m < 0.0
+            || !max_turn_degrees.is_finite()
+            || max_turn_degrees <= 0.0
+            || max_turn_degrees > 180.0
+        {
+            return Err(ERR_INVALID);
+        }
+
+        self.keep = [false; MAX_PATH_POINTS];
+        self.output_len = 0;
+        if self.len == 0 { return Ok(0); }
+        self.keep[0] = true;
+        if self.len == 1 {
+            self.output[0] = 0;
+            self.output_len = 1;
+            return Ok(1);
+        }
+
+        let last = self.len - 1;
+        self.keep[last] = true;
+        if self.len == 2 {
+            self.output[0] = 0;
+            self.output[1] = last as u16;
+            self.output_len = 2;
+            return Ok(2);
+        }
+
+        let cosine_limit = sin_cos(max_turn_degrees * DEG_TO_RAD).1;
+        let distance_limit = if tolerance_m < 1.0e-9 { 1.0e-9 } else { tolerance_m };
+        let mut stack = [PathSegment { start: 0, end: 0 }; MAX_PATH_POINTS];
+        let mut stack_len = 1;
+        stack[0] = PathSegment { start: 0, end: last as u16 };
+
+        while stack_len > 0 {
+            stack_len -= 1;
+            let segment = stack[stack_len];
+            let start = segment.start as usize;
+            let end = segment.end as usize;
+            if end <= start + 1 { continue; }
+
+            let a = wgs84_to_ecef(self.points[start]);
+            let b = wgs84_to_ecef(self.points[end]);
+            let chord = Vec3 { x: b.x-a.x, y: b.y-a.y, z: b.z-a.z };
+            let chord_sq = dot(chord, chord);
+            let chord_len = sqrt(chord_sq);
+            let mut worst_score = 1.0;
+            let mut worst_index = None;
+
+            for index in (start + 1)..end {
+                let p = wgs84_to_ecef(self.points[index]);
+                let from_start = Vec3 { x: p.x-a.x, y: p.y-a.y, z: p.z-a.z };
+                let from_point_to_end = Vec3 { x: b.x-p.x, y: b.y-p.y, z: b.z-p.z };
+
+                let projection = if chord_sq > 1.0e-18 {
+                    (dot(from_start, chord) / chord_sq).clamp(0.0, 1.0)
+                } else { 0.0 };
+                let nearest = Vec3 {
+                    x: a.x + chord.x * projection,
+                    y: a.y + chord.y * projection,
+                    z: a.z + chord.z * projection,
+                };
+                let perpendicular = sqrt(distance_squared(p, nearest));
+
+                let left_len = sqrt(dot(from_start, from_start));
+                let right_len = sqrt(dot(from_point_to_end, from_point_to_end));
+                let arc_excess = (left_len + right_len - chord_len).max(0.0);
+                let arc_secant_error = perpendicular.max(arc_excess * 0.5);
+                let distance_score = arc_secant_error / distance_limit;
+
+                let tangent_dot = dot(from_start, from_point_to_end);
+                let tangent_cosine = if left_len > 1.0e-9 && right_len > 1.0e-9 {
+                    tangent_dot / (left_len * right_len)
+                } else { 1.0 };
+                let tangent_violation = tangent_cosine < cosine_limit;
+                let tangent_score = if tangent_violation {
+                    2.0 + (cosine_limit - tangent_cosine).max(0.0)
+                        + (left_len.min(right_len) / (left_len.min(right_len) + distance_limit))
+                } else { 0.0 };
+                let score = distance_score.max(tangent_score);
+                if score > worst_score {
+                    worst_score = score;
+                    worst_index = Some(index);
+                }
+            }
+
+            if let Some(split) = worst_index {
+                self.keep[split] = true;
+                if stack_len + 2 > MAX_PATH_POINTS { return Err(ERR_FULL); }
+                stack[stack_len] = PathSegment { start: segment.start, end: split as u16 };
+                stack_len += 1;
+                stack[stack_len] = PathSegment { start: split as u16, end: segment.end };
+                stack_len += 1;
+            }
+        }
+
+        for index in 0..self.len {
+            if self.keep[index] {
+                self.output[self.output_len] = index as u16;
+                self.output_len += 1;
+            }
+        }
+        Ok(self.output_len)
+    }
+}
+
+fn dot(a: Vec3, b: Vec3) -> f64 {
+    a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+#[cfg(target_arch = "wasm32")]
+static mut PATH: ArcSecantTangentSimplifier = ArcSecantTangentSimplifier::new();
+
+#[cfg(target_arch = "wasm32")]
+unsafe fn path_mut() -> &'static mut ArcSecantTangentSimplifier {
+    // Browser module calls are serialized by the single-threaded event loop.
+    &mut *core::ptr::addr_of_mut!(PATH)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_reset() {
+    unsafe { path_mut().reset(); }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_push_wgs84(lat_deg: f64, lon_deg: f64, alt_m: f64) -> i32 {
+    unsafe {
+        match path_mut().push(Wgs84 { lat_deg, lon_deg, alt_m }) {
+            Ok(()) => OK,
+            Err(error) => error,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_input_count() -> u32 {
+    unsafe { path_mut().input_len() as u32 }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_run(tolerance_m: f64, max_turn_degrees: f64) -> i32 {
+    unsafe {
+        match path_mut().simplify(tolerance_m, max_turn_degrees) {
+            Ok(count) => count as i32,
+            Err(error) => error,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_output_count() -> u32 {
+    unsafe { path_mut().output_len() as u32 }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_output_index(index: u32) -> u32 {
+    unsafe {
+        path_mut().output_point(index as usize)
+            .map(|(original_index, _)| original_index as u32)
+            .unwrap_or(u32::MAX)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_output_lat(index: u32) -> f64 {
+    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.lat_deg).unwrap_or(f64::NAN) }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_output_lon(index: u32) -> f64 {
+    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.lon_deg).unwrap_or(f64::NAN) }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn adi_mmo_simplify_output_alt(index: u32) -> f64 {
+    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.alt_m).unwrap_or(f64::NAN) }
+}
+
 #[cfg(target_arch = "wasm32")]
 static mut STATE: SpatialState = SpatialState::new();
 #[cfg(target_arch = "wasm32")]
