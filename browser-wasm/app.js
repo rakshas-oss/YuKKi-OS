@@ -56,7 +56,7 @@ async function loadWasm() {
   const bytes = await response.arrayBuffer();
   const result = await WebAssembly.instantiate(bytes, {});
   wasm = result.instance.exports;
-  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc", "adi_mmo_reset", "adi_mmo_entity_count", "adi_mmo_upsert_entity", "adi_mmo_entity_id", "adi_mmo_entity_lat", "adi_mmo_entity_lon", "adi_mmo_entity_alt", "adi_mmo_entity_timestamp_ns", "adi_mmo_resolve_nearest", "adi_mmo_wgs84_to_ecef"]) {
+  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc", "adi_mmo_reset", "adi_mmo_entity_count", "adi_mmo_upsert_entity", "adi_mmo_entity_id", "adi_mmo_entity_lat", "adi_mmo_entity_lon", "adi_mmo_entity_alt", "adi_mmo_entity_timestamp_ns", "adi_mmo_resolve_nearest", "adi_mmo_wgs84_to_ecef", "adi_mmo_simplify_reset", "adi_mmo_simplify_push_wgs84", "adi_mmo_simplify_run", "adi_mmo_simplify_output_count", "adi_mmo_simplify_output_index", "adi_mmo_simplify_output_lat", "adi_mmo_simplify_output_lon", "adi_mmo_simplify_output_alt"]) {
     if (!(name in wasm)) throw new Error("Browser verifier is missing export: " + name);
   }
 }
@@ -402,6 +402,9 @@ const mmoResolveForm = $("mmo-resolve-form");
 const mmoResetButton = $("mmo-reset");
 const mmoStatus = $("mmo-status");
 const mmoEntityList = $("mmo-entity-list");
+const mmoSimplifyForm = $("mmo-simplify-form");
+const mmoSimplifyStatus = $("mmo-simplify-status");
+const mmoSimplifyList = $("mmo-simplify-list");
 
 function wasmVec3(pointer) {
   if (!pointer) throw new Error("WASM rejected the coordinate input.");
@@ -411,12 +414,19 @@ function wasmVec3(pointer) {
 
 function renderMmoEntities() {
   mmoEntityList.replaceChildren();
+  mmoSimplifyList.replaceChildren();
+  wasm.adi_mmo_simplify_reset();
   const count = wasm.adi_mmo_entity_count();
   if (count === 0) {
     const empty = document.createElement("li");
     empty.className = "muted";
     empty.textContent = "No local entities loaded.";
     mmoEntityList.append(empty);
+    const noPath = document.createElement("li");
+    noPath.className = "muted";
+    noPath.textContent = "No simplified path yet.";
+    mmoSimplifyList.append(noPath);
+    setStatus(mmoSimplifyStatus, "Add at least two entities to simplify a path.");
     return;
   }
 
@@ -426,6 +436,8 @@ function renderMmoEntities() {
     const lon = wasm.adi_mmo_entity_lon(index);
     const alt = wasm.adi_mmo_entity_alt(index);
     const timestamp = wasm.adi_mmo_entity_timestamp_ns(index);
+    const pathStatus = wasm.adi_mmo_simplify_push_wgs84(lat, lon, alt);
+    if (pathStatus !== 0) throw new Error("Unable to stage path coordinate in WASM (code " + pathStatus + ").");
     const ecef = wasmVec3(wasm.adi_mmo_wgs84_to_ecef(lat, lon, alt));
     const item = document.createElement("li");
     item.textContent = [
@@ -437,6 +449,44 @@ function renderMmoEntities() {
     mmoEntityList.append(item);
   }
 }
+
+mmoSimplifyForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const tolerance = Number($("mmo-simplify-tolerance").value);
+  const maxTurn = Number($("mmo-simplify-turn").value);
+  if (!Number.isFinite(tolerance) || tolerance < 0 ||
+      !Number.isFinite(maxTurn) || maxTurn <= 0 || maxTurn > 180) {
+    setStatus(mmoSimplifyStatus, "Enter a non-negative error tolerance and a turn limit from 1 to 180 degrees.", "error");
+    return;
+  }
+  const inputCount = wasm.adi_mmo_simplify_input_count();
+  if (inputCount < 2) {
+    setStatus(mmoSimplifyStatus, "At least two ordered entity observations are required.", "error");
+    return;
+  }
+  const result = wasm.adi_mmo_simplify_run(tolerance, maxTurn);
+  if (result < 0) {
+    setStatus(mmoSimplifyStatus, "WASM path simplification failed (code " + result + ").", "error");
+    return;
+  }
+  const outputCount = wasm.adi_mmo_simplify_output_count();
+  mmoSimplifyList.replaceChildren();
+  for (let outputIndex = 0; outputIndex < outputCount; outputIndex += 1) {
+    const originalIndex = wasm.adi_mmo_simplify_output_index(outputIndex);
+    const item = document.createElement("li");
+    item.textContent = [
+      "Retained point " + originalIndex,
+      wasm.adi_mmo_simplify_output_lat(outputIndex).toFixed(6) + ", " +
+        wasm.adi_mmo_simplify_output_lon(outputIndex).toFixed(6),
+      wasm.adi_mmo_simplify_output_alt(outputIndex).toFixed(1) + " m"
+    ].join(" · ");
+    mmoSimplifyList.append(item);
+  }
+  const reduction = inputCount === 0 ? 0 : (100 * (inputCount - outputCount) / inputCount);
+  setStatus(mmoSimplifyStatus, outputCount + " of " + inputCount +
+    " points retained (" + reduction.toFixed(1) + "% fewer). Tolerance: " +
+    tolerance + " m; maximum tangent turn: " + maxTurn + "°.");
+});
 
 mmoForm.addEventListener("submit", (event) => {
   event.preventDefault();
