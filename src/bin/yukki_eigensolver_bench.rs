@@ -6,7 +6,7 @@
 
 use std::{
     env, fs,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader},
     path::{Component, Path, PathBuf},
     process::ExitCode,
     sync::{
@@ -245,15 +245,10 @@ fn load_records(dataset: &DatasetSpec, path: &Path) -> Result<Vec<Vec<f64>>, Box
     let file = fs::File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut records = Vec::new();
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let length = reader.read_until(b'\n', &mut line)?;
-        if length == 0 { break; }
-        if line.len() > MAX_RECORD_BYTES {
-            return Err(format!("dataset '{}' contains a JSONL row over 64 KiB", dataset.id).into());
+    while let Some(line) = read_bounded_line(&mut reader, MAX_RECORD_BYTES)? {
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
         }
-        if line.iter().all(u8::is_ascii_whitespace) { continue; }
         if records.len() >= MAX_RECORDS {
             return Err(format!("dataset '{}' exceeds one million records", dataset.id).into());
         }
@@ -261,9 +256,13 @@ fn load_records(dataset: &DatasetSpec, path: &Path) -> Result<Vec<Vec<f64>>, Box
         let object = value.as_object().ok_or("dataset record must be a JSON object")?;
         let mut row = Vec::with_capacity(dataset.feature_fields.len());
         for field in &dataset.feature_fields {
-            let number = object.get(field).and_then(Value::as_f64)
+            let number = object
+                .get(field)
+                .and_then(Value::as_f64)
                 .filter(|value| value.is_finite() && value.abs() <= 1.0e150)
-                .ok_or_else(|| format!("dataset '{}' field '{}' must be finite and |value| <= 1e150", dataset.id, field))?;
+                .ok_or_else(|| {
+                    format!("dataset '{}' field '{}' must be finite and |value| <= 1e150", dataset.id, field)
+                })?;
             row.push(number);
         }
         records.push(row);
@@ -272,6 +271,46 @@ fn load_records(dataset: &DatasetSpec, path: &Path) -> Result<Vec<Vec<f64>>, Box
         return Err(format!("dataset '{}' contains no records", dataset.id).into());
     }
     Ok(records)
+}
+
+fn read_bounded_line<R: BufRead>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if line.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if line.len() + newline > max_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "JSONL row too large",
+                ));
+            }
+            line.extend_from_slice(&available[..newline]);
+            reader.consume(newline + 1);
+            break;
+        }
+        let length = available.len();
+        if line.len() + length > max_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "JSONL row too large",
+            ));
+        }
+        line.extend_from_slice(available);
+        reader.consume(length);
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    Ok(Some(line))
 }
 
 fn correlation_matrix(rows: &[Vec<f64>], dimension: usize) -> Vec<f64> {
