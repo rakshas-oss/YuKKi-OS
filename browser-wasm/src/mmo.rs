@@ -53,8 +53,16 @@ impl Entity {
     const EMPTY: Self = Self {
         used: false,
         id: 0,
-        position: Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 },
-        ecef: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+        position: Wgs84 {
+            lat_deg: 0.0,
+            lon_deg: 0.0,
+            alt_m: 0.0,
+        },
+        ecef: Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
         timestamp_ns: 0,
         radius_m: 0.0,
     };
@@ -69,7 +77,9 @@ pub struct SpatialState {
 }
 
 impl Default for SpatialState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SpatialState {
@@ -88,8 +98,12 @@ impl SpatialState {
         self.query_len = 0;
     }
 
-    pub fn len(&self) -> usize { self.len }
-    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     /// Insert or replace a stable entity ID. Returns its zero-based slot.
     pub fn upsert(
@@ -103,7 +117,10 @@ impl SpatialState {
             return Err(ERR_INVALID);
         }
         let ecef = wgs84_to_ecef(position);
-        let slot = match self.entities[..self.len].iter().position(|entity| entity.id == id) {
+        let slot = match self.entities[..self.len]
+            .iter()
+            .position(|entity| entity.id == id)
+        {
             Some(index) => index,
             None if self.len < MAX_ENTITIES => {
                 let index = self.len;
@@ -148,16 +165,15 @@ impl SpatialState {
 
         self.query_len = 0;
         for (index, entity) in self.entities[..self.len].iter().copied().enumerate() {
-            if !entity.used { continue; }
+            if !entity.used {
+                continue;
+            }
             let lon_matches = if west <= east {
                 entity.position.lon_deg >= west && entity.position.lon_deg <= east
             } else {
                 entity.position.lon_deg >= west || entity.position.lon_deg <= east
             };
-            if entity.position.lat_deg >= south
-                && entity.position.lat_deg <= north
-                && lon_matches
-            {
+            if entity.position.lat_deg >= south && entity.position.lat_deg <= north && lon_matches {
                 self.query_indices[self.query_len] = index as u16;
                 self.query_len += 1;
             }
@@ -166,15 +182,28 @@ impl SpatialState {
     }
 
     pub fn query_index(&self, result_index: usize) -> Option<usize> {
-        if result_index >= self.query_len { None }
-        else { Some(self.query_indices[result_index] as usize) }
+        if result_index >= self.query_len {
+            None
+        } else {
+            Some(self.query_indices[result_index] as usize)
+        }
     }
 
     pub fn entity(&self, index: usize) -> Option<(u32, Wgs84, Vec3, u64, f64)> {
-        if index >= self.len { return None; }
+        if index >= self.len {
+            return None;
+        }
         let entity = self.entities[index];
-        if !entity.used { return None; }
-        Some((entity.id, entity.position, entity.ecef, entity.timestamp_ns, entity.radius_m))
+        if !entity.used {
+            return None;
+        }
+        Some((
+            entity.id,
+            entity.position,
+            entity.ecef,
+            entity.timestamp_ns,
+            entity.radius_m,
+        ))
     }
 
     /// Resolve the nearest observation not newer than at_ns and no older than max_age_ns.
@@ -194,12 +223,18 @@ impl SpatialState {
         let mut best_distance_sq = max_distance_sq;
 
         for (index, entity) in self.entities[..self.len].iter().copied().enumerate() {
-            if !entity.used || entity.timestamp_ns > at_ns { continue; }
-            if at_ns - entity.timestamp_ns > max_age_ns { continue; }
+            if !entity.used || entity.timestamp_ns > at_ns {
+                continue;
+            }
+            if at_ns - entity.timestamp_ns > max_age_ns {
+                continue;
+            }
             let distance_sq = distance_squared(target, entity.ecef);
             if distance_sq < best_distance_sq
                 || (distance_sq == best_distance_sq
-                    && best.is_some_and(|current| entity.timestamp_ns > self.entities[current].timestamp_ns))
+                    && best.is_some_and(|current| {
+                        entity.timestamp_ns > self.entities[current].timestamp_ns
+                    }))
             {
                 best = Some(index);
                 best_distance_sq = distance_sq;
@@ -228,8 +263,12 @@ fn distance_squared(a: Vec3, b: Vec3) -> f64 {
 // accurate for every valid WGS84 latitude/longitude.
 fn sin_cos(mut angle: f64) -> (f64, f64) {
     let pi = core::f64::consts::PI;
-    while angle > pi { angle -= TWO_PI; }
-    while angle < -pi { angle += TWO_PI; }
+    while angle > pi {
+        angle -= TWO_PI;
+    }
+    while angle < -pi {
+        angle += TWO_PI;
+    }
 
     let mut cos_sign = 1.0;
     if angle > pi * 0.5 {
@@ -241,23 +280,40 @@ fn sin_cos(mut angle: f64) -> (f64, f64) {
     }
 
     let x2 = angle * angle;
-    let sin_poly = 1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0
-        + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362880.0
-        + x2 * (-1.0 / 39916800.0 + x2 * (1.0 / 6227020800.0
-        + x2 * (-1.0 / 1307674368000.0 + x2 * (1.0 / 355687428096000.0))))))));
-    let cos_poly = 1.0 + x2 * (-1.0 / 2.0 + x2 * (1.0 / 24.0
-        + x2 * (-1.0 / 720.0 + x2 * (1.0 / 40320.0
-        + x2 * (-1.0 / 3628800.0 + x2 * (1.0 / 479001600.0
-        + x2 * (-1.0 / 87178291200.0 + x2 * (1.0 / 20922789888000.0))))))));
+    let sin_poly = 1.0
+        + x2 * (-1.0 / 6.0
+            + x2 * (1.0 / 120.0
+                + x2 * (-1.0 / 5040.0
+                    + x2 * (1.0 / 362880.0
+                        + x2 * (-1.0 / 39916800.0
+                            + x2 * (1.0 / 6227020800.0
+                                + x2 * (-1.0 / 1307674368000.0
+                                    + x2 * (1.0 / 355687428096000.0))))))));
+    let cos_poly = 1.0
+        + x2 * (-1.0 / 2.0
+            + x2 * (1.0 / 24.0
+                + x2 * (-1.0 / 720.0
+                    + x2 * (1.0 / 40320.0
+                        + x2 * (-1.0 / 3628800.0
+                            + x2 * (1.0 / 479001600.0
+                                + x2 * (-1.0 / 87178291200.0 + x2 * (1.0 / 20922789888000.0))))))));
     (angle * sin_poly, cos_sign * cos_poly)
 }
 
 fn sqrt(value: f64) -> f64 {
-    if value == 0.0 { return 0.0; }
-    if value < 0.0 { return f64::NAN; }
-    if !value.is_finite() { return value; }
+    if value == 0.0 {
+        return 0.0;
+    }
+    if value < 0.0 {
+        return f64::NAN;
+    }
+    if !value.is_finite() {
+        return value;
+    }
     let mut guess = f64::from_bits((value.to_bits() >> 1) + 0x1ff8_0000_0000_0000);
-    for _ in 0..8 { guess = 0.5 * (guess + value / guess); }
+    for _ in 0..8 {
+        guess = 0.5 * (guess + value / guess);
+    }
     guess
 }
 
@@ -291,7 +347,9 @@ pub fn wgs84_to_ecef(position: Wgs84) -> Vec3 {
 
 /// Transform one WGS84 point into the local east/north/up frame of an origin.
 pub fn wgs84_to_enu(origin: Wgs84, position: Wgs84) -> Result<Vec3, i32> {
-    if !valid_wgs84(origin) || !valid_wgs84(position) { return Err(ERR_INVALID); }
+    if !valid_wgs84(origin) || !valid_wgs84(position) {
+        return Err(ERR_INVALID);
+    }
     let a = anchor(origin);
     let p = wgs84_to_ecef(position);
     let dx = p.x - a.ecef.x;
@@ -313,13 +371,25 @@ pub fn enu_to_ecef(origin: Wgs84, enu: Vec3) -> Result<Vec3, i32> {
     let dx = -a.sin_lon * enu.x - a.sin_lat * a.cos_lon * enu.y + a.cos_lat * a.cos_lon * enu.z;
     let dy = a.cos_lon * enu.x - a.sin_lat * a.sin_lon * enu.y + a.cos_lat * a.sin_lon * enu.z;
     let dz = a.cos_lat * enu.y + a.sin_lat * enu.z;
-    Ok(Vec3 { x: a.ecef.x + dx, y: a.ecef.y + dy, z: a.ecef.z + dz })
+    Ok(Vec3 {
+        x: a.ecef.x + dx,
+        y: a.ecef.y + dy,
+        z: a.ecef.z + dz,
+    })
 }
 
 /// Cubic Hermite position interpolation. t is normalized to [0, 1], dt is seconds.
-pub fn hermite_position(p0: Vec3, v0: Vec3, p1: Vec3, v1: Vec3, t: f64, dt: f64) -> Result<Vec3, i32> {
-    let values = [p0.x, p0.y, p0.z, v0.x, v0.y, v0.z,
-        p1.x, p1.y, p1.z, v1.x, v1.y, v1.z, t, dt];
+pub fn hermite_position(
+    p0: Vec3,
+    v0: Vec3,
+    p1: Vec3,
+    v1: Vec3,
+    t: f64,
+    dt: f64,
+) -> Result<Vec3, i32> {
+    let values = [
+        p0.x, p0.y, p0.z, v0.x, v0.y, v0.z, p1.x, p1.y, p1.z, v1.x, v1.y, v1.z, t, dt,
+    ];
     if values.iter().any(|value| !value.is_finite()) || !(0.0..=1.0).contains(&t) || dt < 0.0 {
         return Err(ERR_INVALID);
     }
@@ -335,7 +405,6 @@ pub fn hermite_position(p0: Vec3, v0: Vec3, p1: Vec3, v1: Vec3, t: f64, dt: f64)
         z: h00 * p0.z + h10 * (v0.z * dt) + h01 * p1.z + h11 * (v1.z * dt),
     })
 }
-
 
 const MAX_PATH_POINTS: usize = 512;
 
@@ -355,12 +424,18 @@ pub struct ArcSecantTangentSimplifier {
 }
 
 impl Default for ArcSecantTangentSimplifier {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ArcSecantTangentSimplifier {
     pub const fn new() -> Self {
-        const EMPTY: Wgs84 = Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 };
+        const EMPTY: Wgs84 = Wgs84 {
+            lat_deg: 0.0,
+            lon_deg: 0.0,
+            alt_m: 0.0,
+        };
         Self {
             points: [EMPTY; MAX_PATH_POINTS],
             len: 0,
@@ -377,19 +452,29 @@ impl ArcSecantTangentSimplifier {
     }
 
     pub fn push(&mut self, point: Wgs84) -> Result<(), i32> {
-        if !valid_wgs84(point) { return Err(ERR_INVALID); }
-        if self.len >= MAX_PATH_POINTS { return Err(ERR_FULL); }
+        if !valid_wgs84(point) {
+            return Err(ERR_INVALID);
+        }
+        if self.len >= MAX_PATH_POINTS {
+            return Err(ERR_FULL);
+        }
         self.points[self.len] = point;
         self.len += 1;
         self.output_len = 0;
         Ok(())
     }
 
-    pub fn input_len(&self) -> usize { self.len }
-    pub fn output_len(&self) -> usize { self.output_len }
+    pub fn input_len(&self) -> usize {
+        self.len
+    }
+    pub fn output_len(&self) -> usize {
+        self.output_len
+    }
 
     pub fn output_point(&self, index: usize) -> Option<(usize, Wgs84)> {
-        if index >= self.output_len { return None; }
+        if index >= self.output_len {
+            return None;
+        }
         let original_index = self.output[index] as usize;
         Some((original_index, self.points[original_index]))
     }
@@ -408,7 +493,9 @@ impl ArcSecantTangentSimplifier {
 
         self.keep = [false; MAX_PATH_POINTS];
         self.output_len = 0;
-        if self.len == 0 { return Ok(0); }
+        if self.len == 0 {
+            return Ok(0);
+        }
         self.keep[0] = true;
         if self.len == 1 {
             self.output[0] = 0;
@@ -426,21 +513,34 @@ impl ArcSecantTangentSimplifier {
         }
 
         let cosine_limit = sin_cos(max_turn_degrees * DEG_TO_RAD).1;
-        let distance_limit = if tolerance_m < 1.0e-9 { 1.0e-9 } else { tolerance_m };
+        let distance_limit = if tolerance_m < 1.0e-9 {
+            1.0e-9
+        } else {
+            tolerance_m
+        };
         let mut stack = [PathSegment { start: 0, end: 0 }; MAX_PATH_POINTS];
         let mut stack_len = 1;
-        stack[0] = PathSegment { start: 0, end: last as u16 };
+        stack[0] = PathSegment {
+            start: 0,
+            end: last as u16,
+        };
 
         while stack_len > 0 {
             stack_len -= 1;
             let segment = stack[stack_len];
             let start = segment.start as usize;
             let end = segment.end as usize;
-            if end <= start + 1 { continue; }
+            if end <= start + 1 {
+                continue;
+            }
 
             let a = wgs84_to_ecef(self.points[start]);
             let b = wgs84_to_ecef(self.points[end]);
-            let chord = Vec3 { x: b.x-a.x, y: b.y-a.y, z: b.z-a.z };
+            let chord = Vec3 {
+                x: b.x - a.x,
+                y: b.y - a.y,
+                z: b.z - a.z,
+            };
             let chord_sq = dot(chord, chord);
             let chord_len = sqrt(chord_sq);
             let mut worst_score = 1.0;
@@ -448,12 +548,22 @@ impl ArcSecantTangentSimplifier {
 
             for index in (start + 1)..end {
                 let p = wgs84_to_ecef(self.points[index]);
-                let from_start = Vec3 { x: p.x-a.x, y: p.y-a.y, z: p.z-a.z };
-                let from_point_to_end = Vec3 { x: b.x-p.x, y: b.y-p.y, z: b.z-p.z };
+                let from_start = Vec3 {
+                    x: p.x - a.x,
+                    y: p.y - a.y,
+                    z: p.z - a.z,
+                };
+                let from_point_to_end = Vec3 {
+                    x: b.x - p.x,
+                    y: b.y - p.y,
+                    z: b.z - p.z,
+                };
 
                 let projection = if chord_sq > 1.0e-18 {
                     (dot(from_start, chord) / chord_sq).clamp(0.0, 1.0)
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 let nearest = Vec3 {
                     x: a.x + chord.x * projection,
                     y: a.y + chord.y * projection,
@@ -470,12 +580,16 @@ impl ArcSecantTangentSimplifier {
                 let tangent_dot = dot(from_start, from_point_to_end);
                 let tangent_cosine = if left_len > 1.0e-9 && right_len > 1.0e-9 {
                     tangent_dot / (left_len * right_len)
-                } else { 1.0 };
+                } else {
+                    1.0
+                };
                 let tangent_violation = tangent_cosine < cosine_limit;
                 let tangent_score = if tangent_violation {
                     2.0 + (cosine_limit - tangent_cosine).max(0.0)
                         + (left_len.min(right_len) / (left_len.min(right_len) + distance_limit))
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 let score = distance_score.max(tangent_score);
                 if score > worst_score {
                     worst_score = score;
@@ -485,10 +599,18 @@ impl ArcSecantTangentSimplifier {
 
             if let Some(split) = worst_index {
                 self.keep[split] = true;
-                if stack_len + 2 > MAX_PATH_POINTS { return Err(ERR_FULL); }
-                stack[stack_len] = PathSegment { start: segment.start, end: split as u16 };
+                if stack_len + 2 > MAX_PATH_POINTS {
+                    return Err(ERR_FULL);
+                }
+                stack[stack_len] = PathSegment {
+                    start: segment.start,
+                    end: split as u16,
+                };
                 stack_len += 1;
-                stack[stack_len] = PathSegment { start: split as u16, end: segment.end };
+                stack[stack_len] = PathSegment {
+                    start: split as u16,
+                    end: segment.end,
+                };
                 stack_len += 1;
             }
         }
@@ -519,14 +641,20 @@ unsafe fn path_mut() -> &'static mut ArcSecantTangentSimplifier {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_reset() {
-    unsafe { path_mut().reset(); }
+    unsafe {
+        path_mut().reset();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_push_wgs84(lat_deg: f64, lon_deg: f64, alt_m: f64) -> i32 {
     unsafe {
-        match path_mut().push(Wgs84 { lat_deg, lon_deg, alt_m }) {
+        match path_mut().push(Wgs84 {
+            lat_deg,
+            lon_deg,
+            alt_m,
+        }) {
             Ok(()) => OK,
             Err(error) => error,
         }
@@ -560,7 +688,8 @@ pub extern "C" fn adi_mmo_simplify_output_count() -> u32 {
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_output_index(index: u32) -> u32 {
     unsafe {
-        path_mut().output_point(index as usize)
+        path_mut()
+            .output_point(index as usize)
             .map(|(original_index, _)| original_index as u32)
             .unwrap_or(u32::MAX)
     }
@@ -569,19 +698,34 @@ pub extern "C" fn adi_mmo_simplify_output_index(index: u32) -> u32 {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_output_lat(index: u32) -> f64 {
-    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.lat_deg).unwrap_or(f64::NAN) }
+    unsafe {
+        path_mut()
+            .output_point(index as usize)
+            .map(|(_, p)| p.lat_deg)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_output_lon(index: u32) -> f64 {
-    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.lon_deg).unwrap_or(f64::NAN) }
+    unsafe {
+        path_mut()
+            .output_point(index as usize)
+            .map(|(_, p)| p.lon_deg)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_simplify_output_alt(index: u32) -> f64 {
-    unsafe { path_mut().output_point(index as usize).map(|(_, p)| p.alt_m).unwrap_or(f64::NAN) }
+    unsafe {
+        path_mut()
+            .output_point(index as usize)
+            .map(|(_, p)| p.alt_m)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -600,7 +744,9 @@ fn write_output(value: Result<Vec3, i32>) -> *const f64 {
     match value {
         Ok(v) => {
             let output = core::ptr::addr_of_mut!(GEO_OUTPUT);
-            unsafe { *output = [v.x, v.y, v.z]; }
+            unsafe {
+                *output = [v.x, v.y, v.z];
+            }
             output.cast::<f64>()
         }
         Err(_) => core::ptr::null(),
@@ -609,7 +755,11 @@ fn write_output(value: Result<Vec3, i32>) -> *const f64 {
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
-pub extern "C" fn adi_mmo_reset() { unsafe { state_mut().reset(); } }
+pub extern "C" fn adi_mmo_reset() {
+    unsafe {
+        state_mut().reset();
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
@@ -620,9 +770,18 @@ pub extern "C" fn adi_mmo_entity_count() -> u32 {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_upsert_entity(
-    id: u32, lat_deg: f64, lon_deg: f64, alt_m: f64, timestamp_ns: u64, radius_m: f64,
+    id: u32,
+    lat_deg: f64,
+    lon_deg: f64,
+    alt_m: f64,
+    timestamp_ns: u64,
+    radius_m: f64,
 ) -> i32 {
-    let position = Wgs84 { lat_deg, lon_deg, alt_m };
+    let position = Wgs84 {
+        lat_deg,
+        lon_deg,
+        alt_m,
+    };
     match unsafe { state_mut().upsert(id, position, timestamp_ns, radius_m) } {
         Ok(_) => OK,
         Err(error) => error,
@@ -647,31 +806,56 @@ pub extern "C" fn adi_mmo_query_count() -> u32 {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_query_entity_index(result_index: u32) -> u32 {
-    unsafe { state_mut().query_index(result_index as usize).map(|v| v as u32).unwrap_or(u32::MAX) }
+    unsafe {
+        state_mut()
+            .query_index(result_index as usize)
+            .map(|v| v as u32)
+            .unwrap_or(u32::MAX)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_entity_id(index: u32) -> u32 {
-    unsafe { state_mut().entity(index as usize).map(|v| v.0).unwrap_or(u32::MAX) }
+    unsafe {
+        state_mut()
+            .entity(index as usize)
+            .map(|v| v.0)
+            .unwrap_or(u32::MAX)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_entity_lat(index: u32) -> f64 {
-    unsafe { state_mut().entity(index as usize).map(|v| v.1.lat_deg).unwrap_or(f64::NAN) }
+    unsafe {
+        state_mut()
+            .entity(index as usize)
+            .map(|v| v.1.lat_deg)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_entity_lon(index: u32) -> f64 {
-    unsafe { state_mut().entity(index as usize).map(|v| v.1.lon_deg).unwrap_or(f64::NAN) }
+    unsafe {
+        state_mut()
+            .entity(index as usize)
+            .map(|v| v.1.lon_deg)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_entity_alt(index: u32) -> f64 {
-    unsafe { state_mut().entity(index as usize).map(|v| v.1.alt_m).unwrap_or(f64::NAN) }
+    unsafe {
+        state_mut()
+            .entity(index as usize)
+            .map(|v| v.1.alt_m)
+            .unwrap_or(f64::NAN)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -683,44 +867,87 @@ pub extern "C" fn adi_mmo_entity_timestamp_ns(index: u32) -> u64 {
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_resolve_nearest(
-    lat_deg: f64, lon_deg: f64, alt_m: f64, at_ns: u64, max_age_ns: u64, max_distance_m: f64,
+    lat_deg: f64,
+    lon_deg: f64,
+    alt_m: f64,
+    at_ns: u64,
+    max_age_ns: u64,
+    max_distance_m: f64,
 ) -> u32 {
-    let query = Wgs84 { lat_deg, lon_deg, alt_m };
+    let query = Wgs84 {
+        lat_deg,
+        lon_deg,
+        alt_m,
+    };
     unsafe {
-        state_mut().resolve_nearest(query, at_ns, max_age_ns, max_distance_m)
-            .ok().flatten().map(|index| index as u32).unwrap_or(u32::MAX)
+        state_mut()
+            .resolve_nearest(query, at_ns, max_age_ns, max_distance_m)
+            .ok()
+            .flatten()
+            .map(|index| index as u32)
+            .unwrap_or(u32::MAX)
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_wgs84_to_ecef(lat_deg: f64, lon_deg: f64, alt_m: f64) -> *const f64 {
-    let position = Wgs84 { lat_deg, lon_deg, alt_m };
-    if !valid_wgs84(position) { return core::ptr::null(); }
+    let position = Wgs84 {
+        lat_deg,
+        lon_deg,
+        alt_m,
+    };
+    if !valid_wgs84(position) {
+        return core::ptr::null();
+    }
     write_output(Ok(wgs84_to_ecef(position)))
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_wgs84_to_enu(
-    origin_lat_deg: f64, origin_lon_deg: f64, origin_alt_m: f64,
-    lat_deg: f64, lon_deg: f64, alt_m: f64,
+    origin_lat_deg: f64,
+    origin_lon_deg: f64,
+    origin_alt_m: f64,
+    lat_deg: f64,
+    lon_deg: f64,
+    alt_m: f64,
 ) -> *const f64 {
     write_output(wgs84_to_enu(
-        Wgs84 { lat_deg: origin_lat_deg, lon_deg: origin_lon_deg, alt_m: origin_alt_m },
-        Wgs84 { lat_deg, lon_deg, alt_m },
+        Wgs84 {
+            lat_deg: origin_lat_deg,
+            lon_deg: origin_lon_deg,
+            alt_m: origin_alt_m,
+        },
+        Wgs84 {
+            lat_deg,
+            lon_deg,
+            alt_m,
+        },
     ))
 }
 
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn adi_mmo_enu_to_ecef(
-    origin_lat_deg: f64, origin_lon_deg: f64, origin_alt_m: f64,
-    east_m: f64, north_m: f64, up_m: f64,
+    origin_lat_deg: f64,
+    origin_lon_deg: f64,
+    origin_alt_m: f64,
+    east_m: f64,
+    north_m: f64,
+    up_m: f64,
 ) -> *const f64 {
     write_output(enu_to_ecef(
-        Wgs84 { lat_deg: origin_lat_deg, lon_deg: origin_lon_deg, alt_m: origin_alt_m },
-        Vec3 { x: east_m, y: north_m, z: up_m },
+        Wgs84 {
+            lat_deg: origin_lat_deg,
+            lon_deg: origin_lon_deg,
+            alt_m: origin_alt_m,
+        },
+        Vec3 {
+            x: east_m,
+            y: north_m,
+            z: up_m,
+        },
     ))
 }
 
@@ -728,18 +955,44 @@ pub extern "C" fn adi_mmo_enu_to_ecef(
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn adi_mmo_hermite_position(
-    p0x: f64, p0y: f64, p0z: f64,
-    v0x: f64, v0y: f64, v0z: f64,
-    p1x: f64, p1y: f64, p1z: f64,
-    v1x: f64, v1y: f64, v1z: f64,
-    t: f64, dt: f64,
+    p0x: f64,
+    p0y: f64,
+    p0z: f64,
+    v0x: f64,
+    v0y: f64,
+    v0z: f64,
+    p1x: f64,
+    p1y: f64,
+    p1z: f64,
+    v1x: f64,
+    v1y: f64,
+    v1z: f64,
+    t: f64,
+    dt: f64,
 ) -> *const f64 {
     write_output(hermite_position(
-        Vec3 { x: p0x, y: p0y, z: p0z },
-        Vec3 { x: v0x, y: v0y, z: v0z },
-        Vec3 { x: p1x, y: p1y, z: p1z },
-        Vec3 { x: v1x, y: v1y, z: v1z },
-        t, dt,
+        Vec3 {
+            x: p0x,
+            y: p0y,
+            z: p0z,
+        },
+        Vec3 {
+            x: v0x,
+            y: v0y,
+            z: v0z,
+        },
+        Vec3 {
+            x: p1x,
+            y: p1y,
+            z: p1z,
+        },
+        Vec3 {
+            x: v1x,
+            y: v1y,
+            z: v1z,
+        },
+        t,
+        dt,
     ))
 }
 
@@ -749,7 +1002,11 @@ mod tests {
 
     #[test]
     fn wgs84_origin_maps_to_equatorial_ecef() {
-        let ecef = wgs84_to_ecef(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 });
+        let ecef = wgs84_to_ecef(Wgs84 {
+            lat_deg: 0.0,
+            lon_deg: 0.0,
+            alt_m: 0.0,
+        });
         assert!((ecef.x - WGS84_A).abs() < 0.01);
         assert!(ecef.y.abs() < 0.01);
         assert!(ecef.z.abs() < 0.01);
@@ -757,8 +1014,16 @@ mod tests {
 
     #[test]
     fn enu_has_real_up_component_and_round_trips_to_ecef() {
-        let origin = Wgs84 { lat_deg: 43.6532, lon_deg: -79.3832, alt_m: 100.0 };
-        let target = Wgs84 { lat_deg: 43.6542, lon_deg: -79.3822, alt_m: 125.0 };
+        let origin = Wgs84 {
+            lat_deg: 43.6532,
+            lon_deg: -79.3832,
+            alt_m: 100.0,
+        };
+        let target = Wgs84 {
+            lat_deg: 43.6542,
+            lon_deg: -79.3822,
+            alt_m: 125.0,
+        };
         let enu = wgs84_to_enu(origin, target).unwrap();
         assert!(enu.x > 0.0 && enu.y > 0.0 && enu.z > 20.0);
         let reconstructed = enu_to_ecef(origin, enu).unwrap();
@@ -768,9 +1033,21 @@ mod tests {
 
     #[test]
     fn hermite_interpolation_preserves_endpoints() {
-        let p0 = Vec3 { x: 1.0, y: 2.0, z: 3.0 };
-        let p1 = Vec3 { x: 9.0, y: 8.0, z: 7.0 };
-        let zero = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+        let p0 = Vec3 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        };
+        let p1 = Vec3 {
+            x: 9.0,
+            y: 8.0,
+            z: 7.0,
+        };
+        let zero = Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
         assert_eq!(hermite_position(p0, zero, p1, zero, 0.0, 1.0).unwrap(), p0);
         assert_eq!(hermite_position(p0, zero, p1, zero, 1.0, 1.0).unwrap(), p1);
     }
@@ -778,22 +1055,96 @@ mod tests {
     #[test]
     fn spatiotemporal_resolver_filters_future_and_stale_entities() {
         let mut state = SpatialState::new();
-        state.upsert(1, Wgs84 { lat_deg: 43.6532, lon_deg: -79.3832, alt_m: 100.0 }, 90, 2.0).unwrap();
-        state.upsert(2, Wgs84 { lat_deg: 43.6533, lon_deg: -79.3832, alt_m: 100.0 }, 110, 2.0).unwrap();
-        state.upsert(3, Wgs84 { lat_deg: 43.65321, lon_deg: -79.3832, alt_m: 100.0 }, 10, 2.0).unwrap();
-        let resolved = state.resolve_nearest(
-            Wgs84 { lat_deg: 43.6532, lon_deg: -79.3832, alt_m: 100.0 },
-            100, 20, 100.0,
-        ).unwrap();
+        state
+            .upsert(
+                1,
+                Wgs84 {
+                    lat_deg: 43.6532,
+                    lon_deg: -79.3832,
+                    alt_m: 100.0,
+                },
+                90,
+                2.0,
+            )
+            .unwrap();
+        state
+            .upsert(
+                2,
+                Wgs84 {
+                    lat_deg: 43.6533,
+                    lon_deg: -79.3832,
+                    alt_m: 100.0,
+                },
+                110,
+                2.0,
+            )
+            .unwrap();
+        state
+            .upsert(
+                3,
+                Wgs84 {
+                    lat_deg: 43.65321,
+                    lon_deg: -79.3832,
+                    alt_m: 100.0,
+                },
+                10,
+                2.0,
+            )
+            .unwrap();
+        let resolved = state
+            .resolve_nearest(
+                Wgs84 {
+                    lat_deg: 43.6532,
+                    lon_deg: -79.3832,
+                    alt_m: 100.0,
+                },
+                100,
+                20,
+                100.0,
+            )
+            .unwrap();
         assert_eq!(resolved, Some(0));
     }
 
     #[test]
     fn bbox_query_handles_antimeridian() {
         let mut state = SpatialState::new();
-        state.upsert(1, Wgs84 { lat_deg: 10.0, lon_deg: 179.5, alt_m: 0.0 }, 1, 0.0).unwrap();
-        state.upsert(2, Wgs84 { lat_deg: 10.0, lon_deg: -179.5, alt_m: 0.0 }, 1, 0.0).unwrap();
-        state.upsert(3, Wgs84 { lat_deg: 10.0, lon_deg: 0.0, alt_m: 0.0 }, 1, 0.0).unwrap();
+        state
+            .upsert(
+                1,
+                Wgs84 {
+                    lat_deg: 10.0,
+                    lon_deg: 179.5,
+                    alt_m: 0.0,
+                },
+                1,
+                0.0,
+            )
+            .unwrap();
+        state
+            .upsert(
+                2,
+                Wgs84 {
+                    lat_deg: 10.0,
+                    lon_deg: -179.5,
+                    alt_m: 0.0,
+                },
+                1,
+                0.0,
+            )
+            .unwrap();
+        state
+            .upsert(
+                3,
+                Wgs84 {
+                    lat_deg: 10.0,
+                    lon_deg: 0.0,
+                    alt_m: 0.0,
+                },
+                1,
+                0.0,
+            )
+            .unwrap();
         assert_eq!(state.query_wgs84_bbox(9.0, 170.0, 11.0, -170.0).unwrap(), 2);
     }
 
@@ -805,7 +1156,8 @@ mod tests {
                 lat_deg: 0.0,
                 lon_deg: i as f64 * 0.0001,
                 alt_m: 0.0,
-            }).unwrap();
+            })
+            .unwrap();
         }
         let kept = path.simplify(1.0, 45.0).unwrap();
         assert_eq!(kept, 2);
@@ -816,9 +1168,24 @@ mod tests {
     #[test]
     fn arc_secant_tangent_preserves_sharp_turns() {
         let mut path = ArcSecantTangentSimplifier::new();
-        path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }).unwrap();
-        path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.001, alt_m: 0.0 }).unwrap();
-        path.push(Wgs84 { lat_deg: 0.001, lon_deg: 0.001, alt_m: 0.0 }).unwrap();
+        path.push(Wgs84 {
+            lat_deg: 0.0,
+            lon_deg: 0.0,
+            alt_m: 0.0,
+        })
+        .unwrap();
+        path.push(Wgs84 {
+            lat_deg: 0.0,
+            lon_deg: 0.001,
+            alt_m: 0.0,
+        })
+        .unwrap();
+        path.push(Wgs84 {
+            lat_deg: 0.001,
+            lon_deg: 0.001,
+            alt_m: 0.0,
+        })
+        .unwrap();
         assert_eq!(path.simplify(100.0, 30.0).unwrap(), 3);
         assert_eq!(path.output_point(1).unwrap().0, 1);
     }
@@ -829,10 +1196,19 @@ mod tests {
         assert_eq!(path.simplify(-1.0, 30.0), Err(ERR_INVALID));
         assert_eq!(path.simplify(1.0, 181.0), Err(ERR_INVALID));
         for _ in 0..MAX_PATH_POINTS {
-            path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }).unwrap();
+            path.push(Wgs84 {
+                lat_deg: 0.0,
+                lon_deg: 0.0,
+                alt_m: 0.0,
+            })
+            .unwrap();
         }
         assert_eq!(
-            path.push(Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }),
+            path.push(Wgs84 {
+                lat_deg: 0.0,
+                lon_deg: 0.0,
+                alt_m: 0.0
+            }),
             Err(ERR_FULL)
         );
     }
@@ -841,14 +1217,43 @@ mod tests {
     fn rejects_invalid_coordinates_and_bounds_capacity() {
         let mut state = SpatialState::new();
         assert_eq!(
-            state.upsert(1, Wgs84 { lat_deg: 91.0, lon_deg: 0.0, alt_m: 0.0 }, 1, 0.0),
+            state.upsert(
+                1,
+                Wgs84 {
+                    lat_deg: 91.0,
+                    lon_deg: 0.0,
+                    alt_m: 0.0
+                },
+                1,
+                0.0
+            ),
             Err(ERR_INVALID)
         );
         for id in 0..MAX_ENTITIES as u32 {
-            state.upsert(id, Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }, id as u64, 0.0).unwrap();
+            state
+                .upsert(
+                    id,
+                    Wgs84 {
+                        lat_deg: 0.0,
+                        lon_deg: 0.0,
+                        alt_m: 0.0,
+                    },
+                    id as u64,
+                    0.0,
+                )
+                .unwrap();
         }
         assert_eq!(
-            state.upsert(9999, Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 }, 0, 0.0),
+            state.upsert(
+                9999,
+                Wgs84 {
+                    lat_deg: 0.0,
+                    lon_deg: 0.0,
+                    alt_m: 0.0
+                },
+                0,
+                0.0
+            ),
             Err(ERR_FULL)
         );
     }
