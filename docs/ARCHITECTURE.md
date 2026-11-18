@@ -290,6 +290,49 @@ The Wasm linear-memory and host-buffer ceilings above are not a VRAM reservation
 
 See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md), [guest-worker/README.md](../guest-worker/README.md), and [Overhauled WASM interoperability](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 
+### Composed executable programs
+
+`src/wasm_composition.rs` adds a native-host module composition runtime for
+multi-module policy programs. A versioned JSON manifest declares one or more
+programs, the modules in each program, import-namespace bindings, and a
+program entrypoint. YuKKi-OS compiles each core-Wasm module through the shared
+Wasmtime Engine, validates exact imported function signatures, topologically
+orders the module graph, and instantiates the modules into one program Store.
+
+Composition v1 accepts cross-module function imports only. Imported memory,
+globals, tables, tags, WASI imports, unbound host namespaces, and cyclic module
+graphs are rejected. This keeps each module's mutable memory and globals
+private while allowing its exported policy functions to be called by other
+modules. The public program entrypoint accepts zero to eight i32 arguments and
+returns one i32. Internal function imports can use other core-Wasm function
+signatures.
+
+The same compiled module can be reused by several programs. Compiled modules
+are cached in-process by SHA-256 content digest (256 entries by default);
+instances and state are not shared. Each program has its own Store, a 4 MiB
+per-memory ceiling, at most 16 memories/tables/instances, a 65,536-element
+per-table ceiling, and a 10,000,000-fuel budget reset per call. Calls to one
+program serialize through its Store mutex; different programs can execute in
+parallel.
+
+A deployment contains one or several programs and is activated as one
+`ProgramSet` routing-map replacement. New calls use the new release after
+the switch. Calls already admitted to the previous release retain its
+instances until completion, after which those old resources become eligible
+for release. Preparation compiles, links, and instantiates every program
+before activation, so a failed preparation does not modify live routing.
+
+This is a host-side Wasm module graph, not a merged native binary and not a
+multi-module AOT artifact. The cache is process-local, not a persistent
+compiled-code store. This API currently has no deployment CLI or built-in
+HTTP endpoint; the embedding application owns module artifact delivery and
+authorization. It is intended for deterministic policy/orchestration modules,
+not LLM weights or a general WASI runtime.
+
+See [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md) for the
+manifest, end-to-end example, update sequence, limits, and explicit v1
+boundaries.
+
 ## Known implementation limitations
 
 - Shared PSK trust model; no per-peer identity or rotation protocol
