@@ -2,7 +2,7 @@
 
 ## Release status
 
-The repository currently tracks v6.12.0 as a release candidate. A successful local build or versioned image label is not release qualification; use the CI gates in [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The published baseline is v6.12.0. The current v6.13.0 composition and replica-scheduling work remains a release candidate until its required CI gates pass; a successful local build or versioned image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Supported runtime shape
 
