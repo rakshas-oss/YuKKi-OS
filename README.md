@@ -15,13 +15,9 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 ## Current baseline
 - **Release line:** v6.13.0 candidate; the last published release remains v6.12.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
+- **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-
-- Release line: **v6.13.0**
-- Rust toolchain: **1.98.1** (`rust-toolchain.toml`)
-- Binary: **`yukki_core_node`**
-- Library crate: **`yukkios`**
-- Status: **release candidate — CI and release checks pending**
+- **Status:** release candidate — required CI and release checks pending.
 
 ## Security and hardening notes
 
@@ -141,14 +137,11 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 - [Composed WASM programs and time-weighted replica routing](docs/WASM_PROGRAM_COMPOSITION.md) · [WASM guest worker](guest-worker/README.md)
 - [Versioning](docs/VERSIONING.md) · [Changelog](docs/CHANGELOG.md)
 
-- [Changelog](docs/CHANGELOG.md)
-- [Architecture](docs/ARCHITECTURE.md) · [How-to](docs/SYSADMIN_HOWTO.md) · [Composed WASM programs](docs/WASM_PROGRAM_COMPOSITION.md) · [API](docs/API.md) · [Versioning](docs/VERSIONING.md) · [Security](docs/SECURITY.md)
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Spatial and multivariate data how-to](docs/USER_HOWTO_MMO.md) · [Benchmarking](docs/BENCHMARKING.md) · [Benchmark-driven datasets and eigensolver](docs/BENCHMARK_DRIVEN_DATASETS.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
 - [Native benchmark-driven datasets and eigensolver](docs/BENCHMARK_DRIVEN_DATASETS.md) · [Example multivariate manifest](examples/benchmark-datasets/manifest.json)
-- [Changelog](docs/CHANGELOG.md) · [Versioning](docs/VERSIONING.md)
 - [Security hardening notes](docs/SECURITY_HARDENING_NOTES.md)
 
 ## Docker
