@@ -1,9 +1,4 @@
-use std::{
-    env,
-    fs,
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use serde::Serialize;
 use yukkios::{
@@ -68,11 +63,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let manifest = manifest.ok_or(
         "a dataset manifest is required; pass --manifest PATH (see docs/BENCHMARK_DRIVEN_DATASETS.md)",
     )?;
-    let results = BenchmarkDatasetRunner::run_manifest(
-        &manifest,
-        Some(&dataset),
-        Some(&profile),
-    )?;
+    let results = BenchmarkDatasetRunner::run_manifest(&manifest, Some(&dataset), Some(&profile))?;
 
     let mut policies = Vec::with_capacity(results.len());
     for result in &results {

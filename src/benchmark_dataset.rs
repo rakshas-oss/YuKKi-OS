@@ -193,7 +193,6 @@ impl DatasetRecord {
     fn feature(&self, index: usize) -> f64 {
         self.features.get(index).copied().unwrap_or(0.0)
     }
-
 }
 
 pub struct BenchmarkDatasetRunner;
@@ -210,16 +209,12 @@ impl BenchmarkDatasetRunner {
         let datasets: Vec<_> = manifest
             .datasets
             .iter()
-            .filter(|item| {
-                dataset_filter.is_none_or(|wanted| wanted == "all" || item.id == wanted)
-            })
+            .filter(|item| dataset_filter.is_none_or(|wanted| wanted == "all" || item.id == wanted))
             .collect();
         let profiles: Vec<_> = manifest
             .profiles
             .iter()
-            .filter(|item| {
-                profile_filter.is_none_or(|wanted| wanted == "all" || item.id == wanted)
-            })
+            .filter(|item| profile_filter.is_none_or(|wanted| wanted == "all" || item.id == wanted))
             .collect();
         if datasets.is_empty() {
             return Err(DatasetBenchmarkError::UnknownDataset(
@@ -262,7 +257,8 @@ impl BenchmarkDatasetRunner {
         }
         if results.is_empty() {
             return Err(DatasetBenchmarkError::InvalidManifest(
-                "none of the selected benchmark profiles apply to the selected datasets".to_string(),
+                "none of the selected benchmark profiles apply to the selected datasets"
+                    .to_string(),
             ));
         }
         Ok(results)
@@ -372,10 +368,16 @@ fn validate_manifest(manifest: &DatasetManifest) -> Result<(), DatasetBenchmarkE
             || profile.warmup_records > MAX_RECORDS
             || profile.batch_sizes.is_empty()
             || profile.batch_sizes.len() > 16
-            || profile.batch_sizes.iter().any(|value| *value == 0 || *value > MAX_BATCH_SIZE)
+            || profile
+                .batch_sizes
+                .iter()
+                .any(|value| *value == 0 || *value > MAX_BATCH_SIZE)
             || profile.worker_counts.is_empty()
             || profile.worker_counts.len() > 16
-            || profile.worker_counts.iter().any(|value| *value == 0 || *value > MAX_WORKERS)
+            || profile
+                .worker_counts
+                .iter()
+                .any(|value| *value == 0 || *value > MAX_WORKERS)
         {
             return Err(DatasetBenchmarkError::InvalidManifest(format!(
                 "profile '{}' contains an invalid sample, batch, or worker range",
@@ -383,22 +385,32 @@ fn validate_manifest(manifest: &DatasetManifest) -> Result<(), DatasetBenchmarkE
             )));
         }
         if profile.applicable_domains.as_ref().is_some_and(|domains| {
-            domains.is_empty() || domains.iter().any(|domain| domain.trim().is_empty() || domain.len() > 64)
+            domains.is_empty()
+                || domains
+                    .iter()
+                    .any(|domain| domain.trim().is_empty() || domain.len() > 64)
         }) {
             return Err(DatasetBenchmarkError::InvalidManifest(format!(
                 "profile '{}' applicable_domains must be absent or contain non-empty bounded domain names",
                 profile.id
             )));
         }
-        if profile.max_p95_batch_ms.is_some_and(|value| !value.is_finite() || value <= 0.0) {
+        if profile
+            .max_p95_batch_ms
+            .is_some_and(|value| !value.is_finite() || value <= 0.0)
+        {
             return Err(DatasetBenchmarkError::InvalidManifest(format!(
                 "profile '{}' max_p95_batch_ms must be finite and positive",
                 profile.id
             )));
         }
         if profile.objective == BenchmarkObjective::Geospatial
-            && (profile.geometric_tolerance_m.is_none_or(|value| !value.is_finite() || value < 0.0)
-                || profile.max_turn_degrees.is_none_or(|value| !value.is_finite() || value <= 0.0 || value > 180.0))
+            && (profile
+                .geometric_tolerance_m
+                .is_none_or(|value| !value.is_finite() || value < 0.0)
+                || profile
+                    .max_turn_degrees
+                    .is_none_or(|value| !value.is_finite() || value <= 0.0 || value > 180.0))
         {
             return Err(DatasetBenchmarkError::InvalidManifest(format!(
                 "geospatial profile '{}' requires a non-negative geometric_tolerance_m and max_turn_degrees in (0, 180]",
@@ -430,12 +442,14 @@ fn load_dataset(
     let mut reader = BufReader::new(file);
     let mut records = Vec::new();
     let mut row = 0usize;
-    while let Some(line) = read_bounded_line(&mut reader, MAX_RECORD_BYTES).map_err(|source_error| {
-        DatasetBenchmarkError::Io {
-            path: source.to_path_buf(),
-            source: source_error,
-        }
-    })? {
+    while let Some(line) =
+        read_bounded_line(&mut reader, MAX_RECORD_BYTES).map_err(|source_error| {
+            DatasetBenchmarkError::Io {
+                path: source.to_path_buf(),
+                source: source_error,
+            }
+        })?
+    {
         row += 1;
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
@@ -468,9 +482,7 @@ fn load_dataset(
                         .map_err(|reason| invalid_record(dataset, row, reason))?,
                     None => 0.0,
                 };
-                if !(-90.0..=90.0).contains(&latitude)
-                    || !(-180.0..=180.0).contains(&longitude)
-                {
+                if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
                     return Err(invalid_record(
                         dataset,
                         row,
@@ -506,10 +518,7 @@ fn load_dataset(
     Ok((records, source_rows))
 }
 
-fn read_bounded_line<R: BufRead>(
-    reader: &mut R,
-    max_bytes: usize,
-) -> io::Result<Option<Vec<u8>>> {
+fn read_bounded_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<Option<Vec<u8>>> {
     let mut line = Vec::new();
     loop {
         let available = reader.fill_buf()?;
@@ -521,7 +530,10 @@ fn read_bounded_line<R: BufRead>(
         }
         if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
             if line.len() + newline > max_bytes {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "JSONL row too large"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "JSONL row too large",
+                ));
             }
             line.extend_from_slice(&available[..newline]);
             reader.consume(newline + 1);
@@ -529,7 +541,10 @@ fn read_bounded_line<R: BufRead>(
         }
         let length = available.len();
         if line.len() + length > max_bytes {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "JSONL row too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "JSONL row too large",
+            ));
         }
         line.extend_from_slice(available);
         reader.consume(length);
@@ -597,9 +612,7 @@ fn run_profile(
     source_rows: usize,
     dataset_load_ms: f64,
 ) -> Result<DatasetBenchmarkResult, DatasetBenchmarkError> {
-    if profile.objective == BenchmarkObjective::Geospatial
-        && dataset.latitude_field.is_none()
-    {
+    if profile.objective == BenchmarkObjective::Geospatial && dataset.latitude_field.is_none() {
         return Err(DatasetBenchmarkError::InvalidManifest(format!(
             "profile '{}' requires geospatial fields on dataset '{}'",
             profile.id, dataset.id
@@ -696,7 +709,8 @@ fn measure_candidate(
                         let decoded = Nxr1Frame::decode(&bytes)
                             .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
                         local_bytes = local_bytes.saturating_add(bytes.len() as u64);
-                        local_checksum ^= decoded.seq_id ^ record.timestamp_ns ^ decoded.payload.len() as u64;
+                        local_checksum ^=
+                            decoded.seq_id ^ record.timestamp_ns ^ decoded.payload.len() as u64;
                         std::hint::black_box(decoded);
                     }
                     encoded_bytes.fetch_add(local_bytes, Ordering::Relaxed);
@@ -729,7 +743,11 @@ fn measure_candidate(
             let path = records
                 .iter()
                 .map(|record| {
-                    to_ecef(record.position.expect("geospatial profile requires positions"))
+                    to_ecef(
+                        record
+                            .position
+                            .expect("geospatial profile requires positions"),
+                    )
                 })
                 .collect::<Vec<_>>();
             let retained = simplify_arc_secant_tangent(&path, tolerance, max_turn);
@@ -773,11 +791,14 @@ fn measure_candidate(
         geometry_reduction_percent: {
             let input = geometry_input_points.load(Ordering::Relaxed);
             let output = geometry_output_points.load(Ordering::Relaxed);
-            if input == 0 { 0.0 } else { 100.0 * input.saturating_sub(output) as f64 / input as f64 }
+            if input == 0 {
+                0.0
+            } else {
+                100.0 * input.saturating_sub(output) as f64 / input as f64
+            }
         },
     })
 }
-
 
 #[derive(Clone, Copy)]
 struct EcefPoint {
@@ -802,7 +823,11 @@ fn to_ecef([longitude, latitude, altitude]: [f64; 3]) -> EcefPoint {
 }
 
 fn subtract(a: EcefPoint, b: EcefPoint) -> EcefPoint {
-    EcefPoint { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
+    EcefPoint {
+        x: a.x - b.x,
+        y: a.y - b.y,
+        z: a.z - b.z,
+    }
 }
 
 fn dot(a: EcefPoint, b: EcefPoint) -> f64 {
@@ -1027,7 +1052,11 @@ mod tests {
                 "max_turn_degrees": 30.0
             }]
         });
-        fs::write(root.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        fs::write(
+            root.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         let rows = [
             r#"{"sequence":1,"timestamp_ns":100,"latitude":43.65,"longitude":-79.38,"altitude_m":100,"velocity":12.0,"heading":90.0,"battery":99.0}"#,
             r#"{"sequence":2,"timestamp_ns":200,"latitude":43.651,"longitude":-79.381,"altitude_m":101,"velocity":13.0,"heading":91.0,"battery":98.0}"#,
@@ -1081,14 +1110,10 @@ mod tests {
 
     #[test]
     fn example_manifest_drives_all_multivariate_domains() {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/benchmark-datasets/manifest.json");
-        let results = BenchmarkDatasetRunner::run_manifest(
-            manifest,
-            Some("all"),
-            Some("all"),
-        )
-        .unwrap();
+        let manifest =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/benchmark-datasets/manifest.json");
+        let results =
+            BenchmarkDatasetRunner::run_manifest(manifest, Some("all"), Some("all")).unwrap();
 
         assert!(results.iter().any(|result| result.domain == "drone"));
         assert!(results.iter().any(|result| result.domain == "finance"));
@@ -1131,7 +1156,11 @@ mod tests {
                 "worker_counts": [1]
             }]
         });
-        fs::write(root.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        fs::write(
+            root.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         fs::write(
             root.join("finance.jsonl"),
             "{\"sequence\":1,\"timestamp_ns\":1,\"price\":123.4,\"volume\":1000}\n",
@@ -1142,18 +1171,41 @@ mod tests {
             Some("finance-fixture"),
             Some("spatial"),
         );
-        assert!(matches!(result, Err(DatasetBenchmarkError::InvalidManifest(_))));
+        assert!(matches!(
+            result,
+            Err(DatasetBenchmarkError::InvalidManifest(_))
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn native_arc_secant_tangent_simplifier_reduces_straight_tracks() {
         let points = [
-            EcefPoint { x: 0.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 1.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 2.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 3.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 4.0, y: 0.0, z: 0.0 },
+            EcefPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 2.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 3.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 4.0,
+                y: 0.0,
+                z: 0.0,
+            },
         ];
         assert_eq!(simplify_arc_secant_tangent(&points, 1.0, 45.0), 2);
     }
@@ -1161,9 +1213,21 @@ mod tests {
     #[test]
     fn native_arc_secant_tangent_simplifier_preserves_sharp_turns() {
         let points = [
-            EcefPoint { x: 0.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 1.0, y: 0.0, z: 0.0 },
-            EcefPoint { x: 1.0, y: 1.0, z: 0.0 },
+            EcefPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            EcefPoint {
+                x: 1.0,
+                y: 1.0,
+                z: 0.0,
+            },
         ];
         assert_eq!(simplify_arc_secant_tangent(&points, 100.0, 30.0), 3);
     }
