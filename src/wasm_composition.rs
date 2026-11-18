@@ -192,7 +192,9 @@ pub enum CompositionError {
         program_id: String,
         module_id: String,
     },
-    #[error("program '{program_id}' is missing function export '{export}' in module '{module_id}'")]
+    #[error(
+        "program '{program_id}' is missing function export '{export}' in module '{module_id}'"
+    )]
     EntrypointMissing {
         program_id: String,
         module_id: String,
@@ -445,12 +447,12 @@ impl CompositionRuntime {
                     max: self.limits.max_module_bytes,
                 });
             }
-            total_bytes = total_bytes
-                .checked_add(artifact.wasm.len())
-                .ok_or(CompositionError::TotalModuleBytesExceeded {
+            total_bytes = total_bytes.checked_add(artifact.wasm.len()).ok_or(
+                CompositionError::TotalModuleBytesExceeded {
                     actual: usize::MAX,
                     max: self.limits.max_total_module_bytes,
-                })?;
+                },
+            )?;
             if total_bytes > self.limits.max_total_module_bytes {
                 return Err(CompositionError::TotalModuleBytesExceeded {
                     actual: total_bytes,
@@ -472,9 +474,7 @@ impl CompositionRuntime {
             validate_identifier("program_id", &spec.program_id)?;
             validate_identifier("entrypoint export", &spec.entrypoint.export)?;
             validate_identifier("entrypoint module_id", &spec.entrypoint.module_id)?;
-            if spec.modules.is_empty()
-                || spec.modules.len() > self.limits.max_modules_per_program
-            {
+            if spec.modules.is_empty() || spec.modules.len() > self.limits.max_modules_per_program {
                 return Err(CompositionError::InvalidManifest(format!(
                     "program '{}' module count must be in 1..={}",
                     spec.program_id, self.limits.max_modules_per_program
@@ -502,12 +502,13 @@ impl CompositionRuntime {
                     });
                 }
                 let key = (module_ref.module_id.clone(), module_ref.version.clone());
-                let artifact = artifact_index.get(&key).ok_or_else(|| {
-                    CompositionError::MissingArtifact {
-                        module_id: module_ref.module_id.clone(),
-                        version: module_ref.version.clone(),
-                    }
-                })?;
+                let artifact =
+                    artifact_index
+                        .get(&key)
+                        .ok_or_else(|| CompositionError::MissingArtifact {
+                            module_id: module_ref.module_id.clone(),
+                            version: module_ref.version.clone(),
+                        })?;
                 referenced_artifacts.insert(key);
                 let compiled = self.compile_cached(artifact)?;
                 compiled_by_id.insert(module_ref.module_id.clone(), compiled);
@@ -545,12 +546,12 @@ impl CompositionRuntime {
                 },
             );
             store.limiter(|state| &mut state.limits);
-            store
-                .set_fuel(self.limits.fuel_per_call)
-                .map_err(|error| CompositionError::Execution {
+            store.set_fuel(self.limits.fuel_per_call).map_err(|error| {
+                CompositionError::Execution {
                     program_id: spec.program_id.clone(),
                     message: error.to_string(),
-                })?;
+                }
+            })?;
 
             let mut linker = Linker::new(&self.engine);
             let mut instances_by_id = BTreeMap::new();
@@ -563,12 +564,13 @@ impl CompositionRuntime {
                         module_id
                     ))
                 })?;
-                let instance = linker
-                    .instantiate(&mut store, &compiled.module)
-                    .map_err(|error| CompositionError::Execution {
-                        program_id: spec.program_id.clone(),
-                        message: format!("instantiate module '{}': {error}", module_id),
-                    })?;
+                let instance =
+                    linker
+                        .instantiate(&mut store, &compiled.module)
+                        .map_err(|error| CompositionError::Execution {
+                            program_id: spec.program_id.clone(),
+                            message: format!("instantiate module '{}': {error}", module_id),
+                        })?;
 
                 // Expose a provider instance under each namespace that targets it.
                 for (namespace, target) in &spec.bindings {
@@ -601,12 +603,13 @@ impl CompositionRuntime {
                     spec.program_id, self.limits.max_entrypoint_arity
                 )));
             }
-            let entry_instance = instances_by_id
-                .get(&spec.entrypoint.module_id)
-                .ok_or_else(|| CompositionError::EntrypointModuleMissing {
-                    program_id: spec.program_id.clone(),
-                    module_id: spec.entrypoint.module_id.clone(),
-                })?;
+            let entry_instance =
+                instances_by_id
+                    .get(&spec.entrypoint.module_id)
+                    .ok_or_else(|| CompositionError::EntrypointModuleMissing {
+                        program_id: spec.program_id.clone(),
+                        module_id: spec.entrypoint.module_id.clone(),
+                    })?;
             let entrypoint = entry_instance
                 .get_func(&mut store, &spec.entrypoint.export)
                 .ok_or_else(|| CompositionError::EntrypointMissing {
@@ -663,7 +666,10 @@ impl CompositionRuntime {
         let deployment_id = prepared.inner.deployment_id.clone();
         let release_id = prepared.inner.release_id.clone();
         let program_ids = prepared.inner.program_ids();
-        let mut active = self.active.write().map_err(|_| CompositionError::LockPoisoned)?;
+        let mut active = self
+            .active
+            .write()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         let previous = active.insert(deployment_id.clone(), prepared.inner);
 
         Ok(ActivationReceipt {
@@ -683,7 +689,10 @@ impl CompositionRuntime {
         args: &[i32],
     ) -> Result<i32, CompositionError> {
         let (set, program) = {
-            let active = self.active.read().map_err(|_| CompositionError::LockPoisoned)?;
+            let active = self
+                .active
+                .read()
+                .map_err(|_| CompositionError::LockPoisoned)?;
             let set = active.get(deployment_id).cloned().ok_or_else(|| {
                 CompositionError::DeploymentNotActive {
                     deployment_id: deployment_id.to_string(),
@@ -706,33 +715,39 @@ impl CompositionRuntime {
     }
 
     pub fn active_release(&self, deployment_id: &str) -> Result<Option<String>, CompositionError> {
-        let active = self.active.read().map_err(|_| CompositionError::LockPoisoned)?;
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         Ok(active.get(deployment_id).map(|set| set.release_id.clone()))
     }
 
-    pub fn active_program_ids(
-        &self,
-        deployment_id: &str,
-    ) -> Result<Vec<String>, CompositionError> {
-        let active = self.active.read().map_err(|_| CompositionError::LockPoisoned)?;
+    pub fn active_program_ids(&self, deployment_id: &str) -> Result<Vec<String>, CompositionError> {
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         Ok(active
             .get(deployment_id)
             .map(|set| set.program_ids())
             .unwrap_or_default())
     }
 
-    pub fn active_in_flight(
-        &self,
-        deployment_id: &str,
-    ) -> Result<Option<usize>, CompositionError> {
-        let active = self.active.read().map_err(|_| CompositionError::LockPoisoned)?;
+    pub fn active_in_flight(&self, deployment_id: &str) -> Result<Option<usize>, CompositionError> {
+        let active = self
+            .active
+            .read()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         Ok(active
             .get(deployment_id)
             .map(|set| set.in_flight.load(Ordering::Acquire)))
     }
 
     pub fn cached_module_count(&self) -> Result<usize, CompositionError> {
-        let cache = self.compiled.lock().map_err(|_| CompositionError::LockPoisoned)?;
+        let cache = self
+            .compiled
+            .lock()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         Ok(cache.len())
     }
 
@@ -741,7 +756,10 @@ impl CompositionRuntime {
         artifact: &ModuleArtifact,
     ) -> Result<CompiledArtifact, CompositionError> {
         let digest: [u8; 32] = Sha256::digest(&artifact.wasm).into();
-        let mut cache = self.compiled.lock().map_err(|_| CompositionError::LockPoisoned)?;
+        let mut cache = self
+            .compiled
+            .lock()
+            .map_err(|_| CompositionError::LockPoisoned)?;
         if let Some(compiled) = cache.get(&digest) {
             return Ok(CompiledArtifact {
                 module: Arc::clone(&compiled.module),
@@ -802,25 +820,27 @@ fn validate_and_order_modules(
             let namespace = import.module();
             let name = import.name();
             used_namespaces.insert(namespace.to_string());
-            let provider_id = bindings.get(namespace).ok_or_else(|| {
-                CompositionError::UnboundImport {
-                    program_id: program_id.to_string(),
-                    module_id: module_id.clone(),
-                    namespace: namespace.to_string(),
-                }
-            })?;
+            let provider_id =
+                bindings
+                    .get(namespace)
+                    .ok_or_else(|| CompositionError::UnboundImport {
+                        program_id: program_id.to_string(),
+                        module_id: module_id.clone(),
+                        namespace: namespace.to_string(),
+                    })?;
             if provider_id == module_id {
                 return Err(CompositionError::DependencyCycle {
                     program_id: program_id.to_string(),
                 });
             }
-            let provider = modules.get(provider_id).ok_or_else(|| {
-                CompositionError::BindingTargetMissing {
-                    program_id: program_id.to_string(),
-                    namespace: namespace.to_string(),
-                    module_id: provider_id.clone(),
-                }
-            })?;
+            let provider =
+                modules
+                    .get(provider_id)
+                    .ok_or_else(|| CompositionError::BindingTargetMissing {
+                        program_id: program_id.to_string(),
+                        namespace: namespace.to_string(),
+                        module_id: provider_id.clone(),
+                    })?;
 
             let required_type = match import.ty() {
                 ExternType::Func(func_type) => func_type,
@@ -983,7 +1003,8 @@ mod tests {
             "run",
             1,
         );
-        main.bindings.insert("math".to_string(), "math-kernel".to_string());
+        main.bindings
+            .insert("math".to_string(), "math-kernel".to_string());
 
         let manifest = manifest("r1", vec![main]);
         let artifacts = vec![
@@ -1010,7 +1031,12 @@ mod tests {
         let runtime = CompositionRuntime::with_defaults();
         let prepared = runtime.prepare(&manifest, &artifacts).expect("prepare");
         runtime.activate(prepared).expect("activate");
-        assert_eq!(runtime.call("risk-engine", "quality-policy", &[32]).unwrap(), 42);
+        assert_eq!(
+            runtime
+                .call("risk-engine", "quality-policy", &[32])
+                .unwrap(),
+            42
+        );
     }
 
     #[test]
@@ -1090,7 +1116,10 @@ mod tests {
         let receipt = runtime.activate(prepared).unwrap();
 
         assert_eq!(receipt.replaced_release.as_deref(), Some("r1"));
-        assert_eq!(runtime.active_release("risk-engine").unwrap().as_deref(), Some("r2"));
+        assert_eq!(
+            runtime.active_release("risk-engine").unwrap().as_deref(),
+            Some("r2")
+        );
         assert_eq!(runtime.call("risk-engine", "alpha", &[10]).unwrap(), 12);
         assert_eq!(runtime.call("risk-engine", "beta", &[10]).unwrap(), 12);
     }
@@ -1104,7 +1133,9 @@ mod tests {
             "run",
             1,
         );
-        consumer.bindings.insert("provider".to_string(), "provider".to_string());
+        consumer
+            .bindings
+            .insert("provider".to_string(), "provider".to_string());
         let manifest = manifest("r1", vec![consumer]);
         let artifacts = vec![
             artifact(
