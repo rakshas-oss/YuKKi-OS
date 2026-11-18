@@ -55,7 +55,9 @@ impl ADIAutoTuner {
         encoded_bytes > 0
     }
 
-    pub fn test_enquing_efficiency(&mut self) -> bool {
+    /// Diagnostic queue-allocation timing only. Queue capacity is selected by
+    /// measured dataset benchmark profiles, not by this synthetic allocation check.
+    pub fn test_enquing_efficiency(&self) -> bool {
         let dummy = SpatiotemporalFrame {
             seq_id: 1,
             x: 0.1,
@@ -79,9 +81,10 @@ impl ADIAutoTuner {
             "\x1b[38;5;37m[TEST: ENQUING] 1K Frames Queued in {:?}\x1b[0m",
             duration
         );
-        if duration.as_micros() < 2000 {
-            self.optimal_queue_depth = 120;
-        }
+        println!(
+            "[TEST: ENQUING] Queue depth remains benchmark-controlled (current: {})",
+            self.optimal_queue_depth
+        );
         true
     }
 
