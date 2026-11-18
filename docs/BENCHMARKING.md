@@ -1,7 +1,7 @@
 # Benchmarking YuKKi-OS
 
 This guide describes the native Criterion suites and the browser-WASM
-measurement runner on the v6.11.0 release branch. Benchmark inputs are
+measurement runner on the v6.12.0 release-candidate branch. Benchmark inputs are
 fixture-driven: source datasets live in versioned JSON files, and benchmark
 code consumes those fixtures instead of maintaining independent hard-coded
 sample values.
@@ -22,6 +22,43 @@ The Rust benchmark sources load it using `include_str!`; changing the fixture
 changes benchmark input without editing the measurement loops. The crypto
 material is deterministic and test-only. Never reuse its keys or nonce values
 in production.
+
+### Manifest-driven native workloads and eigensolver
+
+`examples/benchmark-datasets/manifest.json` points to bounded source JSONL
+datasets. The manifest's `feature_fields` order is authoritative; records are
+not regenerated with random numbers by the benchmark runner. Each profile
+selects the source rows, warm-up/sample sizes, batch sizes, worker counts,
+objective, domain applicability, and optional P95 latency ceiling.
+
+Run the native dataset and policy-selection benchmark:
+
+```sh
+cargo run --release --bin yukki_dataset_bench -- \
+  --manifest examples/benchmark-datasets/manifest.json \
+  --dataset all --profile all --output benchmark-results.json
+```
+
+The CLI measures NXR1 round trips and, for applicable domains, geospatial
+trajectory workloads. It reports the candidates and chosen bounded execution
+policy. The profile decides whether latency, throughput, working set, or
+geospatial throughput is optimized; do not replace source rows with a
+synthetic benchmark-only dataset.
+
+Run the dataset-driven symmetric eigensolver benchmark:
+
+```sh
+cargo run --release --bin yukki_eigensolver_bench -- \
+  --manifest examples/benchmark-datasets/manifest.json \
+  --dataset all --profile all --output eigensolver-results.json
+```
+
+The runner turns the declared numeric features into bounded correlation
+matrices and invokes YuKKi-OS's CPU cyclic-Jacobi eigensolver. Reports include
+throughput, mean/P95 solve latency, residual, orthogonality error, and a
+deterministic checksum. Numerical quality remains visible alongside speed.
+The eigensolver is limited to finite real-symmetric matrices of dimension
+1..=64; it does not imply general non-symmetric support or accelerator use.
 
 ### Browser-WASM multivariate fixture
 
@@ -108,8 +145,8 @@ cargo bench --locked --bench crypto_benchmarks -- x25519_diffie_hellman
 Capture and compare baselines on the same host:
 
 ```sh
-cargo bench --locked --bench frame_benchmarks -- --save-baseline v6.11.0-reference
-cargo bench --locked --bench frame_benchmarks -- --baseline v6.11.0-reference
+cargo bench --locked --bench frame_benchmarks -- --save-baseline v6.12.0-reference
+cargo bench --locked --bench frame_benchmarks -- --baseline v6.12.0-reference
 ```
 
 Criterion writes measurements and HTML reports under `target/criterion/`.
