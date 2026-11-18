@@ -69,7 +69,7 @@ every system uses the browser clock or the same epoch/unit.
   greater than east represents a box crossing the antimeridian.
 - **Nearest-observation resolution:** selects the spatially nearest eligible
   entity in ECEF space. It rejects future observations, observations older
-  than the supplied maximum age, and candidates beyond the maximum distance.
+  than the supplied maximum age, and candidates at or beyond the maximum distance (the upper bound is strict).
 - **Arc–secant–tangent simplification:** applies an iterative, bounded
   Douglas–Peucker-style path reduction. Positional error combines perpendicular
   deviation from the endpoint chord with arc-length excess. A separate
