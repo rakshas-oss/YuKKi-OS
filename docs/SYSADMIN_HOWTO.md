@@ -261,21 +261,40 @@ The browser's MMO entity store and simplified sample path are local to the
 WASM instance. They are not persisted by the gateway and are not automatically
 populated from gateway streams.
 
-## 8. WASI guest-worker deployment
+## 8. Build, validate, and integrate the WASI guest worker
 
-The WASI Preview 1 worker is a separate artifact, not the browser application
-or native node:
+The WASI Preview 1 worker is a separate artifact, not the browser application or native node. Build it and run both its unit tests and the host-side Wasmtime integration test:
 
 ```bash
 rustup target add wasm32-wasip1
-cargo build --manifest-path guest-worker/Cargo.toml --release --locked --target wasm32-wasip1
-cargo test --manifest-path guest-worker/Cargo.toml --locked
+./scripts/build_guest_worker.sh --check
 ```
 
-The native Wasmtime host validates guest imports/exports, module size, fuel,
-memory and execution limits before instantiation. The guest does not provide
-a standalone network server. See [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md)
-for the browser, WASI and native platform qualification matrix.
+Output: `guest-worker/target/wasm32-wasip1/release/yukki_guest_worker.wasm`.
+
+The accepted guest ABI is deliberately narrower than a general-purpose WASI environment. The native host checks the module size (4 MiB maximum), allowed imports, required exports, fuel, stack, memory and execution deadline before invoking the worker. The permitted imports are `env.wasmtime_yield_xpu` and `env.yukki_select_stream`; the required exports are `memory` and `execute_inference_pipeline`. The host-side tensor input ceiling is 16 MiB, guest linear memory is capped at 64 MiB, fuel defaults to 10,000,000, and the execution watchdog is 10 seconds.
+
+The shipped worker is a small input-validation/channel-lock/XPU-yield adapter with a non-cryptographic integrity hash. It is not a language model, tokenizer, `llama.cpp` build, or weights executor.
+
+### Deployment handler versus an HTTP deployment service
+
+`yukkios::wasm_ingest::handle_deploy` is a library request handler. It is **not** a route served by `yukki_core_node`, and the repository does not ship the HTTP frontend/authentication layer. If an application exposes a route such as `POST /v1/sandbox/deploy`, that application must authenticate the caller first and then invoke the handler.
+
+The handler validates the content type, channel ID, and Wasm ABI, then performs a smoke run with a 16-byte zero tensor. A successful response means the candidate passed that validation/smoke run; it does not mean the binary has been stored, registered as a persistent worker, or deployed for subsequent requests. The application owns artifact storage, authorization, version policy and any persistent deployment endpoint.
+
+For actual one-shot work, the host application calls `wasm_ingest::run_guest` or `run_guest_with_streams` with the real tensor and an `XpuHandler` callback. The latter can provide bounded YKMC chunks from a configured in-process media store. The callback is supplied by the host; it is not automatically wired to the Overhauled GPU/NPU adapter.
+
+### Version replacement and module compilation
+
+The library-level `ModuleLifecycleManager` can validate and register a version, then coordinate a hot-swap:
+
+```rust
+let lifecycle = ModuleLifecycleManager::new(Duration::from_secs(5));
+lifecycle.prepare_version("worker", "1.2.0", &wasm_bytes, None)?;
+lifecycle.hotswap("worker", "1.2.0").await?;
+```
+
+`prepare_version` compiles/validates the candidate synchronously with Wasmtime, but drops the compiled `Module` and retains the original bytes. The application must connect the selected version handle to its guest execution closure; the manager does not itself instantiate the guest. Hot-swap provides optional serialized application-state handoff, an active-version routing switch, and quiesce/drain/release ordering. It does not merge compiled code, link multiple modules, move live Wasm memory, or migrate arbitrary GPU state. There is no built-in module-management CLI.
 
 ## 9. Configure broker integrations deliberately
 

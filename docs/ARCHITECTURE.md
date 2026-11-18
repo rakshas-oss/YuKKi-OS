@@ -235,28 +235,60 @@ See [BENCHMARK_DRIVEN_DATASETS.md](BENCHMARK_DRIVEN_DATASETS.md),
 [BENCHMARKING.md](BENCHMARKING.md), and [API.md](API.md) for operational
 commands, manifest details, API shape and benchmark scope.
 
-## WebAssembly sandbox and GPU interop
+## WebAssembly compilation, guest execution, lifecycle, and accelerator boundary
 
-`src/wasm_sandbox.rs` provides a Wasmtime-based execution sandbox:
+The native Rust build enables Wasmtime's `cranelift` compiler feature. Wasmtime compiles WebAssembly modules on the native host; guests do not receive native pointers or execute outside the sandbox. The repository currently has two distinct native-host execution paths. They should not be confused with the separate `browser-wasm/` application described above.
 
-- max linear memory: 16 MiB
-- default fuel budget: 10,000,000
-- optional fuel override: `YUKKI_WASM_MAX_FUEL` (must be positive)
-- isolated memory: no direct host or CUDA memory pointers exposed to WASM guests
+### Native sandbox API
 
-`src/gpu_adapter.rs` provides the GPU task offloading adapter and module lifecycle manager targeting `rakshas-oss/overhauled`:
+`src/wasm_sandbox.rs` exposes `RustasmSandbox::execute` for a small core-Wasm ABI:
 
-- **Isolation Preservation**: Sandboxes communicate with GPU acceleration via host-mediated calls (`submit_gpu_task`). The host validates buffer sizes (capped at 64 KiB execution buffers) and gen[...]
-- **Protocol Version Negotiation**: Version exchange (`overhauled.wasm.gpu.v1`) ensures mutual compatibility prior to workload dispatch.
-- **Retry and Idempotency**: Network failures or transient broker rejections (`retryable: true`) are retried automatically with backoff, preserving `task_id` for deduplication.
-- **Safe Module Hotswapping**:
-  1. *Prepare*: Compile and validate replacement module bytecode in the background.
-  2. *State Handoff*: Optional structured application state migration via `StateHandoffHook`. Live WASM linear memory and arbitrary GPU VRAM/streams are explicitly **not** migrated.
-  3. *Rollback on Failure*: Any validation or state handoff error aborts the swap, keeping the existing version actively serving.
-  4. *Atomic Routing*: Routing tables update atomically to redirect new submissions.
-  5. *Quiesce and Drain*: The old module version stops receiving new tasks while in-flight GPU tasks complete.
-  6. *Drain-Before-Release*: Resources tied to superseded versions are deallocated strictly after in-flight operations drop to zero.
-- **Configurable / Optional**: Disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`), allowing standard node operations on systems without GPUs or overhauled brokers.
+- Wasmtime compiles the supplied bytes with `Module::new`, instantiates the module, and calls the exported `main() -> i32` function.
+- The instance is created with an empty import list, so this entry point does not provide WASI, filesystem, network, or custom host imports.
+- Per-store linear memory is limited to 16 MiB; the Wasmtime stack limit is 512 KiB.
+- Fuel defaults to 10,000,000 and can be changed with `YUKKI_WASM_MAX_FUEL` (positive integer only).
+
+This API is a bounded module runner, not an integrated LLM runtime.
+
+### Restricted inference guest-worker API
+
+`src/wasm_ingest.rs` provides the separate worker ABI used by the `guest-worker/` crate:
+
+- Module byte length is capped at 4 MiB; an input tensor is capped at 16 MiB.
+- The store's linear memory is capped at 64 MiB, fuel defaults to 10,000,000, the Wasm stack is capped at 512 KiB, and an epoch watchdog bounds execution to 10 seconds.
+- Only two host imports are accepted: `env.wasmtime_yield_xpu(i32, i32) -> i32` and `env.yukki_select_stream(i32, i32, i32, i32) -> i32`.
+- The module must export `memory` and `execute_inference_pipeline(i32, i32, i32) -> i32`.
+- The host validates guest-memory ranges before copying the bounded tensor or a YKMC chunk. The guest receives no native pointer or direct media-store handle.
+- `run_guest_with_streams` creates an Engine, compiles the module, links the approved imports, and instantiates a fresh guest instance for each call. The XPU operation is an injected host callback; it is not an automatic connection to a specific physical accelerator.
+
+The shipped `guest-worker` is a small `no_std` worker: it validates its input/channel, uses an atomic channel lock, computes a non-cryptographic FNV-style integrity/telemetry hash, and yields to the host. It does not include `llama.cpp`, model weights, tokenization, or a language-model inference implementation. Compiling such a runtime for Wasm is a separate integration requiring a compatible ABI, model/weight delivery, and a host compute delegate.
+
+`wasm_ingest::handle_deploy` is a pure request handler, not an HTTP listener. It validates the `application/wasm` body and channel header, then smoke-runs the module with a 16-byte zero tensor. It does not persist the artifact or register it for subsequent inference. A front end must authenticate the caller before invoking it and must own artifact storage and any persistent deployment API.
+
+### Version lifecycle and the meaning of hot-swap
+
+`ModuleLifecycleManager::prepare_version` synchronously creates a Wasmtime Engine and compiles/validates the candidate with `Module::new`. The compiled `Module` is then dropped; the manager stores the original Wasm bytes in the version handle. It does not maintain a compiled-module cache.
+
+`ModuleLifecycleManager::hotswap` coordinates a version transition:
+
+1. Optionally asks the Overhauled lifecycle endpoint to prepare the module ID/version and obtains its lease/placement response.
+2. Runs `StateHandoffHook` only when both old and new versions provide hooks. The hook transfers application-defined serialized state, not Wasm linear memory, native pointers, GPU VRAM, CUDA streams, or model weights.
+3. Switches the YuKKi-OS active-version routing map under a write lock.
+4. Quiesces the previous version, waits for in-flight work to drain, then requests broker release and releases the old local version resources.
+
+Preparation or state-handoff failures occur before the local routing switch and leave the old version active. A drain timeout occurs after the switch: the new version may already be active, while old resources remain retained rather than being released during in-flight work. The manager is a library API; `yukki_core_node` does not expose a module-deployment or hot-swap CLI. The application must connect `execute_task` to the appropriate guest execution function.
+
+This is **version replacement with optional structured-state handoff**, not live code merging. The current tree does not link multiple Wasm modules or policy functions into a merged compiled artifact, dynamically resolve arbitrary guest imports, migrate live guest memory, or retain compiled modules across replacements. Candidate compilation is synchronous in `prepare_version`, not a background compilation pipeline.
+
+### Accelerator boundary
+
+`RustasmSandbox::submit_gpu_task` is a separate host-mediated broker adapter. It accepts payloads up to 64 KiB, uses task/module/version identifiers, and sends work to Overhauled only when the application configures the adapter. The adapter is disabled by default (`YUKKI_GPU_ADAPTER_ENABLED=false`). The guest is not given CUDA pointers or direct VRAM access.
+
+Overhauled owns backend selection, GPU placement, broker queueing and its optional NPU executor. The CUDA-aware broker path, separate optional `gpu_runtime_server` TensorRT target, and opt-in Linux Ethos-U85 DRM executor are distinct execution configurations. The Ethos-U85 path requires a compatible Vela-generated `YU85BND1` bundle; it is not a generic LLM executor. The host must explicitly wire a guest's XPU callback or application task to the selected broker path; configuring the adapter alone does not make every guest operation accelerator-backed.
+
+The Wasm linear-memory and host-buffer ceilings above are not a VRAM reservation. Device availability, placement and in-flight limits are managed by Overhauled; the repositories do not currently expose one cross-tier VRAM-headroom guarantee for arbitrary guest models.
+
+See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md), [guest-worker/README.md](../guest-worker/README.md), and [Overhauled WASM interoperability](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 
 ## Known implementation limitations
 
