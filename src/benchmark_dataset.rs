@@ -161,17 +161,11 @@ struct DatasetRecord {
 
 impl DatasetRecord {
     fn to_frame(&self) -> Result<Nxr1Frame, DatasetBenchmarkError> {
-        let (x, y, z, feature_offset) = match self.position {
-            Some([longitude, latitude, altitude]) => (longitude, latitude, altitude, 0),
-            None => (
-                self.feature(0),
-                self.feature(1),
-                self.feature(2),
-                self.features.len().min(3),
-            ),
-        };
-        let fluidity = self.feature_at(feature_offset + 3) as f32;
-        let drag = self.feature_at(feature_offset + 4) as f32;
+        // NXR1 x/y/z and dynamics are generic numeric fields. Geographic
+        // coordinates are processed separately by the geospatial benchmark
+        // and remain available in the opaque JSON payload.
+        let fluidity = self.feature(6) as f32;
+        let drag = self.feature(7) as f32;
         if !fluidity.is_finite() || !drag.is_finite() {
             return Err(DatasetBenchmarkError::Codec(
                 "numeric feature exceeds the NXR1 f32 range".to_string(),
@@ -179,15 +173,15 @@ impl DatasetRecord {
         }
         Ok(Nxr1Frame {
             seq_id: self.sequence,
-            x,
-            y,
-            z,
-            u: self.feature_at(feature_offset),
-            v: self.feature_at(feature_offset + 1),
-            w: self.feature_at(feature_offset + 2),
+            x: self.feature(0),
+            y: self.feature(1),
+            z: self.feature(2),
+            u: self.feature(3),
+            v: self.feature(4),
+            w: self.feature(5),
             fluidity,
             drag,
-            divergence: self.feature_at(feature_offset + 5),
+            divergence: self.feature(8),
             payload: self.raw_json.clone(),
         })
     }
@@ -487,7 +481,8 @@ fn load_dataset(
             dataset.id
         )));
     }
-    Ok((records, row))
+    let source_rows = records.len();
+    Ok((records, source_rows))
 }
 
 fn read_bounded_line<R: BufRead>(
@@ -1059,6 +1054,28 @@ mod tests {
         );
         assert!(matches!(result, Err(DatasetBenchmarkError::InvalidManifest(_))));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_arc_secant_tangent_simplifier_reduces_straight_tracks() {
+        let points = [
+            EcefPoint { x: 0.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 1.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 2.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 3.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 4.0, y: 0.0, z: 0.0 },
+        ];
+        assert_eq!(simplify_arc_secant_tangent(&points, 1.0, 45.0), 2);
+    }
+
+    #[test]
+    fn native_arc_secant_tangent_simplifier_preserves_sharp_turns() {
+        let points = [
+            EcefPoint { x: 0.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 1.0, y: 0.0, z: 0.0 },
+            EcefPoint { x: 1.0, y: 1.0, z: 0.0 },
+        ];
+        assert_eq!(simplify_arc_secant_tangent(&points, 100.0, 30.0), 3);
     }
 
     #[test]
