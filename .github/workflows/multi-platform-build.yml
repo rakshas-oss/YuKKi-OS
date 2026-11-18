@@ -171,9 +171,16 @@ jobs:
           import { readFile } from "node:fs/promises";
           const bytes = await readFile("browser-wasm/target/wasm32-unknown-unknown/release/yukki_browser_core.wasm");
           const { instance } = await WebAssembly.instantiate(bytes, {});
-          const { memory, yukki_input_ptr, yukki_input_capacity, yukki_validate_ykmc } = instance.exports;
+          const {
+            memory, yukki_input_ptr, yukki_input_capacity, yukki_validate_ykmc,
+            adi_mmo_reset, adi_mmo_entity_count, adi_mmo_upsert_entity,
+            adi_mmo_resolve_nearest, adi_mmo_wgs84_to_ecef
+          } = instance.exports;
           if (!(memory instanceof WebAssembly.Memory) || typeof yukki_input_ptr !== "function" ||
-              typeof yukki_input_capacity !== "function" || typeof yukki_validate_ykmc !== "function") {
+              typeof yukki_input_capacity !== "function" || typeof yukki_validate_ykmc !== "function" ||
+              typeof adi_mmo_reset !== "function" || typeof adi_mmo_entity_count !== "function" ||
+              typeof adi_mmo_upsert_entity !== "function" || typeof adi_mmo_resolve_nearest !== "function" ||
+              typeof adi_mmo_wgs84_to_ecef !== "function") {
             throw new Error("Required browser WASM exports are missing");
           }
           const frame = new Uint8Array(33);
@@ -189,6 +196,21 @@ jobs:
           if (frame.byteLength > yukki_input_capacity()) throw new Error("WASM input area too small");
           new Uint8Array(memory.buffer, ptr, frame.byteLength).set(frame);
           if (yukki_validate_ykmc(frame.byteLength) !== 0) throw new Error("Valid YKMC smoke frame was rejected");
+
+          adi_mmo_reset();
+          const observedAt = 1000000000n;
+          if (adi_mmo_upsert_entity(7, 43.6532, -79.3832, 100, observedAt, 0) !== 0) {
+            throw new Error("WASM MMO entity insertion failed");
+          }
+          if (adi_mmo_entity_count() !== 1) throw new Error("WASM MMO entity count is incorrect");
+          const resolved = adi_mmo_resolve_nearest(43.6532, -79.3832, 100, observedAt, 1000n, 50);
+          if (resolved !== 0) throw new Error("WASM MMO spatiotemporal resolution failed");
+          const ecefPtr = adi_mmo_wgs84_to_ecef(0, 0, 0);
+          if (!ecefPtr) throw new Error("WASM MMO WGS84 conversion failed");
+          const ecef = new Float64Array(memory.buffer, ecefPtr, 3);
+          if (Math.abs(ecef[0] - 6378137) > 0.01 || Math.abs(ecef[1]) > 0.01 || Math.abs(ecef[2]) > 0.01) {
+            throw new Error("WASM MMO ECEF conversion returned an unexpected result");
+          }
           NODE
       - name: Assemble static browser application
         run: |
