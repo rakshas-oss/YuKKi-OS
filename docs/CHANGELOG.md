@@ -2,7 +2,40 @@
 
 ## Unreleased
 
-## v6.12.0 (release candidate; tag pending)
+## v6.13.0 (release candidate; tag pending)
+
+### Native composed WebAssembly programs
+
+- Added `CompositionRuntime` to assemble one or more live policy programs
+  from a validated directed acyclic graph of core-Wasm modules and typed
+  function imports.
+- Added SHA-256 content-addressed, bounded in-process module caching and
+  isolated per-replica Wasmtime Stores. Multi-replica execution requires an
+  explicit `stateless: true` manifest declaration.
+- Added atomic process-local activation of a prepared multi-program release;
+  failed preparation leaves the active release unchanged, while already
+  admitted calls retain their previous program set until completion.
+- Added time-weighted replica ranking with stable SplitMix64 logical affinity,
+  7/8 prior plus 1/8 latest-sample service-time EWMA, a 25% non-locality
+  penalty and non-blocking Store admission. Full saturation returns an
+  explicit `ProgramSaturated` error.
+- Clarified that logical shard affinity is not geographic scheduling or
+  physical NUMA pinning, and that composition remains a library API without a
+  built-in CLI or HTTP deployment endpoint.
+
+### Documentation and release metadata
+
+- Aligned the architecture and sysadmin guides with the separate
+  `ModuleLifecycleManager` and `CompositionRuntime` APIs, including exact
+  scheduler scoring behavior and a WAT-to-Wasm build sequence.
+- Updated the API reference, README, changelog, versioning guide, Cargo
+  package/lockfile, OCI label and version metadata test to `6.13.0`.
+- Preserved the YuKKi-OS/Overhauled boundary and existing YKMC, BRK1/BRK2,
+  NXR1 and WSM1 protocol contracts.
+
+---
+
+## v6.12.0 (published 2026-11-18)
 
 ### Manifest-driven multivariate datasets and benchmark policy
 

@@ -1,4 +1,4 @@
-# YuKKi-OS v6.12.0 — Architecture
+# YuKKi-OS v6.13.0 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
 
-This document describes the v6.12.0 release-candidate implementation. The release tag remains pending the required CI and release qualification gates.
+This document describes the v6.13.0 release-candidate implementation. v6.12.0 is the last published baseline; the v6.13.0 tag remains pending CI and release qualification.
 
 ## Runtime topology
 
@@ -278,7 +278,7 @@ The shipped `guest-worker` is a small `no_std` worker: it validates its input/ch
 
 Preparation or state-handoff failures occur before the local routing switch and leave the old version active. A drain timeout occurs after the switch: the new version may already be active, while old resources remain retained rather than being released during in-flight work. The manager is a library API; `yukki_core_node` does not expose a module-deployment or hot-swap CLI. The application must connect `execute_task` to the appropriate guest execution function.
 
-This is **version replacement with optional structured-state handoff**, not live code merging. The current tree does not link multiple Wasm modules or policy functions into a merged compiled artifact, dynamically resolve arbitrary guest imports, migrate live guest memory, or retain compiled modules across replacements. Candidate compilation is synchronous in `prepare_version`, not a background compilation pipeline.
+This statement is scoped to `ModuleLifecycleManager`: that version-replacement API performs optional structured-state handoff but does not link multiple Wasm modules, merge policy functions, dynamically resolve arbitrary guest imports, migrate live guest memory, or retain compiled modules across replacements. Candidate compilation is synchronous in `prepare_version`, not a background compilation pipeline. **Multi-module composition is provided by the separate `CompositionRuntime` below**; it is not performed by `ModuleLifecycleManager` or by Overhauled's WSM1 lifecycle manager.
 
 ### Accelerator boundary
 
@@ -324,6 +324,26 @@ materially slower replica. This is logical workload affinity, not physical
 NUMA pinning or geographic-coordinate scheduling. It complements, but does
 not replace, `SpatiotemporalPayloadResolver`, which handles NXR1 decoding,
 destination queues and per-source sequence policy.
+
+The scheduler's current implementation is more specific:
+
+- The initial service-time estimate is 1 ms. Each completion updates it as
+  7/8 of the previous estimate plus 1/8 of the latest measured duration.
+- A 64-bit logical key is mapped to a preferred replica with a stable
+  SplitMix64 finalizer followed by modulo the configured replica count.
+- A non-preferred replica receives a locality penalty equal to 25% of its
+  current service-time estimate. A sufficiently faster replica can therefore
+  outrank the preferred logical shard.
+- Equal predicted scores are rotated with an atomic cursor rather than always
+  beginning at replica zero.
+- Completion samples include failed invocations because they consumed
+  service time. Scheduler snapshots expose each replica's EWMA and
+  completed-call count; the composition API additionally exposes active calls.
+
+Here, "spatial" means an application-defined logical affinity key such as a
+tenant, entity, tile, sensor or partition. It is not a latitude/longitude
+lookup, geographic route planner, CPU-thread pinning mechanism or physical
+NUMA placement operation.
 
 Replica admission is non-blocking: a busy Store is skipped instead of making
 other calls wait behind its mutex. If all replicas are occupied, the runtime

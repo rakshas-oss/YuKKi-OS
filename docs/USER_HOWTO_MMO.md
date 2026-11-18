@@ -1,7 +1,7 @@
 # User how-to: browser spatial, spatiotemporal, and multivariate data
 
 This guide covers the browser-side spatial and motion feature set included in the
-YuKKi-OS v6.12.0 release candidate. It is additive: the native node, the separate
+published YuKKi-OS v6.12.0 release. It is additive: the native node, the separate
 `rakshas-oss/overhauled` repository, and the existing wire protocols remain in
 place. The browser path uses the existing `browser-wasm/` application and
 `wasm32-unknown-unknown` target.

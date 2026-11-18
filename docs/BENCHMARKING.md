@@ -1,7 +1,7 @@
 # Benchmarking YuKKi-OS
 
 This guide describes the native Criterion suites and the browser-WASM
-measurement runner on the v6.12.0 release-candidate branch. Benchmark inputs are
+measurement runner introduced for v6.12.0 and retained in the v6.13.0 release candidate. Benchmark inputs are
 fixture-driven: source datasets live in versioned JSON files, and benchmark
 code consumes those fixtures instead of maintaining independent hard-coded
 sample values.

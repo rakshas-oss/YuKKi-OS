@@ -1,6 +1,6 @@
 # Benchmark-driven native dataset execution
 
-This guide describes the native dataset and eigensolver workflows included in the YuKKi-OS v6.12.0 release candidate. The source manifest remains authoritative; release status and validation gates are tracked in [Versioning](VERSIONING.md).
+This guide describes the native dataset and eigensolver workflows included in the published YuKKi-OS v6.12.0 release. The source manifest remains authoritative; release status and validation gates are tracked in [Versioning](VERSIONING.md).
 
 YuKKi-OS now has a native benchmark runner in `src/benchmark_dataset.rs`
 and the `yukki_dataset_bench` command. Its direction is deliberate:
