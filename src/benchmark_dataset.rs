@@ -932,6 +932,29 @@ fn choose_candidate(
     }
 }
 
+/// Allocate the real native MPMC destination from the benchmark-selected
+/// batch/worker policy. This is the path runtime components use instead of
+/// choosing a queue capacity independently of the dataset measurements.
+impl crate::spatiotemporal_resolver::SpatiotemporalPayloadResolver {
+    pub fn register_benchmarked_destination(
+        &self,
+        destination: impl Into<String>,
+        benchmark: &DatasetBenchmarkResult,
+        numa_node: Option<u32>,
+        sequence_policy: crate::spatiotemporal_resolver::SequencePolicy,
+    ) -> Result<
+        crate::spatiotemporal_resolver::PayloadReceiver,
+        crate::spatiotemporal_resolver::ResolverError,
+    > {
+        let capacity = benchmark
+            .recommended
+            .batch_size
+            .saturating_mul(benchmark.recommended.workers)
+            .clamp(1, 1024);
+        self.register_destination(destination, capacity, numa_node, sequence_policy)
+    }
+}
+
 impl crate::adi_auto_tune::ADIAutoTuner {
     /// Make measured dataset results authoritative for the next native queue policy.
     pub fn apply_dataset_benchmark(&mut self, result: &DatasetBenchmarkResult) {
@@ -1042,6 +1065,17 @@ mod tests {
             tuner.optimal_queue_depth,
             (result.recommended.batch_size * result.recommended.workers).clamp(1, 1024)
         );
+
+        let resolver = crate::spatiotemporal_resolver::SpatiotemporalPayloadResolver::new();
+        let receiver = resolver
+            .register_benchmarked_destination(
+                "drone-flight-east",
+                result,
+                Some(0),
+                crate::spatiotemporal_resolver::SequencePolicy::RejectNonIncreasing,
+            )
+            .unwrap();
+        assert_eq!(receiver.capacity(), tuner.optimal_queue_depth);
         fs::remove_dir_all(root).unwrap();
     }
 
