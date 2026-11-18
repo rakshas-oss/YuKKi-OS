@@ -68,6 +68,10 @@ pub struct SpatialState {
     query_len: usize,
 }
 
+impl Default for SpatialState {
+    fn default() -> Self { Self::new() }
+}
+
 impl SpatialState {
     pub const fn new() -> Self {
         Self {
@@ -350,6 +354,10 @@ pub struct ArcSecantTangentSimplifier {
     output_len: usize,
 }
 
+impl Default for ArcSecantTangentSimplifier {
+    fn default() -> Self { Self::new() }
+}
+
 impl ArcSecantTangentSimplifier {
     pub const fn new() -> Self {
         const EMPTY: Wgs84 = Wgs84 { lat_deg: 0.0, lon_deg: 0.0, alt_m: 0.0 };
@@ -485,8 +493,8 @@ impl ArcSecantTangentSimplifier {
             }
         }
 
-        for index in 0..self.len {
-            if self.keep[index] {
+        for (index, keep) in self.keep[..self.len].iter().copied().enumerate() {
+            if keep {
                 self.output[self.output_len] = index as u16;
                 self.output_len += 1;
             }
