@@ -28,15 +28,11 @@ fn test_encoding_throughput_passes() {
 }
 
 #[test]
-fn test_enquing_efficiency_adjusts_queue_depth() {
-    let mut tuner = ADIAutoTuner::new();
+fn test_enquing_efficiency_does_not_override_dataset_policy() {
+    let tuner = ADIAutoTuner::new();
     tuner.test_enquing_efficiency();
-    // Queue depth should either remain at 60 or increase to 120
-    assert!(
-        tuner.optimal_queue_depth == 60 || tuner.optimal_queue_depth == 120,
-        "Queue depth should be 60 or 120, got {}",
-        tuner.optimal_queue_depth
-    );
+    // Synthetic allocation timing is diagnostic; dataset benchmarks select depth.
+    assert_eq!(tuner.optimal_queue_depth, 60);
 }
 
 #[test]
@@ -85,7 +81,7 @@ fn test_frame_size_calculation() {
 
 #[test]
 fn test_queue_depth_scaling() {
-    let mut tuner = ADIAutoTuner::new();
+    let tuner = ADIAutoTuner::new();
     tuner.test_enquing_efficiency();
 
     let depth = tuner.optimal_queue_depth;
