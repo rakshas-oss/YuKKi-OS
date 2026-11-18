@@ -30,6 +30,7 @@ const MAX_RECORD_BYTES: usize = 64 * 1024;
 const MAX_RECORDS: usize = 1_000_000;
 const MAX_ITERATIONS_PER_BATCH: usize = 100_000;
 const MAX_WORKERS: usize = 64;
+const MAX_TOTAL_SOLVES: usize = 1_000_000;
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -326,7 +327,9 @@ fn measure_candidate(
     workers: usize,
     profile: &EigensolverProfile,
 ) -> Result<Candidate, Box<dyn std::error::Error>> {
-    let solve_count = matrices.len().saturating_mul(profile.iterations_per_batch);
+    let solve_count = matrices.len().checked_mul(profile.iterations_per_batch)
+        .filter(|count| *count <= MAX_TOTAL_SOLVES)
+        .ok_or("candidate exceeds the one-million-solve safety limit")?;
     let next = AtomicUsize::new(0);
     let checksum = AtomicU64::new(0);
     let durations = Mutex::new(Vec::<u64>::with_capacity(solve_count));
@@ -389,7 +392,9 @@ fn run_dataset_profile(
     let start = profile.warmup_records.min(records.len());
     let available = &records[start..];
     let sample_count = profile.sample_records.min(available.len());
-    if sample_count == 0 { return Err(format!("dataset '{}' has no sample rows after warmup", dataset.id).into()); }
+    if sample_count == 0 {
+        return Err(format!("dataset '{}' has no sample rows after warmup", dataset.id).into());
+    }
     let sample = &available[..sample_count];
     let dimension = dataset.feature_fields.len();
     let mut candidates = Vec::new();
