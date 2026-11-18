@@ -84,6 +84,17 @@ pub struct CompositionManifest {
 /// module ID "math-kernel".
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+fn default_replica_count() -> usize {
+    1
+}
+
+/// One program is a directed acyclic graph of core-Wasm modules.
+///
+/// bindings maps a WebAssembly import namespace to the module ID that provides
+/// its imported functions. For example, namespace "math" can map to
+/// module ID "math-kernel".
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProgramSpec {
     pub program_id: String,
     pub modules: Vec<ModuleRef>,
