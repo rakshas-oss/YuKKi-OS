@@ -104,12 +104,12 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 
 ## Documentation
 
-- [Release notes v6.9.9](docs/CHANGELOG.md)
+- [Changelog](docs/CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
+- [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Benchmarking](docs/BENCHMARKING.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
 - [Changelog](docs/CHANGELOG.md) · [Versioning](docs/VERSIONING.md)
 - [Security hardening notes](docs/SECURITY_HARDENING_NOTES.md)
 
