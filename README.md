@@ -105,7 +105,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 ## Documentation
 
 - [Changelog](docs/CHANGELOG.md)
-- [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
+- [Architecture](docs/ARCHITECTURE.md) · [How-to](docs/SYSADMIN_HOWTO.md) · [Composed WASM programs](docs/WASM_PROGRAM_COMPOSITION.md) · [API](docs/API.md) · [Security](docs/SECURITY.md)
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
 - [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
