@@ -7,12 +7,14 @@
 #include "mbedtls/aes.h"
 #endif
 
+#ifdef USE_MBEDTLS
 static void yukki_secure_zero(void *ptr, size_t len) {
     volatile uint8_t *p = (volatile uint8_t *)ptr;
     while (len--) {
         *p++ = 0;
     }
 }
+#endif /* USE_MBEDTLS */
 
 /* If no crypto backend is provided, these functions return error codes. */
 int yukki_protect_header(const uint8_t *net_key, const uint8_t *header, uint8_t header_len, uint8_t *mac_out) {
@@ -42,9 +44,13 @@ int yukki_protect_header(const uint8_t *net_key, const uint8_t *header, uint8_t 
 int yukki_verify_header(const uint8_t *net_key, const uint8_t *header, uint8_t header_len, const uint8_t *mac) {
     if (!net_key || !header || !mac) return -1;
 #ifdef USE_MBEDTLS
-    uint8_t expected[YUKKI_HEADER_MAC_LEN];
+    uint8_t expected[YUKKI_HEADER_MAC_LEN] = {0};
     int rc = yukki_protect_header(net_key, header, header_len, expected);
-    if (rc != 0) return rc;
+    if (rc != 0) {
+        /* Protect may fail after partially writing the temporary MAC. */
+        yukki_secure_zero(expected, sizeof(expected));
+        return rc;
+    }
     /* constant-time compare */
     uint8_t diff = 0;
     for (uint8_t i = 0; i < YUKKI_HEADER_MAC_LEN; i++) diff |= (expected[i] ^ mac[i]);
