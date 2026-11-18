@@ -1080,6 +1080,35 @@ mod tests {
     }
 
     #[test]
+    fn example_manifest_drives_all_multivariate_domains() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/benchmark-datasets/manifest.json");
+        let results = BenchmarkDatasetRunner::run_manifest(
+            manifest,
+            Some("all"),
+            Some("all"),
+        )
+        .unwrap();
+
+        assert!(results.iter().any(|result| result.domain == "drone"));
+        assert!(results.iter().any(|result| result.domain == "finance"));
+        assert!(results.iter().any(|result| result.domain == "environment"));
+        assert!(results.iter().any(|result| {
+            result.objective == BenchmarkObjective::Geospatial
+                && result.domain == "drone"
+                && result.recommended.geometry_input_points > 0
+        }));
+        assert!(results.iter().any(|result| {
+            result.objective == BenchmarkObjective::Geospatial
+                && result.domain == "environment"
+                && result.recommended.geometry_input_points > 0
+        }));
+        assert!(!results.iter().any(|result| {
+            result.objective == BenchmarkObjective::Geospatial && result.domain == "finance"
+        }));
+    }
+
+    #[test]
     fn geospatial_profile_rejects_a_finance_only_dataset() {
         let root = temporary_directory();
         fs::create_dir_all(&root).unwrap();
