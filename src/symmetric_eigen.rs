@@ -11,6 +11,7 @@ pub const MAX_EIGEN_DIMENSION: usize = 64;
 pub const DEFAULT_TOLERANCE: f64 = 1.0e-12;
 pub const DEFAULT_MAX_SWEEPS: usize = 128;
 
+/// Standard real arcsecant: acos(1/x), defined only for finite |x| >= 1.\npub fn arcsecant(value: f64) -> Option<f64> {\n    if value.is_finite() && value.abs() >= 1.0 {\n        Some((1.0 / value).clamp(-1.0, 1.0).acos())\n    } else {\n        None\n    }\n}\n
 #[derive(Debug, Clone, PartialEq)]
 pub struct EigenDecomposition {
     /// Eigenvalues in ascending order.
@@ -253,6 +254,15 @@ mod tests {
         assert!(result.eigenvalues.iter().all(|value| *value > 0.0));
         assert!(result.relative_residual < 1.0e-11);
         assert!(result.orthogonality_error < 1.0e-11);
+    }
+
+    #[test]
+    fn arcsecant_mapping_respects_its_real_domain() {
+        assert!((arcsecant(1.0).unwrap() - 0.0).abs() < 1.0e-15);
+        assert!((arcsecant(2.0).unwrap() - (0.5_f64).acos()).abs() < 1.0e-15);
+        assert!((arcsecant(-1.0).unwrap() - std::f64::consts::PI).abs() < 1.0e-15);
+        assert!(arcsecant(0.5).is_none());
+        assert!(arcsecant(f64::NAN).is_none());
     }
 
     #[test]
