@@ -1,4 +1,4 @@
-# YuKKi OS v6.11.0 — API and ABI Reference
+# YuKKi OS v6.9.5 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -154,11 +154,7 @@ the opaque NXR1 payload bytes.
 The Criterion benchmark
 `nxr1_resolver_decode_and_component_dispatch_256b` measures decode plus
 bounded queue dispatch and receive. Run with
-`cargo bench --locked --bench frame_benchmarks`. This is a native,
-single-threaded 256-byte microbenchmark, not a contention or network benchmark.
-See [Benchmarking](BENCHMARKING.md) for the full native benchmark inventory,
-reproducible commands, CI interpretation, and the separate browser-WASM
-measurement plan.
+`cargo bench --bench frame_benchmarks`.
 
 ## NXR1 geospatial frame interop (`src/nxr1.rs`)
 
