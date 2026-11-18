@@ -98,12 +98,14 @@ impl ADIAutoTuner {
         acquired_bytes.is_multiple_of(8)
     }
 
+    /// Run basic hardware diagnostics. Runtime queue depth is selected by a
+    /// dataset benchmark profile via `apply_dataset_benchmark`.
     pub fn execute_hardware_calibration(&mut self) {
         assert!(self.test_encoding_throughput(), "Encoding Check Failed.");
         assert!(self.test_enquing_efficiency(), "Queue Allocation Failed.");
         assert!(self.test_data_acquisition(), "Acquisition Alignment Fault.");
         println!(
-            "\x1b[38;5;136m[AUTO-TUNE] RIU Calibration Complete. Queue depth set to {}\x1b[0m",
+            "\x1b[38;5;136m[AUTO-TUNE] Diagnostics complete. Queue depth remains benchmark-controlled at {}\x1b[0m",
             self.optimal_queue_depth
         );
     }
