@@ -296,6 +296,39 @@ lifecycle.hotswap("worker", "1.2.0").await?;
 
 `prepare_version` compiles/validates the candidate synchronously with Wasmtime, but drops the compiled `Module` and retains the original bytes. The application must connect the selected version handle to its guest execution closure; the manager does not itself instantiate the guest. Hot-swap provides optional serialized application-state handoff, an active-version routing switch, and quiesce/drain/release ordering. It does not merge compiled code, link multiple modules, move live Wasm memory, or migrate arbitrary GPU state. There is no built-in module-management CLI.
 
+### Compose several policy modules into live programs
+
+The native composition API is a library integration. It does not add a new
+`yukki_core_node` subcommand or public HTTP deployment route. Compile module
+sources to core-Wasm binaries (for example, use `wat2wasm` for the shipped WAT
+examples), then pass their bytes and the JSON manifest to
+`CompositionRuntime::prepare_json`.
+
+The example directory
+`examples/wasm-composition/` contains a manifest for two live policies,
+`risk-score-policy` and `risk-alert-policy`, which both reuse the same
+`math-kernel:1.0.0` compiled artifact. After staging, call
+`CompositionRuntime::activate` once to route all programs in that release
+together. Calls use `CompositionRuntime::call(deployment_id, program_id,
+&[i32])`.
+
+Run the focused tests with:
+
+```bash
+cargo test wasm_composition
+```
+
+The application must own artifact storage, access control, version selection
+and any HTTP deployment API. Composition v1 links declared function imports
+only; it rejects imported memory/global/table resources, host/WASI imports
+and cyclic graphs. Each program has an isolated Store, while identical module
+bytes share an in-memory SHA-256 compilation cache. Per-call fuel, memory,
+table and instance limits remain enforced. Calls to the same program are
+serialized; separate programs can run concurrently.
+
+For the manifest schema, API example, staged-upgrade process and resource
+limits, see [WASM_PROGRAM_COMPOSITION.md](WASM_PROGRAM_COMPOSITION.md).
+
 ## 9. Configure broker integrations deliberately
 
 YuKKi-OS has two separate broker client configurations.
