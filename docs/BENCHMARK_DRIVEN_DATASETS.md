@@ -119,3 +119,46 @@ profiles only when they represent a distinct objective or workload envelope.
 Use the same source data for competing candidates so comparisons are
 reproducible; do not mix generated values into one candidate and real records
 into another.
+
+
+## Dataset-driven eigensolver
+
+The same manifest may define an optional `eigensolver_profiles` array. These
+profiles are consumed by `yukki_eigensolver_bench`, independently of the
+transport/geospatial profiles. They select the data rows, feature matrix
+dimension, matrix batch sizes, worker counts, repeat count, numerical tolerance,
+and Jacobi sweep limit.
+
+Run the supplied workload:
+
+```sh
+cargo run --release --bin yukki_eigensolver_bench -- \\
+  --manifest examples/benchmark-datasets/manifest.json \\
+  --dataset all \\
+  --profile all \\
+  --output eigensolver-results.json
+```
+
+For each selected dataset, the runner forms bounded batch correlation matrices
+from the declared `feature_fields`. Each matrix is passed to the native
+real-symmetric Jacobi eigensolver. The output reports decompositions per second,
+mean and P95 solve latency, eigenvalue residual, eigenvector orthogonality
+error, and a deterministic result checksum. The selected candidate is chosen
+by the profile objective and optional P95 latency ceiling. Data values are
+scaled before covariance accumulation to avoid overflow from large finite
+source values; this benchmark therefore measures the correlation spectrum,
+not a unit-dependent raw covariance spectrum.
+
+The eigensolver accepts finite real-symmetric matrices with dimensions
+1..=64. It returns ascending real eigenvalues and column eigenvectors. It
+rejects non-square, non-finite, materially asymmetric, or non-convergent input.
+This is appropriate for small/medium covariance and correlation matrices
+(PCA-style analysis); it is not a general complex or non-symmetric eigensolver.
+Benchmark residuals and orthogonality are reported so throughput cannot hide
+an inaccurate decomposition.
+
+The solver is deterministic and has no runtime dependency on Overhauled.
+Overhauled has its own C++ implementation and consumes the same dataset
+manifest/profile format through its benchmark adapter. The two repositories
+remain independently buildable; compare results on the same host, compiler
+configuration, data revision, and profile before making performance claims.
