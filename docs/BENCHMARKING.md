@@ -268,6 +268,35 @@ runtime and produces a report. It is not a browser-engine benchmark and does
 not set hard performance thresholds. Use controlled, same-host repeated runs
 for performance claims.
 
+### Cross-repository live integration job
+
+The `overhauled-live-cpp` job in
+`.github/workflows/integration-tests.yml` checks out both repositories'
+canonical `main` branches and records both commit SHAs in the job log. It
+builds the browser-WASM module and a CPU-only Overhauled broker, compares the
+mirrored BRK conformance corpus, runs the live Rust-to-C++ BRK1/BRK2 WSM1
+lifecycle tests, and then invokes the browser benchmark with the quick profile:
+
+~~~sh
+node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 19090 --broker-device cpu --output /tmp/yukkios-wasm-brk2.json
+~~~
+
+The resulting report is uploaded as the `yukkios-wasm-brk2-interop` artifact.
+This Node invocation is a distinct BRK2 inference request path: the spatial
+operations run locally in Node's WebAssembly runtime, while host-prepared
+numeric fixture records are sent to the broker. It is not a WSM1 guest task,
+does not compile or instantiate a Wasm module in Overhauled, and does not
+qualify GPU/NPU hardware. The same job separately exercises the NPU simulator
+and CPU-fallback paths; simulator success is software conformance, not physical
+accelerator validation.
+
+The workflow is a compatibility check against the two checked-out revisions,
+not a stable performance gate. Keep both logged SHAs with the artifact because
+the two repositories are versioned independently. The report verifies
+protocol response properties; it does not establish production domain-data
+validity, browser-engine performance, power savings, or OPEX reduction.
+
+
 ## 6. Reproducibility and interpretation
 
 Record these details with any published measurement:

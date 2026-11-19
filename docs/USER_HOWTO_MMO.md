@@ -1,7 +1,8 @@
 # User how-to: browser spatial, spatiotemporal, and multivariate data
 
-This guide covers the browser-side spatial and motion feature set included in the
-published YuKKi-OS v6.12.0 release. It is additive: the native node, the separate
+This guide covers the browser-side spatial and motion feature set first shipped in
+the published YuKKi-OS v6.12.0 release and retained in the v6.13.0 release
+candidate. It is additive: the native node, the separate
 `rakshas-oss/overhauled` repository, and the existing wire protocols remain in
 place. The browser path uses the existing `browser-wasm/` application and
 `wasm32-unknown-unknown` target.
@@ -245,3 +246,47 @@ See [MMO Browser WASM integration](MMO_BROWSER_WASM.md) for the ABI and
 algorithm constraints, [Drone interoperability](DRONE_INTEROP.md) for the
 manifest and adapter patterns, and [Benchmarking](BENCHMARKING.md) for the
 dataset-driven native and browser-WASM measurement harnesses.
+
+
+## 8. Run benchmark-backed workload checks
+
+The native and browser runners answer different questions. The native
+manifest-driven runner measures declared JSONL source records and bounded
+policy candidates; the eigensolver runner measures numerical quality as well
+as speed; the browser runner measures the compiled spatial WASM module.
+
+From the YuKKi-OS repository root:
+
+~~~sh
+cargo run --release --bin yukki_dataset_bench -- --manifest examples/benchmark-datasets/manifest.json --dataset all --profile all --output dataset-benchmark.json
+
+cargo run --release --bin yukki_eigensolver_bench -- --manifest examples/benchmark-datasets/manifest.json --dataset all --profile all --output eigensolver-benchmark.json
+
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+node browser-wasm/bench/run.mjs --quick --output browser-wasm-benchmark.json
+~~~
+
+For the optional live broker leg, build and start the CPU-only Overhauled
+broker as described in the [system administration how-to](SYSADMIN_HOWTO.md),
+then rerun the browser command with:
+
+~~~sh
+node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 9090 --broker-device cpu --output browser-wasm-brk2.json
+~~~
+
+Review the report's execution scope before comparing results. Local WASM
+measurements are not broker measurements; broker telemetry is taken from the
+BRK2 response, not inferred from the requested device. CPU is the correctness
+baseline. Use GPU/NPU preferences only on deliberately configured brokers and
+confirm the returned backend and selected GPU ID. The browser benchmark
+submits host-side numeric records; it does not execute WSM1 guests in
+Overhauled.
+
+The checked-in finance, drone, and environmental fixtures are synthetic.
+Replacing them with real sources requires explicit units, timestamp/epoch
+normalization, coordinate validation, access policy, provenance, quality
+metadata, and any required licensing. Benchmark throughput does not validate
+a financial model, environmental estimate, drone mission, or production
+workload by itself. Use [Benchmarking](BENCHMARKING.md) for sampling,
+reproducibility, CI, and interpretation details.

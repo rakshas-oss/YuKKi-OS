@@ -76,6 +76,39 @@ If needed, select a DRM render node explicitly using `--ethosu-device /dev/dri/r
 - Keep client frame/payload limits at or below server `ProtocolLimits`. Task timeout must be `1..=300000` ms.
 - CPU fallback is only allowed where the request/task policy is marked safe; requesting a backend is not proof that backend was used. Inspect the response backend.
 
+## Browser-WASM benchmark bridge (BRK2 inference, not WSM1)
+
+The browser-WASM runner provides a second, benchmark-only route to the same
+broker. It builds and executes YuKKi-OS's local spatial module in Node's
+WebAssembly runtime, then optionally sends host-prepared numeric records from
+the multivariate fixture directly to the Overhauled BRK2 listener as ordinary
+inference tasks. This client does not use the YuKKi production GPU adapter,
+does not submit WSM1 task/lifecycle envelopes, and does not send executable
+Wasm modules to Overhauled.
+
+From the YuKKi-OS repository root, after building the browser module and
+starting a trusted CPU-only Overhauled broker on port 9090:
+
+~~~sh
+node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 9090 --broker-device cpu --output browser-wasm-brk2.json
+~~~
+
+Without `--broker-host`, the runner performs local WASM measurements only.
+With broker mode enabled, the report includes actual backend counts, selected
+GPU IDs, fallback count, and request latency. The response's BRK2 backend
+field is authoritative; a requested GPU/NPU preference is not proof of
+hardware use. BRK2 has no built-in authentication or TLS, so keep this
+benchmark endpoint on loopback, a trusted private network, or a separately
+secured proxy.
+
+This path validates a useful data-plane seam, not the complete application
+stack: it does not test the browser UI, gateway, Wasmtime guest lifecycle,
+streaming, NUMA scheduling, or physical accelerator qualification. YuKKi-OS
+continues to own system NUMA discovery and locality policy; Overhauled owns
+GPU topology, broker placement, and backend execution. The broker does not
+duplicate YuKKi-OS's NUMA subsystem.
+
+
 ## Conformance and live interoperability
 
 Both repositories carry the shared BRK1/BRK2 conformance corpus and language-specific runners. The live YuKKi-OS integration workflow builds the CPU-only C++ broker and exercises Rust lifecycle operations over its TCP listener in BRK1 and BRK2 modes. The Overhauled CPU-only CTest suite includes protocol, conformance, service, backend-dispatch, broker-server E2E, and other registered tests. These CI and simulator checks validate protocol/software behavior, not physical Ethos-U85 hardware.

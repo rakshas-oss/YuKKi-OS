@@ -451,6 +451,51 @@ For timing baselines use the same machine, toolchain, data, feature set and
 power profile. See [BENCHMARKING.md](BENCHMARKING.md) and
 [BENCHMARK_DRIVEN_DATASETS.md](BENCHMARK_DRIVEN_DATASETS.md).
 
+### 10.1. Verify the browser-WASM to BRK2 benchmark bridge
+
+This is an optional local qualification check, not a production service
+configuration. It uses a standalone Node benchmark client and a CPU-only
+Overhauled broker. It does not require enabling the YuKKi GPU adapter or
+WSM1 lifecycle mode.
+
+Assuming the two repositories are sibling directories, build the broker
+from the YuKKi-OS repository root (adjust the path if your checkout layout
+differs):
+
+~~~bash
+cmake -S ../overhauled -B ../overhauled/build-cpu -DCMAKE_BUILD_TYPE=Release -DBUILD_BROKER=ON -DENABLE_CUDA=OFF -DENABLE_TENSORRT=OFF
+cmake --build ../overhauled/build-cpu --parallel
+ctest --test-dir ../overhauled/build-cpu --output-on-failure
+~~~
+
+Start the broker in a separate terminal:
+
+~~~bash
+../overhauled/build-cpu/broker_server 9090 --cpu-only
+~~~
+
+Back in the YuKKi-OS root, build and run the benchmark:
+
+~~~bash
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 9090 --broker-device cpu --output browser-wasm-brk2.json
+~~~
+
+A successful run confirms that the local WASM workload completed and that
+the benchmark client received and validated correlated BRK2 broker responses.
+Inspect the JSON report for backend counts, selected GPU IDs, fallback count,
+and request latency. On the CPU-only configuration, the expected backend is
+CPU and selected GPU IDs should be empty. A different result should be
+investigated rather than normalized away.
+
+The benchmark's TCP protocol is not authenticated or encrypted. Keep the
+listener on loopback or a trusted, independently secured network. Do not
+expose it directly to the public internet. This check does not validate
+browser hosting, HTTP gateway behavior, WSM1 guest execution, NUMA scheduling,
+or physical GPU/NPU execution.
+
+
 ## 11. Health checks, logging and troubleshooting
 
 There is no built-in peer-mesh or gateway HTTP health endpoint and no
