@@ -80,6 +80,8 @@ The peer mesh and broker transports are separate:
 
 YuKKi-OS remains the control plane. Overhauled owns placement and execution, including the opt-in physical Ethos-U85 Linux DRM backend. BRK2 `device_preference=npu` is the existing NPU dispatch request.
 
+The browser-WASM benchmark has a separate, optional BRK2 measurement mode. The Node runner executes the local spatial WASM module and can submit host-prepared numeric fixture records directly to Overhauled as BRK2 inference requests. This mode does not use the production GPU adapter or wrap the records in WSM1; it measures a broker round trip, not guest compilation/execution or browser rendering. See [Benchmarking](docs/BENCHMARKING.md) and [Overhauled interoperability](docs/OVERHAULED_INTEROP.md).
+
 Default generic broker endpoint: `127.0.0.1:9000`.
 
 Generic broker boundary variables:
