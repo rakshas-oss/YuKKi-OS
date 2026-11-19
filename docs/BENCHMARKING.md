@@ -231,8 +231,10 @@ iteration and operation counts are capped to keep adversarial inputs bounded.
 The report also records the WASM binary size, Node runtime and architecture,
 dataset identifiers, domain labels, and source attribute names. The runner
 includes the JavaScript-to-WASM call boundary and reads returned values from
-WASM linear memory. It does not measure browser rendering, network I/O, gateway
-throughput, or the native node.
+WASM linear memory. Browser rendering, gateway throughput, and the native
+YuKKi-OS node are not measured. The optional BRK2 mode measures only the
+explicit broker TCP round trip; it does not imply WSM1 guest compilation or
+execution in Overhauled.
 
 ## 5. CI measurement behavior
 
