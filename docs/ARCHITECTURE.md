@@ -17,6 +17,17 @@ This is not a claim that YuKKi-OS currently implements a complete general-purpos
 
 This document describes the v6.13.0 release-candidate implementation. v6.12.0 is the last published baseline; the v6.13.0 tag remains pending CI and release qualification.
 
+### Full-colour system map
+
+![YuKKi-OS control and runtime architecture diagram](diagrams/yukkios-architecture.svg)
+
+The ANSI-inspired source SVG is paired with a terminal renderer:
+`bash docs/diagrams/print-ansi.sh`. This diagram is a responsibility map,
+not a claim that every library service is exposed through the node CLI or an
+HTTP endpoint. In particular, NUMA discovery and MPMC are primitives, not a
+fully integrated NUMA scheduler.
+
+
 ## Runtime topology
 
 YuKKi-OS runs as a control-plane mesh with two process roles:
