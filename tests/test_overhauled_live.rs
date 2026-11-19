@@ -8,8 +8,9 @@ use tokio::{
 
 use yukkios::gpu_adapter::{
     GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus, WasmTaskRequest,
-    WasmTaskStatus, WorkerClass, WorkerDirective,
+    WasmTaskStatus,
 };
+use yukkios::{WorkerClass, WorkerDirective};
 
 /// This test is activated only by the CI job that starts the real C++ broker.
 /// Local cargo test runs remain self-contained when the broker is not present.
