@@ -357,6 +357,7 @@ function encodeBrokerRequest(requestId, taskId, source, payload, device) {
   return Buffer.concat([prefix, frame]);
 }
 
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBytes, inputPayload) {
   if (frame.length < 32 || frame.toString("ascii", 0, 4) !== "BRK2" ||
       frame.readUInt8(4) !== 2 || frame.readUInt8(5) !== 0 ||
@@ -398,13 +399,13 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
     }
     return field.value;
   };
-  const responseTaskId = required(1, 8).toString("utf8");
+  const responseTaskId = strictUtf8.decode(required(1, 8));
   const status = required(2, 1, 1).readUInt8(0);
   const selectedGpu = required(3, 5, 8).readBigInt64BE(0);
   const latencyMs = required(4, 4, 8).readBigUInt64BE(0);
   const result = required(5, 9);
-  const error = required(6, 8).toString("utf8");
-  const backend = required(7, 8).toString("utf8");
+  const error = strictUtf8.decode(required(6, 8));
+  const backend = strictUtf8.decode(required(7, 8));
   if (responseTaskId !== taskId) throw new Error("BRK2 task ID mismatch");
   if (status !== 0) throw new Error("Broker task failed with status " + status + ": " + error);
   if (!["cpu", "gpu", "npu"].includes(backend)) throw new Error("Unknown broker backend " + backend);
@@ -542,6 +543,12 @@ async function main() {
     dataset_id: manifest.dataset_id,
     synthetic_data: manifest.synthetic === true,
     wasm_bytes: bytes.byteLength,
+    broker: options.brokerHost ? {
+      host: options.brokerHost,
+      port: options.brokerPort,
+      protocol: "BRK2",
+      device_preference: options.brokerDevice
+    } : null,
     commit_sha: process.env.GITHUB_SHA ?? null,
     execution_scope: {
       wasm: "local spatial computation in Node WebAssembly runtime",
