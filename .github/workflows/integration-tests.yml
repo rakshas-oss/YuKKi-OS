@@ -141,6 +141,13 @@ jobs:
           toolchain: 1.98.1
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build browser WASM benchmark module
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
       - name: Build the real CPU-only broker and BRK2 test
         run: |
           cmake -S overhauled -B overhauled/build \
@@ -176,6 +183,16 @@ jobs:
           done
           OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
           OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
+          node browser-wasm/bench/run.mjs --quick \
+            --broker-host 127.0.0.1 --broker-port 19090 --broker-device cpu \
+            --output /tmp/yukkios-wasm-brk2.json
+      - name: Upload live WASM-to-BRK2 qualification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukkios-wasm-brk2-interop
+          path: /tmp/yukkios-wasm-brk2.json
+          if-no-files-found: ignore
       - name: Run live BRK2 NPU execution and CPU fallback
         env:
           OVERHAULED_NPU_BROKER_ENDPOINT: 127.0.0.1:19091
