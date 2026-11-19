@@ -158,7 +158,13 @@ unrelated shared CI runners as a controlled before/after comparison.
 
 The browser runner benchmarks the actual compiled `wasm32-unknown-unknown`
 module under Node's WebAssembly runtime. It does not benchmark a native
-reimplementation of the spatial algorithms.
+reimplementation of the spatial algorithms. An optional live BRK2 mode also
+submits numeric attributes from the same host-side records used to populate
+the WASM spatial workload to an Overhauled broker. That mode measures the
+sequential TCP request/response path, validates correlation/status/backend and
+result bounds, and checks CPU output against the deterministic reference
+kernel. It is the benchmark's broker-interop qualification path; without
+`--broker-host`, the run remains local-only.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -175,6 +181,21 @@ node browser-wasm/bench/run.mjs \
   --dataset browser-wasm/bench/datasets/multivariate-v1.json \
   --quick
 ```
+
+To include the Overhauled broker in the same workload run, build and start its
+CPU-only broker on a trusted local endpoint, then run:
+
+```sh
+node browser-wasm/bench/run.mjs --quick \
+  --broker-host 127.0.0.1 --broker-port 9090 --broker-device cpu \
+  --output browser-wasm-brk2.json
+```
+
+The optional broker mode uses the existing BRK2 schema and does not change
+BRK1/BRK2/WSM1 wire layouts. It records actual backend counts, selected GPU
+IDs, fallback count, and request latency. BRK2 has no authentication or TLS;
+do not point this mode at an untrusted network listener. GPU/NPU preferences
+are requests, and the response backend remains authoritative.
 
 The runner measures:
 
@@ -200,9 +221,9 @@ path simplifier is iterative and bounded at 512 points; its report makes
 geometric reduction visible through retained-point count and reduction
 percentage while the tangent guard preserves sharp changes.
 
-The report explicitly marks this run as local WASM computation and records
-`broker_interoperability: false`; it does not claim TCP, BRK2/WSM1,
-broker placement, or accelerator execution. The runner validates manifest
+The report records whether broker interoperability was enabled. When disabled,
+it explicitly marks `broker_interoperability: false` and does not claim TCP,
+BRK2/WSM1, broker placement, or accelerator execution. The runner validates manifest
 bounds, dataset profile structure, finite spatial outputs, resolver success,
 and simplifier output bounds before accepting a benchmark report. CLI
 iteration and operation counts are capped to keep adversarial inputs bounded.
