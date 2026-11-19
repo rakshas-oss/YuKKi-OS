@@ -341,7 +341,7 @@ function encodeBrokerRequest(requestId, taskId, source, payload, device) {
   return Buffer.concat([prefix, frame]);
 }
 
-function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBytes) {
+function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBytes, inputPayload) {
   if (frame.length < 32 || frame.toString("ascii", 0, 4) !== "BRK2" ||
       frame.readUInt8(4) !== 2 || frame.readUInt8(5) !== 0 ||
       frame.readUInt16BE(6) !== 32 || frame.readUInt16BE(8) !== 4 ||
@@ -398,7 +398,15 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
     throw new Error("Broker result length does not match WASM workload");
   }
   for (let i = 0; i < result.length; i += 8) {
-    if (!Number.isFinite(result.readDoubleBE(i))) throw new Error("Broker result contains non-finite values");
+    const actual = result.readDoubleBE(i);
+    if (!Number.isFinite(actual)) throw new Error("Broker result contains non-finite values");
+    if (backend === "cpu") {
+      const expected = inputPayload.readDoubleBE(i) * 2;
+      const tolerance = Math.max(1, Math.abs(expected)) * 1e-12;
+      if (Math.abs(actual - expected) > tolerance) {
+        throw new Error("CPU broker result failed the reference-compute comparison");
+      }
+    }
   }
   return { backend, selected_gpu: Number(selectedGpu), latency_ms: Number(latencyMs), fallback: backend !== device };
 }
@@ -451,7 +459,7 @@ async function runBrokerWorkload(records, profile, options) {
       }
       const response = await readExact(responseLength);
       const telemetry = decodeBrokerResponse(response, requestId, taskId, options.brokerDevice,
-        8 * (2 + numericValues.length));
+        8 * (2 + numericValues.length), payload);
       samples.push(Number(process.hrtime.bigint() - started) / 1e6);
       backends[telemetry.backend] = (backends[telemetry.backend] ?? 0) + 1;
       if (telemetry.selected_gpu >= 0) gpuIds.add(telemetry.selected_gpu);
