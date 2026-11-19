@@ -361,14 +361,18 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
   if (frame.length < 32 || frame.toString("ascii", 0, 4) !== "BRK2" ||
       frame.readUInt8(4) !== 2 || frame.readUInt8(5) !== 0 ||
       frame.readUInt16BE(6) !== 32 || frame.readUInt16BE(8) !== 4 ||
-      (frame.readUInt16BE(10) & 1) === 0 || frame.readBigUInt64BE(12) !== requestId ||
+      (frame.readUInt16BE(10) & 1) === 0 || (frame.readUInt16BE(10) & ~7) !== 0 ||
+      frame.readBigUInt64BE(12) !== requestId ||
       frame.readUInt32BE(20) !== 2 || frame.readUInt16BE(24) !== 1 ||
       frame.readUInt16BE(26) !== 0 || frame.readUInt32BE(28) !== frame.length - 32) {
     throw new Error("Invalid BRK2 response envelope or correlation ID");
   }
   const fields = new Map();
+  let fieldCount = 0;
   let offset = 32;
   while (offset < frame.length) {
+    fieldCount += 1;
+    if (fieldCount > 4096) throw new Error("BRK2 response exceeds the TLV field limit");
     if (frame.length - offset < 8) throw new Error("Truncated BRK2 response TLV header");
     const id = frame.readUInt16BE(offset);
     const type = frame.readUInt8(offset + 2);
@@ -528,6 +532,10 @@ async function main() {
   const sizes = options.quick ? [16, 128] : manifest.limits.benchmark_sizes;
   if (iterations * operations * manifest.datasets.length * sizes.length > 5_000_000) {
     throw new Error("Requested benchmark workload exceeds the total operation budget");
+  }
+  if (options.brokerHost &&
+      manifest.datasets.length * sizes.reduce((sum, size) => sum + size, 0) > 4096) {
+    throw new Error("Requested broker workload exceeds the 4096-request qualification budget");
   }
   const report = {
     schema_version: 1,
