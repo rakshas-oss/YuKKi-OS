@@ -2684,7 +2684,7 @@ impl LifecycleClient {
             LifecycleWireMode::Json => serde_json::to_vec(task).map_err(GpuAdapterError::Serialization)?,
             LifecycleWireMode::Brk2 => {
                 let wsm1_bytes = encode_wsm1_task_request(task)?;
-                let default_directive = WorkerDirective::inference();
+                let default_directive = WorkerDirective::throughput();
                 let selected_directive = directive.unwrap_or(&default_directive);
                 let (id, frame) = encode_brk2_broker_request_with_worker_directive(
                     &task.task_id, "wasm.task.v1", task.priority,
