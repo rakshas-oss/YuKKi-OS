@@ -2,7 +2,46 @@
 
 ## Unreleased
 
-## v6.13.0 (release candidate; tag pending)
+## v6.13.1 (release candidate; tag pending)
+
+### Browser-WASM benchmark hardening
+
+- Added bounded CLI validation: at most 1,000 iterations, 1,024 operations
+  and the fixed 512-entity spatial capacity; broker ports and device
+  preferences are range/enum checked.
+- Hardened manifest, dataset and profile validation, including size ceilings,
+  IDs, finite spatial outputs, resolver success and simplifier result bounds.
+- Added an optional Node-to-Overhauled BRK2 benchmark leg. It sends
+  host-prepared numeric records as ordinary inference requests and verifies
+  response schema, request/task correlation, success status, backend identity,
+  selected-GPU consistency, output bounds and deterministic CPU results.
+- Reports now explicitly distinguish local-only Wasm measurements from live
+  broker interoperability. They do not claim WSM1 guest execution, browser
+  rendering, streaming, NUMA scheduling, or physical accelerator qualification
+  unless the relevant path is separately exercised.
+
+### Interoperability documentation and architecture maps
+
+- Clarified the browser-WASM benchmark bridge as direct BRK2 inference traffic,
+  separate from production WSM1 guest/task lifecycle operations.
+- Added step-by-step instructions for running the optional CPU-only broker
+  round trip and interpreting backend/fallback telemetry.
+- Added ANSI-inspired full-colour SVG architecture maps and terminal
+  renderers for both repositories, distinguishing library primitives from
+  daemon/HTTP features and preserving the YuKKi-OS/Overhauled responsibility
+  boundary.
+- Preserved YKMC, BRK1/BRK2, NXR1 and WSM1 wire contracts.
+
+### Release metadata and qualification
+
+- Bumped the native Cargo package/root lockfile, OCI image label, library
+  banner and version metadata assertion to 6.13.1.
+- v6.13.1 remains a candidate until required workflows pass and the release
+  commit is reviewed. v6.13.0 remains the latest published release.
+- Benchmark improvements are qualification-tool improvements; no universal
+  throughput, latency, power or OPEX gain is claimed.
+
+## v6.13.0 (published 2026-11-18)
 
 ### Native composed WebAssembly programs
 
