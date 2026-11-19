@@ -435,9 +435,20 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
 async function runBrokerWorkload(records, profile, options) {
   const socket = createConnection({ host: options.brokerHost, port: options.brokerPort });
   await new Promise((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", reject);
+    const connectTimer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("BRK2 broker connection timed out"));
+    }, 5000);
+    socket.once("connect", () => {
+      clearTimeout(connectTimer);
+      resolve();
+    });
+    socket.once("error", error => {
+      clearTimeout(connectTimer);
+      reject(error);
+    });
   });
+  socket.setNoDelay(true);
   socket.setTimeout(15000, () => socket.destroy(new Error("BRK2 benchmark socket timed out")));
   const iterator = socket[Symbol.asyncIterator]();
   let buffered = Buffer.alloc(0);
