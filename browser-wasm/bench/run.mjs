@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { createConnection } from "node:net";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const MAX_ITERATIONS = 1000;
@@ -23,7 +24,10 @@ const defaults = {
   output: null,
   iterations: null,
   operations: null,
-  quick: false
+  quick: false,
+  brokerHost: null,
+  brokerPort: 9090,
+  brokerDevice: "cpu"
 };
 
 function parseArgs(argv) {
@@ -31,6 +35,19 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--quick") options.quick = true;
+    else if (["--broker-host", "--broker-port", "--broker-device"].includes(arg)) {
+      if (!argv[i + 1]) throw new Error("Missing value for " + arg);
+      const value = argv[++i];
+      if (arg === "--broker-host") options.brokerHost = value;
+      else if (arg === "--broker-port") {
+        const port = Number(value);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("--broker-port must be in 1..65535");
+        options.brokerPort = port;
+      } else {
+        if (!["cpu", "gpu", "npu"].includes(value)) throw new Error("--broker-device must be cpu, gpu, or npu");
+        options.brokerDevice = value;
+      }
+    }
     else if (["--dataset", "--wasm", "--output", "--iterations", "--operations"].includes(arg)) {
       if (!argv[i + 1]) throw new Error("Missing value for " + arg);
       const value = argv[++i];
@@ -283,6 +300,179 @@ function validateManifest(manifest) {
   }
 }
 
+function encodeTlv(fieldId, wireType, flags, value) {
+  const header = Buffer.alloc(8);
+  header.writeUInt16BE(fieldId, 0);
+  header.writeUInt8(wireType, 2);
+  header.writeUInt8(flags, 3);
+  header.writeUInt32BE(value.length, 4);
+  return Buffer.concat([header, value]);
+}
+
+function encodeBrokerRequest(requestId, taskId, source, payload, device) {
+  const u8 = Buffer.from([5]);
+  const timeout = Buffer.alloc(4);
+  timeout.writeUInt32BE(10000, 0);
+  const body = Buffer.concat([
+    encodeTlv(1, 8, 1, Buffer.from(taskId)),
+    encodeTlv(2, 8, 1, Buffer.from(source)),
+    encodeTlv(3, 8, 1, Buffer.from("overhauled")),
+    encodeTlv(4, 8, 1, Buffer.from("inference")),
+    encodeTlv(5, 1, 1, u8),
+    encodeTlv(6, 3, 1, timeout),
+    encodeTlv(7, 9, 1, payload),
+    encodeTlv(10, 8, 0, Buffer.from(device))
+  ]);
+  const header = Buffer.alloc(32);
+  header.write("BRK2", 0, "ascii");
+  header.writeUInt8(2, 4);
+  header.writeUInt8(0, 5);
+  header.writeUInt16BE(32, 6);
+  header.writeUInt16BE(3, 8);
+  header.writeUInt16BE(0, 10);
+  header.writeBigUInt64BE(requestId, 12);
+  header.writeUInt32BE(1, 20);
+  header.writeUInt16BE(1, 24);
+  header.writeUInt16BE(0, 26);
+  header.writeUInt32BE(body.length, 28);
+  const frame = Buffer.concat([header, body]);
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32BE(frame.length, 0);
+  return Buffer.concat([prefix, frame]);
+}
+
+function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBytes) {
+  if (frame.length < 32 || frame.toString("ascii", 0, 4) !== "BRK2" ||
+      frame.readUInt8(4) !== 2 || frame.readUInt8(5) !== 0 ||
+      frame.readUInt16BE(6) !== 32 || frame.readUInt16BE(8) !== 4 ||
+      (frame.readUInt16BE(10) & 1) === 0 || frame.readBigUInt64BE(12) !== requestId ||
+      frame.readUInt32BE(20) !== 2 || frame.readUInt16BE(24) !== 1 ||
+      frame.readUInt16BE(26) !== 0 || frame.readUInt32BE(28) !== frame.length - 32) {
+    throw new Error("Invalid BRK2 response envelope or correlation ID");
+  }
+  const fields = new Map();
+  let offset = 32;
+  while (offset < frame.length) {
+    if (frame.length - offset < 8) throw new Error("Truncated BRK2 response TLV header");
+    const id = frame.readUInt16BE(offset);
+    const type = frame.readUInt8(offset + 2);
+    const flags = frame.readUInt8(offset + 3);
+    const length = frame.readUInt32BE(offset + 4);
+    offset += 8;
+    if ((flags & ~3) !== 0 || type < 1 || type > 12 || length > frame.length - offset) {
+      throw new Error("Invalid BRK2 response TLV");
+    }
+    if (id < 1 || id > 7) {
+      if ((flags & 1) !== 0) throw new Error("Unknown critical BRK2 response field " + id);
+      offset += length;
+      continue;
+    }
+    if (fields.has(id)) throw new Error("Duplicate BRK2 response field " + id);
+    fields.set(id, { type, value: frame.subarray(offset, offset + length) });
+    offset += length;
+  }
+  const required = (id, type, size = null) => {
+    const field = fields.get(id);
+    if (!field || field.type !== type || (size !== null && field.value.length !== size)) {
+      throw new Error("Missing or invalid BRK2 response field " + id);
+    }
+    return field.value;
+  };
+  const responseTaskId = required(1, 8).toString("utf8");
+  const status = required(2, 1, 1).readUInt8(0);
+  const selectedGpu = required(3, 5, 8).readBigInt64BE(0);
+  const latencyMs = required(4, 4, 8).readBigUInt64BE(0);
+  const result = required(5, 9);
+  const error = required(6, 8).toString("utf8");
+  const backend = required(7, 8).toString("utf8");
+  if (responseTaskId !== taskId) throw new Error("BRK2 task ID mismatch");
+  if (status !== 0) throw new Error("Broker task failed with status " + status + ": " + error);
+  if (!["cpu", "gpu", "npu"].includes(backend)) throw new Error("Unknown broker backend " + backend);
+  if ((backend === "gpu" && selectedGpu < 0n) || (backend !== "gpu" && selectedGpu !== -1n)) {
+    throw new Error("Broker backend and selected_gpu telemetry disagree");
+  }
+  if (backend !== device && backend !== "cpu") {
+    throw new Error("Requested " + device + " but broker reported " + backend);
+  }
+  if (result.length !== expectedResultBytes || result.length % 8 !== 0) {
+    throw new Error("Broker result length does not match WASM workload");
+  }
+  for (let i = 0; i < result.length; i += 8) {
+    if (!Number.isFinite(result.readDoubleBE(i))) throw new Error("Broker result contains non-finite values");
+  }
+  return { backend, selected_gpu: Number(selectedGpu), latency_ms: Number(latencyMs), fallback: backend !== device };
+}
+
+async function runBrokerWorkload(records, profile, options) {
+  const socket = createConnection({ host: options.brokerHost, port: options.brokerPort });
+  await new Promise((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
+  socket.setTimeout(15000, () => socket.destroy(new Error("BRK2 benchmark socket timed out")));
+  const iterator = socket[Symbol.asyncIterator]();
+  let buffered = Buffer.alloc(0);
+  async function readExact(size) {
+    while (buffered.length < size) {
+      const next = await iterator.next();
+      if (next.done) throw new Error("Broker closed the connection mid-response");
+      buffered = Buffer.concat([buffered, next.value]);
+    }
+    const value = buffered.subarray(0, size);
+    buffered = buffered.subarray(size);
+    return value;
+  }
+  const samples = [];
+  const backends = {};
+  const gpuIds = new Set();
+  let fallbackCount = 0;
+  try {
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index];
+      const numericValues = Object.values(record.attributes).filter(value =>
+        typeof value === "number" && Number.isFinite(value));
+      if (numericValues.length === 0) throw new Error("WASM profile has no numeric attributes for broker qualification");
+      const payload = Buffer.alloc(16 + numericValues.length * 8);
+      payload.writeBigUInt64BE(BigInt(index + 1), 0);
+      payload.writeBigUInt64BE(BigInt(record.timestamp_ns), 8);
+      numericValues.forEach((value, i) => payload.writeDoubleBE(value, 16 + i * 8));
+      const requestId = BigInt(index + 1);
+      const taskId = "wasm-bench-" + profile.seed + "-" + (index + 1);
+      const frame = encodeBrokerRequest(requestId, taskId, "browser-wasm-" + profile.id,
+        payload, options.brokerDevice);
+      await new Promise((resolve, reject) => {
+        socket.write(frame, error => error ? reject(error) : resolve());
+      });
+      const prefix = await readExact(4);
+      const responseLength = prefix.readUInt32BE(0);
+      if (responseLength < 32 || responseLength > 16 * 1024 * 1024) {
+        throw new Error("BRK2 response length outside benchmark bounds");
+      }
+      const response = await readExact(responseLength);
+      const started = process.hrtime.bigint();
+      const telemetry = decodeBrokerResponse(response, requestId, taskId, options.brokerDevice,
+        8 * (2 + numericValues.length));
+      samples.push(Number(process.hrtime.bigint() - started) / 1e6);
+      backends[telemetry.backend] = (backends[telemetry.backend] ?? 0) + 1;
+      if (telemetry.selected_gpu >= 0) gpuIds.add(telemetry.selected_gpu);
+      fallbackCount += Number(telemetry.fallback);
+    }
+  } finally {
+    socket.end();
+  }
+  const sorted = [...samples].sort((a, b) => a - b);
+  const mean = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
+  return {
+    protocol: "BRK2",
+    requests: samples.length,
+    mean_response_validation_ms: Number(mean.toFixed(6)),
+    p95_response_validation_ms: Number(quantile(sorted, 0.95).toFixed(6)),
+    actual_backend_counts: backends,
+    selected_gpu_ids: [...gpuIds].sort((a, b) => a - b),
+    fallback_requests: fallbackCount
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const manifest = JSON.parse(await readFile(options.dataset, "utf8"));
@@ -322,8 +512,10 @@ async function main() {
     commit_sha: process.env.GITHUB_SHA ?? null,
     execution_scope: {
       wasm: "local spatial computation in Node WebAssembly runtime",
-      broker_interoperability: false,
-      note: "This report does not measure TCP, BRK2/WSM1, broker placement, or GPU/NPU execution."
+      broker_interoperability: Boolean(options.brokerHost),
+      note: options.brokerHost
+        ? "Local spatial WASM plus host-prepared numeric records submitted to the Overhauled BRK2 broker."
+        : "This report does not measure TCP, BRK2/WSM1, broker placement, or GPU/NPU execution."
     },
     runtime: {
       node: process.version,
@@ -482,7 +674,10 @@ async function main() {
         entity_count: count,
         source_attributes: profile.attributes.map(attribute => attribute.name),
         source_record_attribute_count: profile.attributes.length,
-        benchmark_results: results
+        benchmark_results: results,
+        broker_interop: options.brokerHost
+          ? await runBrokerWorkload(records, profile, options)
+          : null
       });
     }
   }
