@@ -319,7 +319,28 @@ Do not infer an environmental field estimate, financial forecast, portfolio
 risk, or safe drone trajectory from these microbenchmarks. They measure code
 paths and geometric reduction, not domain-model validity or operational safety.
 
-## 7. Related documentation
+## 7. Composition replica measurements
+
+The composition runtime exposes per-replica service-time EWMA, completed-call
+count and active-call count. For a representative workload, record the
+manifest and artifact SHA-256 digests, number of programs/replicas,
+`stateless` declaration, runtime/toolchain, host CPU and memory, logical-key
+distribution, concurrency and warm-up policy.
+
+Compare one replica with the intended pool at identical guest inputs and
+concurrency. Report throughput, p50/p95/p99 latency, per-replica service-time
+EWMA, active calls, ProgramSaturated responses, CPU use and memory footprint.
+Include an even key distribution, a hot-key/skewed distribution, and the
+all-replicas-busy case. Replica count is a concurrency ceiling, not a promise
+of linear scaling; each replica has a separate Store and instance graph.
+
+The routing constants (7/8 EWMA, 25% penalty for non-preferred logical shards)
+are heuristics to evaluate, not performance guarantees. Fuel is an
+instruction budget rather than a wall-clock timeout. Do not claim reduced
+latency, higher throughput or energy savings without controlled measurement
+against the same guest workload and host.
+
+## 8. Related documentation
 
 - [Browser spatial and multivariate data how-to](USER_HOWTO_MMO.md) — usage and
   ingestion patterns for drones, finance, environmental and other datasets.
