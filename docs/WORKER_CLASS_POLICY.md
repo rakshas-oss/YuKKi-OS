@@ -94,8 +94,10 @@ application-specific deadline/key must be supplied by the embedding
 application.
 
 The existing `submit_wsm1_task` remains available. In BRK2 mode it defaults
-to the Inference class; in BRK1/raw WSM1 modes it preserves legacy framing and
-does not transmit a worker directive. Lifecycle operations sent over BRK2 use
+to the Throughput class because a generic WSM1 task is not necessarily model
+inference. Callers that know a task is inference must send an explicit
+`WorkerDirective::inference()`. In BRK1/raw WSM1 modes the API preserves legacy
+framing and does not transmit a worker directive. Lifecycle operations sent over BRK2 use
 the Control class.
 
 ## What the broker does with the directive
