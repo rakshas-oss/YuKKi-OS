@@ -161,9 +161,21 @@ pub fn validate_known_fields(m:&Message,known:&[(u16,WireType,bool)])->Result<()
     for (id,_,required) in known{if *required&&m.field(*id).is_none(){return Err(Error::MissingField(*id))}}Ok(())
 }
 
-pub mod request_field {pub const TASK_ID:u16=1;pub const SOURCE:u16=2;pub const DESTINATION:u16=3;pub const KIND:u16=4;pub const PRIORITY:u16=5;pub const TIMEOUT_MS:u16=6;pub const PAYLOAD:u16=7;pub const IDEMPOTENCY_KEY:u16=8;pub const DEADLINE_UNIX_NS:u16=9;pub const DEVICE_PREFERENCE:u16=10;}
+pub mod request_field {
+    pub const TASK_ID:u16=1; pub const SOURCE:u16=2; pub const DESTINATION:u16=3;
+    pub const KIND:u16=4; pub const PRIORITY:u16=5; pub const TIMEOUT_MS:u16=6;
+    pub const PAYLOAD:u16=7; pub const IDEMPOTENCY_KEY:u16=8; pub const DEADLINE_UNIX_NS:u16=9;
+    pub const DEVICE_PREFERENCE:u16=10; pub const WORKER_CLASS:u16=11;
+    pub const SPATIAL_AFFINITY_KEY:u16=12; pub const PREFERRED_NUMA_NODE:u16=13;
+}
 #[derive(Debug,Clone,PartialEq,Eq)]
-pub struct BrokerRequest {pub task_id:String,pub source:String,pub destination:String,pub kind:String,pub priority:u8,pub timeout_ms:u32,pub payload:Vec<u8>,pub idempotency_key:Option<[u8;16]>,pub deadline_unix_ns:Option<u64>,pub device_preference:Option<String>}
+pub struct BrokerRequest {
+    pub task_id:String, pub source:String, pub destination:String, pub kind:String,
+    pub priority:u8, pub timeout_ms:u32, pub payload:Vec<u8>,
+    pub idempotency_key:Option<[u8;16]>, pub deadline_unix_ns:Option<u64>,
+    pub device_preference:Option<String>, pub worker_class:Option<String>,
+    pub spatial_affinity_key:Option<u64>, pub preferred_numa_node:Option<u32>,
+}
 impl BrokerRequest {
     pub fn to_message(&self,request_id:u64)->Message{let mut m=Message::new(Header::new(MSG_REQUEST,request_id,SCHEMA_BROKER_REQUEST,1));
         m.push(Field::utf8(1,&self.task_id).critical());m.push(Field::utf8(2,&self.source).critical());m.push(Field::utf8(3,&self.destination).critical());m.push(Field::utf8(4,&self.kind).critical());
@@ -171,25 +183,56 @@ impl BrokerRequest {
         if let Some(v)=self.idempotency_key{m.push(Field::uuid(8,v));}
         if let Some(v)=self.deadline_unix_ns{m.push(Field::u64(9,v));}
         if let Some(v)=&self.device_preference{m.push(Field::utf8(10,v));}
+        if let Some(v)=&self.worker_class{m.push(Field::utf8(11,v));}
+        if let Some(v)=self.spatial_affinity_key{m.push(Field::u64(12,v));}
+        if let Some(v)=self.preferred_numa_node{m.push(Field::u32(13,v));}
         m
     }
     pub fn from_message(m:&Message)->Result<Self,Error>{
         if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("not a BrokerRequest"))}
-        let schema=[(1,WireType::Utf8,true),(2,WireType::Utf8,true),(3,WireType::Utf8,true),(4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),(7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false),(10,WireType::Utf8,false)];
+        let schema=[
+            (1,WireType::Utf8,true),(2,WireType::Utf8,true),(3,WireType::Utf8,true),
+            (4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),
+            (7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false),
+            (10,WireType::Utf8,false),(11,WireType::Utf8,false),(12,WireType::U64,false),
+            (13,WireType::U32,false)
+        ];
         validate_known_fields(m,&schema)?;
         let s=|id:u16|->Result<String,Error>{Ok(std::str::from_utf8(&m.field(id).unwrap().value).map_err(|_|Error::InvalidUtf8(id))?.to_owned())};
         let task_id=s(1)?;let source=s(2)?;let destination=s(3)?;let kind=s(4)?;
         for (name,v) in [("task_id",&task_id),("source",&source),("destination",&destination),("kind",&kind)]{if v.trim().is_empty(){return Err(Error::InvalidValue(name))}}
         let timeout_ms=u32::from_be_bytes(m.field(6).unwrap().value[..4].try_into().unwrap());if timeout_ms==0{return Err(Error::InvalidValue("timeout_ms must be nonzero"))}
         let device_preference = m.field(10).map(|f| {std::str::from_utf8(&f.value).map(|value| value.to_owned()).map_err(|_| Error::InvalidUtf8(10))}).transpose()?;
-        Ok(Self{task_id,source,destination,kind,priority:m.field(5).unwrap().value[0],timeout_ms,payload:m.field(7).unwrap().value.clone(),idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),deadline_unix_ns:m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap())),device_preference})
+        let worker_class = m.field(11).map(|f| {
+            std::str::from_utf8(&f.value).map(|value| value.to_owned()).map_err(|_| Error::InvalidUtf8(11))
+        }).transpose()?;
+        if let Some(value) = &worker_class {
+            if !matches!(value.as_str(), "control"|"realtime-spatial"|"throughput"|"exact-cpu"|"inference") {
+                return Err(Error::InvalidValue("unknown worker_class"));
+            }
+        }
+        let spatial_affinity_key = m.field(12).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap()));
+        let preferred_numa_node = m.field(13).map(|f|u32::from_be_bytes(f.value[..4].try_into().unwrap()));
+        let deadline_unix_ns = m.field(9).map(|f|u64::from_be_bytes(f.value[..8].try_into().unwrap()));
+        if deadline_unix_ns == Some(0) || deadline_unix_ns.is_some_and(|v| v > i64::MAX as u64) {
+            return Err(Error::InvalidValue("deadline_unix_ns is outside the supported range"));
+        }
+        if worker_class.as_deref() == Some("realtime-spatial") && spatial_affinity_key.is_none() {
+            return Err(Error::InvalidValue("realtime-spatial requires spatial_affinity_key"));
+        }
+        Ok(Self{
+            task_id,source,destination,kind,priority:m.field(5).unwrap().value[0],
+            timeout_ms,payload:m.field(7).unwrap().value.clone(),
+            idempotency_key:m.field(8).map(|f|f.value.as_slice().try_into().unwrap()),
+            deadline_unix_ns,device_preference,worker_class,spatial_affinity_key,preferred_numa_node
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:None,device_preference:None}.to_message(0x0102030405060708)}
+  fn sample()->Message{BrokerRequest{task_id:"t-1".into(),source:"yukki".into(),destination:"broker".into(),kind:"inference".into(),priority:4,timeout_ms:5000,payload:vec![0,1,255],idempotency_key:None,deadline_unix_ns:None,device_preference:None,worker_class:None,spatial_affinity_key:None,preferred_numa_node:None}.to_message(0x0102030405060708)}
   #[test]fn round_trip_and_endian(){let m=sample();let b=encode(&m,Limits::default()).unwrap();assert_eq!(&b[4..8],b"BRK2");assert_eq!(&b[16..24],&0x0102030405060708u64.to_be_bytes());let decoded=decode(&b,Limits::default()).unwrap();assert_eq!(decoded.header.request_id,0x0102030405060708);assert_eq!(decoded.header.message_type,MSG_REQUEST);}
   #[test]fn request_schema_round_trip(){let m=sample();let r=BrokerRequest::from_message(&m).unwrap();assert_eq!(r.task_id,"t-1");assert_eq!(r.payload,vec![0,1,255]);}
   #[test]fn rejects_invalid_device_preference_utf8(){let mut m=sample();m.push(Field::new(10,WireType::Utf8,vec![0xff]));assert_eq!(BrokerRequest::from_message(&m), Err(Error::InvalidUtf8(10)));}
