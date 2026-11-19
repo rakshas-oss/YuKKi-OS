@@ -29,9 +29,18 @@ ring. It prioritizes bounded memory, explicit shutdown, and auditable
 correctness over lock-free progress. It is a correctness baseline, not yet
 a tuned scheduler or NUMA-local work-stealing runtime.
 
-## Remaining scheduler work
+## Broker worker-class integration
 
-The primitives are not yet wired into task admission or the Overhauled broker.
-Thread affinity, node-local allocation, per-node worker pools, remote stealing,
-queue telemetry, and workload benchmarks remain follow-up work. Browser WASM
-guests receive no host NUMA handles or direct host memory access.
+The YuKKi topology snapshot and bounded MPMC queue remain independent library
+primitives; the new broker directive does not silently wire either primitive
+into the generic task-admission path. Instead, `worker_policy` can forward a
+logical affinity key and optional preferred NUMA node to Overhauled through
+optional BRK2 fields. Overhauled independently discovers the CPU topology
+visible to its process and attempts worker-thread affinity on Linux. It returns
+the NUMA node only when pinning succeeds.
+
+The broker worker fabric now has isolated FIFO pools per worker class and
+returns queue/service telemetry. It is not a lock-free work-stealing runtime,
+does not bind allocations, and does not give browser WASM guests host NUMA
+handles or direct host memory access. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md)
+for the YuKKi side of the boundary.
