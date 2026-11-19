@@ -147,6 +147,15 @@ function makeRecords(profile, count) {
     for (const rule of profile.attributes) {
       attributes[rule.name] = attributeValue(rule, i);
     }
+    if (!Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
+        !Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+      throw new Error("Generated benchmark coordinate is outside WGS84 bounds");
+    }
+    for (const value of Object.values(attributes)) {
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        throw new Error("Generated benchmark attribute is non-finite");
+      }
+    }
     records.push({
       id: profile.seed * 100000 + i + 1,
       latitude_deg: latitude,
@@ -167,11 +176,12 @@ function makePath(profile, count, stepDegrees) {
   for (let i = 0; i < count; i += 1) {
     const northSteps = Math.min(i, midpoint);
     const eastSteps = Math.max(0, i - midpoint);
-    points.push({
-      latitude_deg: origin.latitude_deg + northSteps * stepDegrees,
-      longitude_deg: origin.longitude_deg + eastSteps * stepDegrees,
-      altitude_m: origin.altitude_m
-    });
+    const latitude = origin.latitude_deg + northSteps * stepDegrees;
+    const longitude = origin.longitude_deg + eastSteps * stepDegrees;
+    if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      throw new Error("Generated benchmark path is outside WGS84 bounds");
+    }
+    points.push({ latitude_deg: latitude, longitude_deg: longitude, altitude_m: origin.altitude_m });
   }
   return points;
 }
@@ -243,7 +253,8 @@ function validateManifest(manifest) {
   const positive = ["iterations", "operations_per_sample", "maximum_distance_m",
     "path_step_degrees", "path_tolerance_m"];
   for (const key of positive) {
-    if (!Number.isFinite(defaults?.[key]) || defaults[key] <= 0) {
+    if (!Number.isFinite(defaults?.[key]) || defaults[key] <= 0 ||
+        ((key === "iterations" || key === "operations_per_sample") && !Number.isInteger(defaults[key]))) {
       throw new Error("Invalid " + key);
     }
   }
@@ -254,7 +265,9 @@ function validateManifest(manifest) {
       BigInt(defaults.maximum_observation_age_ns) > u64Max ||
       defaults.iterations > MAX_ITERATIONS || defaults.operations_per_sample > MAX_OPERATIONS ||
       !Number.isFinite(defaults.bounding_box_padding_degrees) ||
-      defaults.bounding_box_padding_degrees <= 0 ||
+      defaults.bounding_box_padding_degrees <= 0 || defaults.bounding_box_padding_degrees > 180 ||
+      defaults.maximum_distance_m > 1e7 || defaults.path_step_degrees > 1 ||
+      defaults.path_tolerance_m > 1e6 ||
       !Number.isFinite(defaults.path_max_turn_degrees) ||
       defaults.path_max_turn_degrees <= 0 || defaults.path_max_turn_degrees > 180) {
     throw new Error("Browser benchmark runner defaults exceed supported bounds");
@@ -287,8 +300,11 @@ function validateManifest(manifest) {
           names.has(attribute.name)) throw new Error("Invalid or duplicate dataset attribute");
       names.add(attribute.name);
       if (attribute.kind === "linear") {
-        if (!Number.isFinite(attribute.base) || !Number.isFinite(attribute.step))
+        if (!Number.isFinite(attribute.base) || !Number.isFinite(attribute.step) ||
+            Math.abs(attribute.base) > 1e12 || Math.abs(attribute.step) > 1e9 ||
+            !Number.isFinite(attribute.base + attribute.step * MAX_ENTITIES)) {
           throw new Error("Invalid linear attribute generator");
+        }
       } else if (attribute.kind === "categorical") {
         if (!Array.isArray(attribute.values) || attribute.values.length < 1 ||
             attribute.values.length > 256) throw new Error("Invalid categorical attribute generator");
