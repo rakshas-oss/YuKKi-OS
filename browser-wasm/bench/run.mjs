@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const MAX_ITERATIONS = 10000;
-const MAX_OPERATIONS = 4096;
+const MAX_ITERATIONS = 1000;
+const MAX_OPERATIONS = 1024;
 const MAX_ENTITIES = 512;
 const defaults = {
   dataset: resolve(scriptDir, "datasets/multivariate-v1.json"),
@@ -230,9 +230,11 @@ function validateManifest(manifest) {
       throw new Error("Invalid " + key);
     }
   }
+  const u64Max = (1n << 64n) - 1n;
   if (typeof defaults.maximum_observation_age_ns !== "string" ||
       !/^[0-9]+$/.test(defaults.maximum_observation_age_ns) ||
       BigInt(defaults.maximum_observation_age_ns) <= 0n ||
+      BigInt(defaults.maximum_observation_age_ns) > u64Max ||
       defaults.iterations > MAX_ITERATIONS || defaults.operations_per_sample > MAX_OPERATIONS ||
       !Number.isFinite(defaults.bounding_box_padding_degrees) ||
       defaults.bounding_box_padding_degrees <= 0 ||
@@ -243,15 +245,21 @@ function validateManifest(manifest) {
   const ids = new Set();
   for (const profile of manifest.datasets) {
     if (!profile || typeof profile.id !== "string" || !profile.id || ids.has(profile.id) ||
-        !Number.isSafeInteger(profile.seed) || !profile.origin ||
+        !Number.isSafeInteger(profile.seed) || profile.seed < 0 ||
+        profile.seed > Math.floor((Number.MAX_SAFE_INTEGER - MAX_ENTITIES) / 100000) || !profile.origin ||
         !Number.isFinite(profile.origin.latitude_deg) || Math.abs(profile.origin.latitude_deg) > 90 ||
         !Number.isFinite(profile.origin.longitude_deg) || Math.abs(profile.origin.longitude_deg) > 180 ||
-        !Number.isFinite(profile.origin.altitude_m) || !Number.isFinite(profile.grid_step_degrees) ||
-        profile.grid_step_degrees <= 0 || !Number.isFinite(profile.jitter_degrees) ||
-        profile.jitter_degrees < 0 || !Number.isFinite(profile.radius_m) || profile.radius_m <= 0 ||
+        !Number.isFinite(profile.origin.altitude_m) || Math.abs(profile.origin.altitude_m) > 1e7 ||
+        !Number.isFinite(profile.grid_step_degrees) || profile.grid_step_degrees <= 0 ||
+        profile.grid_step_degrees > 1 || !Number.isFinite(profile.jitter_degrees) ||
+        profile.jitter_degrees < 0 || profile.jitter_degrees > 1 ||
+        !Number.isFinite(profile.radius_m) || profile.radius_m <= 0 || profile.radius_m > 1e7 ||
         typeof profile.base_timestamp_ns !== "string" || !/^[0-9]+$/.test(profile.base_timestamp_ns) ||
         typeof profile.timestamp_interval_ns !== "string" || !/^[0-9]+$/.test(profile.timestamp_interval_ns) ||
-        BigInt(profile.timestamp_interval_ns) <= 0n || !Array.isArray(profile.attributes) ||
+        BigInt(profile.timestamp_interval_ns) <= 0n || BigInt(profile.base_timestamp_ns) > u64Max ||
+        BigInt(profile.timestamp_interval_ns) > u64Max || BigInt(profile.base_timestamp_ns) +
+          BigInt(profile.timestamp_interval_ns) * BigInt(MAX_ENTITIES + 2) > u64Max ||
+        !Array.isArray(profile.attributes) ||
         profile.attributes.length < 1 || profile.attributes.length > 64) {
       throw new Error("Invalid or duplicate browser benchmark dataset profile");
     }
@@ -303,6 +311,9 @@ async function main() {
   const iterations = options.iterations ?? (options.quick ? 4 : runnerConfig.iterations);
   const operations = options.operations ?? (options.quick ? 16 : runnerConfig.operations_per_sample);
   const sizes = options.quick ? [16, 128] : manifest.limits.benchmark_sizes;
+  if (iterations * operations * manifest.datasets.length * sizes.length > 5_000_000) {
+    throw new Error("Requested benchmark workload exceeds the total operation budget");
+  }
   const report = {
     schema_version: 1,
     dataset_id: manifest.dataset_id,
