@@ -1,7 +1,7 @@
 # Benchmarking YuKKi-OS
 
 This guide describes the native Criterion suites and the browser-WASM
-measurement runner introduced for v6.12.0 and retained in the v6.13.0 release candidate. Benchmark inputs are
+measurement runner introduced for v6.12.0 and retained in the published v6.13.0 baseline and v6.13.1 patch candidate. Benchmark inputs are
 fixture-driven: source datasets live in versioned JSON files, and benchmark
 code consumes those fixtures instead of maintaining independent hard-coded
 sample values.
@@ -340,7 +340,41 @@ instruction budget rather than a wall-clock timeout. Do not claim reduced
 latency, higher throughput or energy savings without controlled measurement
 against the same guest workload and host.
 
-## 8. Related documentation
+## 8. Browser-WASM validation and optional BRK2 benchmark leg
+
+The browser runner executes the actual `wasm32-unknown-unknown` spatial module
+under Node's WebAssembly runtime. Before reporting a result it validates
+manifest/profile structure, finite spatial outputs, resolver success and
+simplifier index/capacity bounds. The CLI caps iterations at 1,000, operations
+at 1,024, and uses the fixed 512-entity spatial store.
+
+Local-only mode measures WASM code paths. It does **not** imply TCP, BRK2,
+WSM1, broker placement or accelerator execution. The JSON report records
+`broker_interoperability: false` when the broker leg is disabled.
+
+For an optional live broker round trip, build and start a CPU-only Overhauled
+broker on a trusted local endpoint, then run from the YuKKi-OS root:
+
+```sh
+node browser-wasm/bench/run.mjs --quick \
+  --broker-host 127.0.0.1 --broker-port 9090 --broker-device cpu \
+  --output browser-wasm-brk2.json
+```
+
+The broker mode sends host-prepared numeric records as ordinary BRK2 inference
+requests. It does not submit Wasm bytecode, use the production WSM1 lifecycle
+adapter, or execute the spatial module inside Overhauled. The runner validates
+BRK2 response schema, request/task correlation, successful status, backend
+identity, selected-GPU consistency, result bounds and deterministic CPU output.
+Reports include actual backend counts, selected GPU IDs and fallback counts.
+
+The broker protocol has no built-in authentication or TLS. Keep this
+qualification listener on loopback or an independently secured trusted
+network. This benchmark leg does not test browser rendering, gateway
+streaming, NUMA scheduling, or physical GPU/NPU qualification. Inspect the
+scope fields in the JSON report before comparing runs.
+
+## 9. Related documentation
 
 - [Browser spatial and multivariate data how-to](USER_HOWTO_MMO.md) — usage and
   ingestion patterns for drones, finance, environmental and other datasets.
