@@ -136,6 +136,9 @@ impl WorkerDirective {
         if self.deadline_unix_ns == Some(0) {
             return Err("deadline_unix_ns must be nonzero");
         }
+        if self.deadline_unix_ns.is_some_and(|value| value > i64::MAX as u64) {
+            return Err("deadline_unix_ns exceeds the supported Unix clock range");
+        }
         if self.worker_class == WorkerClass::RealtimeSpatial && self.spatial_affinity_key.is_none() {
             return Err("realtime-spatial directives require a spatial_affinity_key");
         }
@@ -180,6 +183,13 @@ mod tests {
             preferred_numa_node: Some(2),
             deadline_unix_ns: Some(1),
         };
+        assert!(directive.validate().is_err());
+    }
+
+    #[test]
+    fn directive_rejects_deadline_outside_signed_unix_nanosecond_range() {
+        let mut directive = WorkerDirective::inference();
+        directive.deadline_unix_ns = Some(u64::MAX);
         assert!(directive.validate().is_err());
     }
 
