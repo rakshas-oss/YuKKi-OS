@@ -24,6 +24,7 @@ pub mod nxr1;
 pub mod origin_client;
 pub mod spatiotemporal_resolver;
 pub mod temporal_spatial_scheduler;
+pub mod worker_policy;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
@@ -69,6 +70,7 @@ pub use interop_encryption::{
     derive_hybrid_key, generate_interop_secret, InteropAead, InteropSession,
 };
 pub use origin_client::OriginChunkClient;
+pub use worker_policy::{WorkerClass, WorkerDirective, WorkerTelemetry};
 pub use spatiotemporal_resolver::{
     PayloadReceiver, ResolvedPayload, ResolverError, SequencePolicy, SpatiotemporalPayloadResolver,
 };
