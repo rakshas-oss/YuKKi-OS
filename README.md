@@ -42,6 +42,26 @@ to own broker dispatch and accelerator placement.
 
 The scheduler starts at a 1 ms service-time estimate, applies a 7/8 prior plus 1/8 latest-sample EWMA, and adds a 25% locality penalty to non-preferred replicas. Its stable logical key is not geographic routing or physical NUMA pinning. Multi-replica execution is only valid for policies explicitly declared stateless; the safe default is one stateful replica. See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md) for limits and the Rust API.
 
+## Architecture map — full-colour ANSI palette
+
+![YuKKi-OS control and runtime architecture diagram](docs/diagrams/yukkios-architecture.svg)
+
+YuKKi-OS is the coordination and host-runtime tier: it authenticates peer
+sessions, coordinates bounded services, hosts Wasmtime guests, and owns stream,
+spatial and multivariate dataset semantics. The Overhauled broker is a separate
+execution tier reached over BRK1/BRK2. A production WSM1 task/lifecycle call
+uses the adapter boundary; the optional browser benchmark instead executes
+spatial WASM locally in Node and sends host-prepared numeric records as direct
+BRK2 inference requests.
+
+The diagram distinguishes implemented library primitives from stronger
+deployment claims: NUMA discovery is not yet a complete NUMA-aware scheduler;
+the browser module is not the native daemon; and accelerator use remains
+optional and broker-reported. For a terminal-rendered 24-bit ANSI version,
+run `bash docs/diagrams/print-ansi.sh`. GitHub's Markdown renderer does not
+execute ANSI escape sequences, so the inline SVG is the readable colour view.
+
+
 ## CLI and stream gateway
 
 ```text
