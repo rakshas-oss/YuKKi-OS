@@ -103,10 +103,14 @@ secured proxy.
 
 This path validates a useful data-plane seam, not the complete application
 stack: it does not test the browser UI, gateway, Wasmtime guest lifecycle,
-streaming, NUMA scheduling, or physical accelerator qualification. YuKKi-OS
-continues to own system NUMA discovery and locality policy; Overhauled owns
-GPU topology, broker placement, and backend execution. The broker does not
-duplicate YuKKi-OS's NUMA subsystem.
+streaming, worker-class queue contention, or physical accelerator
+qualification. YuKKi-OS owns workload classification, logical spatial affinity,
+and the advisory NUMA hint sourced from its resolver. Overhauled independently
+discovers the CPUs allowed to its process, applies best-effort Linux worker
+thread affinity, owns GPU topology and backend selection, and returns queue,
+service, and applied-NUMA telemetry. This keeps the two NUMA responsibilities
+distinct rather than duplicating the resolver or pretending a logical key is
+a physical CPU placement.
 
 
 ## Conformance and live interoperability
@@ -117,3 +121,16 @@ Both repositories carry the shared BRK1/BRK2 conformance corpus and language-spe
 - [YuKKi executable BRK corpus](BRK_CONFORMANCE_V1.md)
 - [Overhauled BRK2 conformance](https://github.com/rakshas-oss/overhauled/blob/main/docs/BRK2_CONFORMANCE_V1.md)
 - [Overhauled executable BRK corpus](https://github.com/rakshas-oss/overhauled/blob/main/docs/BRK_CONFORMANCE_V1.md)
+
+
+## YuKKi-directed worker classes
+
+The optional BRK2 worker directive now lets YuKKi-OS select one of Control,
+RealtimeSpatial, Throughput, ExactCpu, or Inference. Fields 11–13 carry class,
+logical affinity key, and preferred NUMA node. Overhauled applies the local
+class queue and placement policy, then returns queue wait, service time,
+worker ID, and applied NUMA node as optional response fields. Per-class queues
+grow dynamically and preserve FIFO order within their class; a process-wide
+request-count and in-flight memory budget remains in force to protect the
+broker from memory exhaustion. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md)
+and the [Overhauled worker-fabric guide](https://github.com/rakshas-oss/overhauled/blob/main/docs/YUKKI_WORKER_FABRIC.md).
