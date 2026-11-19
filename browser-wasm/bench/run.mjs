@@ -14,6 +14,9 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
+const MAX_ITERATIONS = 10000;
+const MAX_OPERATIONS = 4096;
+const MAX_ENTITIES = 512;
 const defaults = {
   dataset: resolve(scriptDir, "datasets/multivariate-v1.json"),
   wasm: resolve(scriptDir, "../target/wasm32-unknown-unknown/release/yukki_browser_core.wasm"),
@@ -34,7 +37,10 @@ function parseArgs(argv) {
       const key = arg.slice(2);
       if (key === "iterations" || key === "operations") {
         const number = Number(value);
-        if (!Number.isInteger(number) || number < 1) throw new Error(arg + " must be a positive integer");
+        const maximum = key === "iterations" ? MAX_ITERATIONS : MAX_OPERATIONS;
+        if (!Number.isSafeInteger(number) || number < 1 || number > maximum) {
+          throw new Error(arg + " must be an integer in 1.." + maximum);
+        }
         options[key] = number;
       } else {
         options[key] = resolve(process.cwd(), value);
@@ -174,7 +180,9 @@ function loadEntities(exports, records) {
 function readVec3(exports, pointer) {
   if (pointer === 0) throw new Error("WASM vector function returned a null pointer");
   const values = new Float64Array(exports.memory.buffer, pointer, 3);
-  return [values[0], values[1], values[2]];
+  const vector = [values[0], values[1], values[2]];
+  if (!vector.every(Number.isFinite)) throw new Error("WASM vector contained a non-finite value");
+  return vector;
 }
 
 function preparePath(exports, points) {
@@ -192,12 +200,85 @@ function preparePath(exports, points) {
   }
 }
 
+function validateManifest(manifest) {
+  if (!manifest || typeof manifest !== "object" || manifest.schema_version !== 1 ||
+      !Array.isArray(manifest.datasets) || manifest.datasets.length < 1 ||
+      manifest.datasets.length > 64) {
+    throw new Error("Unsupported browser benchmark dataset schema");
+  }
+  const limits = manifest.limits;
+  const defaults = manifest.runner_defaults;
+  if (!limits || !Number.isInteger(limits.max_entities) || limits.max_entities < 1 ||
+      limits.max_entities > MAX_ENTITIES || !Number.isInteger(limits.max_path_points) ||
+      limits.max_path_points < 1 || limits.max_path_points > MAX_ENTITIES ||
+      !Array.isArray(limits.benchmark_sizes) || limits.benchmark_sizes.length < 1 ||
+      limits.benchmark_sizes.length > 8) {
+    throw new Error("Invalid or unsafe browser benchmark limits");
+  }
+  const sizes = new Set();
+  for (const size of limits.benchmark_sizes) {
+    if (!Number.isInteger(size) || size < 1 || size > limits.max_entities ||
+        size > limits.max_path_points || sizes.has(size)) {
+      throw new Error("Benchmark sizes must be unique positive values within fixed WASM capacity");
+    }
+    sizes.add(size);
+  }
+  const positive = ["iterations", "operations_per_sample", "maximum_distance_m",
+    "path_step_degrees", "path_tolerance_m"];
+  for (const key of positive) {
+    if (!Number.isFinite(defaults?.[key]) || defaults[key] <= 0) {
+      throw new Error("Invalid " + key);
+    }
+  }
+  if (typeof defaults.maximum_observation_age_ns !== "string" ||
+      !/^[0-9]+$/.test(defaults.maximum_observation_age_ns) ||
+      BigInt(defaults.maximum_observation_age_ns) <= 0n ||
+      defaults.iterations > MAX_ITERATIONS || defaults.operations_per_sample > MAX_OPERATIONS ||
+      !Number.isFinite(defaults.bounding_box_padding_degrees) ||
+      defaults.bounding_box_padding_degrees <= 0 ||
+      !Number.isFinite(defaults.path_max_turn_degrees) ||
+      defaults.path_max_turn_degrees <= 0 || defaults.path_max_turn_degrees > 180) {
+    throw new Error("Browser benchmark runner defaults exceed supported bounds");
+  }
+  const ids = new Set();
+  for (const profile of manifest.datasets) {
+    if (!profile || typeof profile.id !== "string" || !profile.id || ids.has(profile.id) ||
+        !Number.isSafeInteger(profile.seed) || !profile.origin ||
+        !Number.isFinite(profile.origin.latitude_deg) || Math.abs(profile.origin.latitude_deg) > 90 ||
+        !Number.isFinite(profile.origin.longitude_deg) || Math.abs(profile.origin.longitude_deg) > 180 ||
+        !Number.isFinite(profile.origin.altitude_m) || !Number.isFinite(profile.grid_step_degrees) ||
+        profile.grid_step_degrees <= 0 || !Number.isFinite(profile.jitter_degrees) ||
+        profile.jitter_degrees < 0 || !Number.isFinite(profile.radius_m) || profile.radius_m <= 0 ||
+        typeof profile.base_timestamp_ns !== "string" || !/^[0-9]+$/.test(profile.base_timestamp_ns) ||
+        typeof profile.timestamp_interval_ns !== "string" || !/^[0-9]+$/.test(profile.timestamp_interval_ns) ||
+        BigInt(profile.timestamp_interval_ns) <= 0n || !Array.isArray(profile.attributes) ||
+        profile.attributes.length < 1 || profile.attributes.length > 64) {
+      throw new Error("Invalid or duplicate browser benchmark dataset profile");
+    }
+    ids.add(profile.id);
+    const names = new Set();
+    for (const attribute of profile.attributes) {
+      if (!attribute || typeof attribute.name !== "string" || !attribute.name ||
+          names.has(attribute.name)) throw new Error("Invalid or duplicate dataset attribute");
+      names.add(attribute.name);
+      if (attribute.kind === "linear") {
+        if (!Number.isFinite(attribute.base) || !Number.isFinite(attribute.step))
+          throw new Error("Invalid linear attribute generator");
+      } else if (attribute.kind === "categorical") {
+        if (!Array.isArray(attribute.values) || attribute.values.length < 1 ||
+            attribute.values.length > 256) throw new Error("Invalid categorical attribute generator");
+      } else if (attribute.kind === "constant") {
+        if (!Object.prototype.hasOwnProperty.call(attribute, "value"))
+          throw new Error("Invalid constant attribute generator");
+      } else throw new Error("Unsupported attribute generator kind: " + attribute.kind);
+    }
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const manifest = JSON.parse(await readFile(options.dataset, "utf8"));
-  if (manifest.schema_version !== 1 || !Array.isArray(manifest.datasets)) {
-    throw new Error("Unsupported browser benchmark dataset schema");
-  }
+  validateManifest(manifest);
   const bytes = await readFile(options.wasm);
   const { instance } = await WebAssembly.instantiate(bytes, {});
   const exports = instance.exports;
@@ -228,6 +309,11 @@ async function main() {
     synthetic_data: manifest.synthetic === true,
     wasm_bytes: bytes.byteLength,
     commit_sha: process.env.GITHUB_SHA ?? null,
+    execution_scope: {
+      wasm: "local spatial computation in Node WebAssembly runtime",
+      broker_interoperability: false,
+      note: "This report does not measure TCP, BRK2/WSM1, broker placement, or GPU/NPU execution."
+    },
     runtime: {
       node: process.version,
       platform: process.platform,
@@ -270,7 +356,7 @@ async function main() {
             origin.latitude_deg + bbox,
             origin.longitude_deg + bbox
           );
-          if (result < 0) throw new Error("WASM bounding-box query failed: " + result);
+          if (result < 0 || result > records.length) throw new Error("WASM bounding-box query returned an invalid match count: " + result);
           matches += result;
         }
         sink += matches;
@@ -289,6 +375,9 @@ async function main() {
             maxDistance
           );
           if (index !== 0xffffffff) resolved += 1;
+        }
+        if (resolved !== operationsPerSample) {
+          throw new Error("WASM nearest-observation resolver failed to resolve every in-range query");
         }
         sink += resolved;
         return { successful_resolutions: resolved };
@@ -363,7 +452,9 @@ async function main() {
         );
         if (countReturned < 0) throw new Error("WASM path simplifier failed: " + countReturned);
         const outputCount = exports.adi_mmo_simplify_output_count();
-        if (outputCount !== countReturned) throw new Error("WASM simplifier output count mismatch");
+        if (outputCount !== countReturned || outputCount < 1 || outputCount > path.length) {
+          throw new Error("WASM simplifier output count is outside the valid path bounds");
+        }
         return {
           input_points: path.length,
           retained_points: outputCount,

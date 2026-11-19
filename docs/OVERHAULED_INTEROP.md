@@ -27,7 +27,7 @@ BRK1 request/response layouts, validation limits, and status values are specifie
 
 BRK2 uses the same length prefix, a 32-byte fixed header, then 8-byte-header TLV fields. Header and TLV lengths are checked, reserved bits and malformed values are rejected, singular duplicates are invalid, unknown optional fields are forward-compatible, and unknown critical fields are rejected at schema validation. Request schema 1 and response schema 2 are shared by the Rust codec and C++ broker. The request correlation ID is echoed in the response.
 
-The current broker request schema includes the optional `device_preference` string field (field 10): `cpu`, `gpu`, or `npu`. Unknown preference values are rejected. The response includes `backend` (field 7), allowing clients to distinguish `cpu`, `gpu`, and `npu` execution rather than assuming that a request preference guarantees a device. These fields do not change BRK1 framing. See the Overhauled protocol document and shared conformance corpus for the normative current schema and vectors.
+The current broker request schema includes the optional `device_preference` string field (field 10): `cpu`, `gpu`, or `npu`. Unknown preference values are rejected. The response includes `backend` (field 7), allowing clients to distinguish `cpu`, `gpu`, and `npu` execution rather than assuming that a request preference guarantees a device. Clients should validate this field together with `selected_gpu`; `selected_gpu=-1` alone cannot distinguish CPU from NPU. These fields do not change BRK1 framing. See the Overhauled protocol document and shared conformance corpus for the normative current schema and vectors.
 
 ## WSM1 payload kinds
 

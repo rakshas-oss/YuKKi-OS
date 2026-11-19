@@ -200,6 +200,13 @@ path simplifier is iterative and bounded at 512 points; its report makes
 geometric reduction visible through retained-point count and reduction
 percentage while the tangent guard preserves sharp changes.
 
+The report explicitly marks this run as local WASM computation and records
+`broker_interoperability: false`; it does not claim TCP, BRK2/WSM1,
+broker placement, or accelerator execution. The runner validates manifest
+bounds, dataset profile structure, finite spatial outputs, resolver success,
+and simplifier output bounds before accepting a benchmark report. CLI
+iteration and operation counts are capped to keep adversarial inputs bounded.
+
 The report also records the WASM binary size, Node runtime and architecture,
 dataset identifiers, domain labels, and source attribute names. The runner
 includes the JavaScript-to-WASM call boundary and reads returned values from
