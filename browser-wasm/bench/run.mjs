@@ -440,6 +440,7 @@ async function runBrokerWorkload(records, profile, options) {
       const taskId = "wasm-bench-" + profile.seed + "-" + (index + 1);
       const frame = encodeBrokerRequest(requestId, taskId, "browser-wasm-" + profile.id,
         payload, options.brokerDevice);
+      const started = process.hrtime.bigint();
       await new Promise((resolve, reject) => {
         socket.write(frame, error => error ? reject(error) : resolve());
       });
@@ -449,7 +450,6 @@ async function runBrokerWorkload(records, profile, options) {
         throw new Error("BRK2 response length outside benchmark bounds");
       }
       const response = await readExact(responseLength);
-      const started = process.hrtime.bigint();
       const telemetry = decodeBrokerResponse(response, requestId, taskId, options.brokerDevice,
         8 * (2 + numericValues.length));
       samples.push(Number(process.hrtime.bigint() - started) / 1e6);
@@ -465,8 +465,9 @@ async function runBrokerWorkload(records, profile, options) {
   return {
     protocol: "BRK2",
     requests: samples.length,
-    mean_response_validation_ms: Number(mean.toFixed(6)),
-    p95_response_validation_ms: Number(quantile(sorted, 0.95).toFixed(6)),
+    mean_request_ms: Number(mean.toFixed(6)),
+    p50_request_ms: Number(quantile(sorted, 0.50).toFixed(6)),
+    p95_request_ms: Number(quantile(sorted, 0.95).toFixed(6)),
     actual_backend_counts: backends,
     selected_gpu_ids: [...gpuIds].sort((a, b) => a - b),
     fallback_requests: fallbackCount
