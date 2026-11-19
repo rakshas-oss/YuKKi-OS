@@ -369,6 +369,7 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
     throw new Error("Invalid BRK2 response envelope or correlation ID");
   }
   const fields = new Map();
+  const seenFields = new Set();
   let fieldCount = 0;
   let offset = 32;
   while (offset < frame.length) {
@@ -383,12 +384,13 @@ function decodeBrokerResponse(frame, requestId, taskId, device, expectedResultBy
     if ((flags & ~3) !== 0 || type < 1 || type > 12 || length > frame.length - offset) {
       throw new Error("Invalid BRK2 response TLV");
     }
+    if (seenFields.has(id)) throw new Error("Duplicate BRK2 response field " + id);
+    seenFields.add(id);
     if (id < 1 || id > 7) {
       if ((flags & 1) !== 0) throw new Error("Unknown critical BRK2 response field " + id);
       offset += length;
       continue;
     }
-    if (fields.has(id)) throw new Error("Duplicate BRK2 response field " + id);
     fields.set(id, { type, value: frame.subarray(offset, offset + length) });
     offset += length;
   }
