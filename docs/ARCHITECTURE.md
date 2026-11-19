@@ -1,4 +1,4 @@
-# YuKKi-OS v6.13.0 — Architecture
+# YuKKi-OS v6.13.1 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
 
-This document describes the v6.13.0 release-candidate implementation. v6.12.0 is the last published baseline; the v6.13.0 tag remains pending CI and release qualification.
+This document describes the v6.13.1 patch-release candidate. v6.13.0 is the latest published baseline; the v6.13.1 tag remains pending CI and release qualification.
 
 ### Full-colour system map
 
