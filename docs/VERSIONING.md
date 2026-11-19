@@ -2,48 +2,57 @@
 
 ## Current release candidate
 
-- **Proposed release line:** `v6.13.0`
-- **Cargo package version:** `6.13.0`
-- **OCI image version:** `6.13.0`
+- **Proposed release line:** `v6.13.1`
+- **Cargo package version:** `6.13.1`
+- **OCI image version:** `6.13.1`
 - **Rust toolchain pin:** `1.98.1`
 - **Runtime binary name:** `yukki_core_node`
-- **Release state:** candidate; tag and release archives are pending required CI and review
+- **Release state:** patch candidate; v6.13.1 tag and release archives are pending required CI and review
 
-## Policy
+## Version assessment
 
-- The v6.13.0 minor release adds native multi-module WebAssembly program
-  composition and time-weighted replica pools for declared policy programs.
-- Composition is owned by YuKKi-OS's native Wasmtime host. Overhauled remains a
-  separate broker/execution and accelerator-placement tier; its WSM1 lifecycle
-  API does not compile, link or merge guest modules.
-- Composition v1 accepts a declared DAG of core-Wasm modules with typed
-  function imports. The default is one stateful replica. Multi-replica
-  execution requires an explicit `stateless: true` application declaration.
-- Replica selection combines a stable logical affinity key with measured
-  service-time EWMA. The key is not geographic routing or physical NUMA
-  placement. Full saturation is reported explicitly; it is not a zero-stall
-  guarantee.
-- Do not create or publish the `v6.13.0` tag or release archives until the
-  required workflows pass and the candidate receives release review.
-- Preserve the package/library name and runtime executable name for
-  compatibility. Browser-WASM and WASI guest artifacts retain their separate
-  target and packaging contracts.
+The patch increment follows the v6.13.0 release and the subsequent merged PRs:
 
-## Historical lines
+- PR #143 hardened browser-WASM benchmark CLI limits, dataset/profile
+  validation, finite spatial results, resolver/simplifier outputs, and added
+  an optional live BRK2 inference leg with response validation and telemetry.
+- PR #144 aligned the benchmark bridge and multivariate-data documentation,
+  clarifying that local browser-WASM execution and direct BRK2 benchmark
+  requests are distinct from the production WSM1 guest/lifecycle path.
+- PR #145 added full-colour architecture diagrams and terminal ANSI renderers
+  that make service ownership and implementation boundaries explicit.
 
-- `v6.12.0` — last published release; browser-WASM spatial/motion, native
-  benchmark-driven multivariate datasets, and bounded real-symmetric
-  eigensolver.
-- `v6.11.0` — superseded merged candidate; no tag or release was published
-- `v6.10.0` — previous release baseline before v6.12.0
-- `v6.9.8` — archived in [RELEASE_v6.9.8.md](RELEASE_v6.9.8.md)
-- `v6.9.6` — archived in [RELEASE_v6.9.6.md](RELEASE_v6.9.6.md)
-- `v6.9.3` — archived in [RELEASE_v6.9.3.md](RELEASE_v6.9.3.md)
-- `v6.9.0`, `v6.7.0`, `v6.6.6`, `v6.6.4` — archived
+These changes improve benchmark reliability, cross-repository qualification
+and documentation. They do not change the public native runtime API, core
+composition semantics, or YKMC/BRK1/BRK2/NXR1/WSM1 wire contracts. A patch
+increment to 6.13.1 is appropriate; the composition and replica-scheduler
+features remain part of the published v6.13.0 release.
 
-## Compatibility note
+## Release policy
 
-The executable name remains `yukki_core_node`. The browser application uses
-`wasm32-unknown-unknown`; the WASI guest-worker artifact remains a separate
-`wasm32-wasip1` build. Existing YKMC, BRK1/BRK2, NXR1, and WSM1 contracts are
-not versioned or replaced by this package bump.
+- v6.13.0 is the latest published YuKKi-OS release.
+- Do not create or publish v6.13.1 until the required native, browser-WASM,
+  WASI, integration, security, coverage and benchmark checks pass and the
+  intended release commit is reviewed.
+- The optional browser benchmark broker mode is a qualification client. It
+  does not add a public daemon route, enable the production GPU adapter, or
+  send executable Wasm to Overhauled.
+- Preserve the package/library name `yukkios` and runtime executable name
+  `yukki_core_node`.
+- Browser-WASM and WASI guest-worker artifacts retain their separate targets
+  and package/build contracts. Their own package versions are not implicitly
+  changed by the native crate version bump.
+- Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire contracts remain independently
+  versioned and are not replaced by the crate version.
+
+## Published release history
+
+- `v6.13.0` — published 2026-11-18; native Wasm program composition and
+  time-weighted spatial replica pools.
+- `v6.12.0` — published 2026-11-18; browser spatial/motion, multivariate
+  datasets and the bounded symmetric eigensolver.
+- `v6.11.0` — superseded merged candidate; no tag or release was published.
+- `v6.10.0` — previous published baseline before v6.12.0.
+- `v6.9.8`, `v6.9.6`, `v6.9.3` and earlier archived lines are documented
+  in the corresponding historical release files.
+
