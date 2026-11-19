@@ -2179,29 +2179,6 @@ fn brk2_request_id() -> u64 {
     u64::from_be_bytes(bytes[..8].try_into().expect("UUID prefix is eight bytes"))
 }
 
-fn encode_brk2_broker_request(
-    task_id: &str,
-    kind: &str,
-    priority: u8,
-    timeout_ms: u32,
-    payload: Vec<u8>,
-) -> Result<(u64, Vec<u8>), GpuAdapterError> {
-    encode_brk2_broker_request_with_device(task_id, kind, priority, timeout_ms, payload, None)
-}
-
-fn encode_brk2_broker_request_with_device(
-    task_id: &str,
-    kind: &str,
-    priority: u8,
-    timeout_ms: u32,
-    payload: Vec<u8>,
-    device_preference: Option<&str>,
-) -> Result<(u64, Vec<u8>), GpuAdapterError> {
-    encode_brk2_broker_request_with_worker_directive(
-        task_id, kind, priority, timeout_ms, payload, device_preference, None,
-    )
-}
-
 fn encode_brk2_broker_request_with_worker_directive(
     task_id: &str,
     kind: &str,
