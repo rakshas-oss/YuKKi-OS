@@ -55,6 +55,36 @@ assert_eq!(directive.worker_class, WorkerClass::RealtimeSpatial);
 Other workload intents can use `WorkerDirective::control()`,
 `throughput()`, `exact_cpu()`, or `inference()`.
 
+When a caller already has YuKKi-OS's `exec_policy::TaskProfile`, it can
+derive a directive without duplicating the class-selection rules:
+
+```rust
+use yukkios::{ResolvedPayload, WorkerDirective};
+
+let directive = WorkerDirective::for_task_profile(
+    &task_profile,
+    now_unix_ns,
+    resolved_spatial_payload.as_ref(),
+)?;
+
+client
+    .submit_wsm1_task_with_worker_directive(&task, &directive)
+    .await?;
+```
+
+Exact-precision requirements select `ExactCpu` even when a spatial payload is
+present; the logical affinity and NUMA hints are retained for placement. A
+spatial payload otherwise selects `RealtimeSpatial`. Inference profiles
+without spatial context select `Inference`; other profiles, including
+data-parallel work, select `Throughput`. Backend choice is separate and
+remains subject to Overhauled's local accelerator policy.
+
+The `deadline_ms` in `TaskProfile` is interpreted as a relative duration
+from `now_unix_ns`; it is converted using checked arithmetic to the absolute
+Unix-nanosecond deadline carried by BRK2. Supply a timestamp captured
+immediately before submission. Zero, overflow, and values outside the signed
+clock range are rejected.
+
 ## Submit a WSM1 task over BRK2
 
 Explicit directives require the BRK2 wire mode. WSM1 remains the inner task
@@ -108,10 +138,12 @@ The BRK2 request uses optional fields 11 (class), 12 (logical affinity U64), and
 (worker ID), and field 12 (applied NUMA node). These fields are optional for
 backwards compatibility.
 
-Overhauled uses a separate dynamically growing FIFO queue and reserved worker
-pool per class. The earliest accepted call within a class runs first; there is
-no cross-class global FIFO order. This isolation keeps throughput backlogs
-from consuming reserved control or real-time workers.
+Overhauled uses a separate dynamically growing queue and reserved worker
+pool per class. Control, Throughput, ExactCpu, and Inference preserve FIFO
+admission. RealtimeSpatial uses earliest-deadline-first ordering when a
+deadline is present, with FIFO tie-breaking; work without a deadline follows
+deadline-bearing work. There is no cross-class global order. This isolation
+keeps throughput backlogs from consuming reserved control or real-time workers.
 
 Linux Overhauled workers discover CPU sets from sysfs, intersect them with the
 process CPU affinity mask, and attempt thread pinning. A NUMA node is reported
