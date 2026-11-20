@@ -195,6 +195,9 @@ impl WorkerDirective {
         if self.deadline_unix_ns == Some(0) {
             return Err("deadline_unix_ns must be nonzero");
         }
+        if self.deadline_unix_ns.is_some_and(|deadline| deadline > i64::MAX as u64) {
+            return Err("deadline_unix_ns exceeds the supported signed clock range");
+        }
         if self.deadline_unix_ns.is_some_and(|value| value > i64::MAX as u64) {
             return Err("deadline_unix_ns exceeds the supported Unix clock range");
         }
