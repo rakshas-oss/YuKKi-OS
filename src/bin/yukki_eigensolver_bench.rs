@@ -9,10 +9,7 @@ use std::{
     io::{BufRead, BufReader},
     path::{Component, Path, PathBuf},
     process::ExitCode,
-    sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::Instant,
 };
@@ -31,6 +28,8 @@ const MAX_RECORDS: usize = 1_000_000;
 const MAX_ITERATIONS_PER_BATCH: usize = 100_000;
 const MAX_WORKERS: usize = 64;
 const MAX_TOTAL_SOLVES: usize = 1_000_000;
+// Amortise shared work-index traffic across multiple independent matrix solves.
+const SOLVE_CHUNK_SIZE: usize = 32;
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -416,6 +415,14 @@ fn percentile_us(sorted: &[u64], percentile: f64) -> f64 {
     sorted[index.min(sorted.len() - 1)] as f64 / 1000.0
 }
 
+#[derive(Default)]
+struct WorkerSolveStats {
+    durations_ns: Vec<u64>,
+    max_relative_residual: f64,
+    max_orthogonality_error: f64,
+    checksum: u64,
+}
+
 fn measure_candidate(
     matrices: &[Vec<f64>],
     dimension: usize,
@@ -428,58 +435,80 @@ fn measure_candidate(
         .checked_mul(profile.iterations_per_batch)
         .filter(|count| *count <= MAX_TOTAL_SOLVES)
         .ok_or("candidate exceeds the one-million-solve safety limit")?;
+    let worker_count = workers.min(solve_count).max(1);
     let next = AtomicUsize::new(0);
-    let checksum = AtomicU64::new(0);
-    let durations = Mutex::new(Vec::<u64>::with_capacity(solve_count));
-    let residuals = Mutex::new((0.0_f64, 0.0_f64));
     let started = Instant::now();
 
-    thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
-        let mut handles = Vec::new();
-        for _ in 0..workers.min(solve_count).max(1) {
-            handles.push(scope.spawn(|| -> Result<(), String> {
+    // Each worker owns its hot-path metrics. The only shared scheduling
+    // operation is one relaxed atomic increment per chunk, not per solve.
+    let worker_stats = thread::scope(|scope| -> Result<Vec<WorkerSolveStats>, Box<dyn std::error::Error>> {
+        let mut handles = Vec::with_capacity(worker_count);
+        for _ in 0..worker_count {
+            handles.push(scope.spawn(|| -> Result<WorkerSolveStats, String> {
+                let mut local = WorkerSolveStats {
+                    durations_ns: Vec::new(),
+                    ..WorkerSolveStats::default()
+                };
                 loop {
-                    let task = next.fetch_add(1, Ordering::Relaxed);
-                    if task >= solve_count {
+                    let chunk_start = next.fetch_add(SOLVE_CHUNK_SIZE, Ordering::Relaxed);
+                    if chunk_start >= solve_count {
                         break;
                     }
-                    let matrix_index = task % matrices.len();
-                    let before = Instant::now();
-                    let decomposition = symmetric_eigen_decomposition_with_options(
-                        &matrices[matrix_index],
-                        dimension,
-                        profile.tolerance,
-                        profile.max_sweeps,
-                    )
-                    .map_err(|error| error.to_string())?;
-                    let elapsed = before.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-                    let hash = decomposition
-                        .eigenvalues
-                        .iter()
-                        .fold(0_u64, |hash, value| hash.rotate_left(7) ^ value.to_bits());
-                    checksum.fetch_add(hash.wrapping_add(task as u64), Ordering::Relaxed);
-                    durations
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .push(elapsed);
-                    let mut quality = residuals.lock().unwrap_or_else(|p| p.into_inner());
-                    quality.0 = quality.0.max(decomposition.relative_residual);
-                    quality.1 = quality.1.max(decomposition.orthogonality_error);
+                    let chunk_end = chunk_start.saturating_add(SOLVE_CHUNK_SIZE).min(solve_count);
+                    for task in chunk_start..chunk_end {
+                        let matrix_index = task % matrices.len();
+                        let before = Instant::now();
+                        let decomposition = symmetric_eigen_decomposition_with_options(
+                            &matrices[matrix_index],
+                            dimension,
+                            profile.tolerance,
+                            profile.max_sweeps,
+                        )
+                        .map_err(|error| error.to_string())?;
+                        let elapsed = before.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                        let hash = decomposition
+                            .eigenvalues
+                            .iter()
+                            .fold(0_u64, |hash, value| hash.rotate_left(7) ^ value.to_bits());
+                        local.checksum = local
+                            .checksum
+                            .wrapping_add(hash.wrapping_add(task as u64));
+                        local.durations_ns.push(elapsed);
+                        local.max_relative_residual = local
+                            .max_relative_residual
+                            .max(decomposition.relative_residual);
+                        local.max_orthogonality_error = local
+                            .max_orthogonality_error
+                            .max(decomposition.orthogonality_error);
+                    }
                 }
-                Ok(())
+                Ok(local)
             }));
         }
+
+        let mut results = Vec::with_capacity(worker_count);
         for handle in handles {
-            handle
-                .join()
-                .map_err(|_| "eigensolver benchmark worker panicked")?
-                .map_err(|error| format!("eigensolver failed: {error}"))?;
+            results.push(
+                handle
+                    .join()
+                    .map_err(|_| "eigensolver benchmark worker panicked")?
+                    .map_err(|error| format!("eigensolver failed: {error}"))?,
+            );
         }
-        Ok(())
+        Ok(results)
     })?;
 
     let elapsed = started.elapsed();
-    let mut times = durations.into_inner().unwrap_or_else(|p| p.into_inner());
+    let mut times = Vec::with_capacity(solve_count);
+    let mut checksum = 0_u64;
+    let mut max_relative_residual = 0.0_f64;
+    let mut max_orthogonality_error = 0.0_f64;
+    for mut stats in worker_stats {
+        times.append(&mut stats.durations_ns);
+        checksum = checksum.wrapping_add(stats.checksum);
+        max_relative_residual = max_relative_residual.max(stats.max_relative_residual);
+        max_orthogonality_error = max_orthogonality_error.max(stats.max_orthogonality_error);
+    }
     times.sort_unstable();
     let total_ns: u128 = times.iter().map(|time| *time as u128).sum();
     let mean_solve_us = if times.is_empty() {
@@ -487,7 +516,6 @@ fn measure_candidate(
     } else {
         total_ns as f64 / times.len() as f64 / 1000.0
     };
-    let quality = residuals.into_inner().unwrap_or_else(|p| p.into_inner());
     Ok(Candidate {
         batch_size,
         workers,
@@ -498,12 +526,11 @@ fn measure_candidate(
         solves_per_second: times.len() as f64 / elapsed.as_secs_f64().max(f64::MIN_POSITIVE),
         mean_solve_us,
         p95_solve_us: percentile_us(&times, 0.95),
-        max_relative_residual: quality.0,
-        max_orthogonality_error: quality.1,
-        checksum: checksum.load(Ordering::Relaxed),
+        max_relative_residual,
+        max_orthogonality_error,
+        checksum,
     })
 }
-
 fn run_dataset_profile(
     dataset: &DatasetSpec,
     profile: &EigensolverProfile,
