@@ -87,9 +87,11 @@ spatial WASM locally in Node and sends host-prepared numeric records as direct
 BRK2 inference requests.
 
 The diagram distinguishes implemented library primitives from stronger
-deployment claims: NUMA discovery is not yet a complete NUMA-aware scheduler;
-the browser module is not the native daemon; and accelerator use remains
-optional and broker-reported. For a terminal-rendered 24-bit ANSI version,
+deployment claims: YuKKi-OS NUMA discovery remains a topology primitive, not
+its own full NUMA scheduler; worker-class queues and actual Linux CPU affinity
+are applied by the separate Overhauled broker when available. The browser
+module is not the native daemon, and accelerator use remains optional and
+broker-reported. For a terminal-rendered 24-bit ANSI version,
 run `bash docs/diagrams/print-ansi.sh`. GitHub's Markdown renderer does not
 execute ANSI escape sequences, so the inline SVG is the readable colour view.
 
@@ -181,7 +183,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 
 ## Documentation
 
-- [Architecture and implementation map](docs/ARCHITECTURE.md) · [Step-by-step system administration how-to](docs/SYSADMIN_HOWTO.md) · [API reference](docs/API.md)
+- [Architecture and implementation map](docs/ARCHITECTURE.md) · [Step-by-step system administration how-to](docs/SYSADMIN_HOWTO.md) · [API reference](docs/API.md) · [Worker class policy](docs/WORKER_CLASS_POLICY.md)
 - [Composed WASM programs and time-weighted replica routing](docs/WASM_PROGRAM_COMPOSITION.md) · [WASM guest worker](guest-worker/README.md)
 - [Versioning](docs/VERSIONING.md) · [Changelog](docs/CHANGELOG.md)
 
