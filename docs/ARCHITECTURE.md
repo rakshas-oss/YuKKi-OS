@@ -13,7 +13,7 @@ Its architectural pillars are:
 - **Data and streaming:** bounded media chunk storage, stream registry, gateway, relay, and geospatial codecs.
 - **Hardware integration:** optional accelerator execution through an external broker such as [Overhauled](https://github.com/rakshas-oss/overhauled).
 
-This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
+YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
 This document describes the v6.14.0 minor-release candidate. v6.13.0 is the latest published baseline; the v6.14.0 tag remains pending CI and release qualification.
 
@@ -22,10 +22,13 @@ This document describes the v6.14.0 minor-release candidate. v6.13.0 is the late
 ![YuKKi-OS control and runtime architecture diagram](diagrams/yukkios-architecture.svg)
 
 The ANSI-inspired source SVG is paired with a terminal renderer:
-`bash docs/diagrams/print-ansi.sh`. This diagram is a responsibility map,
-not a claim that every library service is exposed through the node CLI or an
-HTTP endpoint. In particular, NUMA discovery and MPMC are primitives, not a
-fully integrated NUMA scheduler.
+`bash docs/diagrams/print-ansi.sh`. The updated map shows the five
+YuKKi-selected worker classes and optional BRK2 fields 9 and 11–13. It
+separates YuKKi's policy/hint generation from Overhauled's broker-local
+worker queues and best-effort Linux affinity. It is a responsibility map,
+not a claim that every library service is exposed through the node CLI or
+an HTTP endpoint; no hard-real-time or physical NUMA-local memory guarantee
+is implied.
 
 
 ## Runtime topology
