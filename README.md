@@ -49,6 +49,13 @@ compatible. Logical affinity and preferred NUMA values are hints, not proof
 of physical placement. See [Worker class policy](docs/WORKER_CLASS_POLICY.md)
 and [Overhauled interoperability](docs/OVERHAULED_INTEROP.md).
 
+The current parallelism work also removes avoidable coordination from the
+native resolver and benchmark paths: unordered payload dispatch skips sequence
+tracking, strict ordering is scoped per source, benchmark workers aggregate
+metrics locally, and stateless Wasm replicas are ranked using active-call load
+as well as service-time history. These changes do not alter BRK2 or NXR1 wire
+formats.
+
 ## v6.12.0 published feature baseline
 
 The published v6.12.0 release unified browser spatial processing with benchmark-led native numerics. The browser-WASM path provides WGS84/ECEF and ENU transforms, Hermite interpolation, a bounded 512-entity store, antimeridian-aware queries, freshness- and distance-constrained observation resolution, and iterative arc–secant–tangent trajectory simplification. Native JSONL manifests drive real multivariate workloads across drone, finance, and environmental data; measured profiles select bounded batch/worker policies rather than generating substitute benchmark datasets. YuKKi-OS also owns a bounded CPU real-symmetric Jacobi eigensolver for 1–64 dimensional covariance/correlation matrices, with sorted eigenvalues, column eigenvectors, residual and orthogonality diagnostics, plus a domain-checked real arcsecant mapping. The `yukki_dataset_bench` and `yukki_eigensolver_bench` tools keep dataset semantics and numerical correctness in YuKKi-OS, while Overhauled remains the separate execution/placement tier. Existing YKMC, BRK1/BRK2, NXR1, and WSM1 contracts are preserved; no GPU/NPU eigensolver acceleration or measured power saving is claimed.
