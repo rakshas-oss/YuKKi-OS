@@ -9,10 +9,7 @@ use std::{
     fs,
     io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-        Mutex,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::Instant,
 };
@@ -33,6 +30,7 @@ pub const MAX_PROFILES: usize = 64;
 pub const MAX_FEATURE_FIELDS: usize = 64;
 pub const MAX_BATCH_SIZE: usize = 1024;
 pub const MAX_WORKERS: usize = 64;
+const BENCH_BATCH_CHUNK_SIZE: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -677,6 +675,13 @@ fn run_profile(
     })
 }
 
+#[derive(Default)]
+struct WorkerBatchStats {
+    latencies_ns: Vec<u64>,
+    encoded_bytes: u64,
+    checksum: u64,
+}
+
 fn measure_candidate(
     records: &[DatasetRecord],
     batch_size: usize,
@@ -686,9 +691,6 @@ fn measure_candidate(
     let batch_count = records.len().div_ceil(batch_size);
     let worker_count = workers.min(batch_count).max(1);
     let next_batch = AtomicUsize::new(0);
-    let encoded_bytes = AtomicU64::new(0);
-    let checksum = AtomicU64::new(0);
-    let latencies = Mutex::new(Vec::<u64>::with_capacity(batch_count));
     let max_record_bytes = records
         .iter()
         .map(|record| record.raw_json.len())
@@ -696,51 +698,63 @@ fn measure_candidate(
         .unwrap_or(0);
     let started = Instant::now();
 
-    let worker_result = thread::scope(|scope| {
+    // Batch claims are amortised and each worker owns its timing and checksum
+    // buffers. This keeps benchmark instrumentation out of the per-batch hot
+    // path except for one atomic chunk claim.
+    let worker_stats = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
-            handles.push(scope.spawn(|| -> Result<(), DatasetBenchmarkError> {
+            handles.push(scope.spawn(|| -> Result<WorkerBatchStats, DatasetBenchmarkError> {
+                let mut local = WorkerBatchStats {
+                    latencies_ns: Vec::new(),
+                    ..WorkerBatchStats::default()
+                };
                 loop {
-                    let batch_index = next_batch.fetch_add(1, Ordering::Relaxed);
-                    if batch_index >= batch_count {
+                    let first_batch = next_batch.fetch_add(
+                        BENCH_BATCH_CHUNK_SIZE,
+                        Ordering::Relaxed,
+                    );
+                    if first_batch >= batch_count {
                         break;
                     }
-                    let begin = batch_index * batch_size;
-                    let end = (begin + batch_size).min(records.len());
-                    let batch_started = Instant::now();
-                    let mut local_bytes = 0u64;
-                    let mut local_checksum = 0u64;
-                    for record in &records[begin..end] {
-                        let frame = record.to_frame()?;
-                        let bytes = frame
-                            .encode()
-                            .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
-                        let decoded = Nxr1Frame::decode(&bytes)
-                            .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
-                        local_bytes = local_bytes.saturating_add(bytes.len() as u64);
-                        local_checksum ^=
-                            decoded.seq_id ^ record.timestamp_ns ^ decoded.payload.len() as u64;
-                        std::hint::black_box(decoded);
+                    let end_batch = first_batch
+                        .saturating_add(BENCH_BATCH_CHUNK_SIZE)
+                        .min(batch_count);
+                    for batch_index in first_batch..end_batch {
+                        let begin = batch_index * batch_size;
+                        let end = (begin + batch_size).min(records.len());
+                        let batch_started = Instant::now();
+                        for record in &records[begin..end] {
+                            let frame = record.to_frame()?;
+                            let bytes = frame
+                                .encode()
+                                .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
+                            let decoded = Nxr1Frame::decode(&bytes)
+                                .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
+                            local.encoded_bytes =
+                                local.encoded_bytes.saturating_add(bytes.len() as u64);
+                            local.checksum ^= decoded.seq_id
+                                ^ record.timestamp_ns
+                                ^ decoded.payload.len() as u64;
+                            std::hint::black_box(decoded);
+                        }
+                        local.latencies_ns.push(
+                            batch_started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                        );
                     }
-                    encoded_bytes.fetch_add(local_bytes, Ordering::Relaxed);
-                    checksum.fetch_xor(local_checksum, Ordering::Relaxed);
-                    latencies
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .push(batch_started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
                 }
-                Ok(())
+                Ok(local)
             }));
         }
+        let mut results = Vec::with_capacity(worker_count);
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(result) => results.push(result?),
                 Err(_) => return Err(DatasetBenchmarkError::WorkerPanic),
             }
         }
-        Ok(())
-    });
-    worker_result?;
+        Ok(results)
+    })?;
 
     // Geometric reduction is measured once over the complete selected path,
     // never per batch: a batch boundary must not create a synthetic endpoint.
@@ -766,9 +780,14 @@ fn measure_candidate(
         };
     let geometry_elapsed_ms = geometry_started.elapsed().as_secs_f64() * 1000.0;
     let elapsed = started.elapsed();
-    let mut times = latencies
-        .into_inner()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut times = Vec::with_capacity(batch_count);
+    let mut encoded_bytes = 0_u64;
+    let mut checksum = 0_u64;
+    for mut stats in worker_stats {
+        times.append(&mut stats.latencies_ns);
+        encoded_bytes = encoded_bytes.saturating_add(stats.encoded_bytes);
+        checksum ^= stats.checksum;
+    }
     times.sort_unstable();
     let elapsed_seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
     let mean_ns = if times.is_empty() {
@@ -793,8 +812,8 @@ fn measure_candidate(
         p99_batch_ms: percentile_ms(&times, 0.99),
         geometry_elapsed_ms,
         estimated_peak_working_set_bytes,
-        encoded_bytes: encoded_bytes.load(Ordering::Relaxed),
-        checksum: checksum.load(Ordering::Relaxed) ^ geometry_output_points as u64,
+        encoded_bytes,
+        checksum: checksum ^ geometry_output_points as u64,
         geometry_input_points,
         geometry_output_points,
         geometry_reduction_percent: {
@@ -808,7 +827,6 @@ fn measure_candidate(
         },
     })
 }
-
 #[derive(Clone, Copy)]
 struct EcefPoint {
     x: f64,
