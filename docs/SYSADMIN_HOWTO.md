@@ -1,9 +1,9 @@
-# YuKKi-OS v6.13.1 — System Administration How-to
+# YuKKi-OS v6.14.0 — System Administration How-to
 
-> Release candidate: v6.13.0 is the published baseline. The v6.13.1 patch
-> candidate adds benchmark validation and an optional direct BRK2 qualification
-> path; its tag and release archives remain subject to CI and review. This guide
-> describes the implementation on the v6.13.1 candidate branch.
+> Release candidate: v6.13.0 is the published baseline. The v6.14.0 minor
+> candidate adds workload directives and BRK2 worker-class interoperability;
+> its tag and release archives remain subject to CI and review. This guide
+> describes the implementation on the v6.14.0 candidate branch.
 
 ## 1. Scope and deployment components
 
@@ -577,3 +577,60 @@ thread affinity. The broker uses dynamically growing FIFO queues, isolated by
 worker class, and enforces a process-wide outstanding-work and in-flight memory
 budget. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md) for the stable
 class names, BRK2 fields, legacy compatibility, and limitations.
+
+
+## Worker directives and Overhauled NUMA execution
+
+YuKKi-OS selects workload intent; Overhauled applies local scheduling and
+placement. Use the public directive API rather than encoding BRK2 fields by
+hand. The policy mapping is:
+
+- ExactCpu: exact-precision or verification-sensitive work takes precedence.
+- RealtimeSpatial: resolved spatial work, with a stable logical affinity key
+  and optional absolute deadline.
+- Inference: explicitly classified model inference.
+- Throughput: ordinary and data-parallel work without a stronger class.
+- Control: broker lifecycle and control operations.
+
+For TaskProfile-derived directives, capture the submission timestamp
+immediately before creating the directive. The relative `deadline_ms` value
+is converted to an absolute Unix-nanosecond deadline with overflow/range
+checks. A zero or unrepresentable deadline is rejected.
+
+Explicit worker directives require the Overhauled adapter to use BRK2. The
+existing BRK1 and raw WSM1 paths remain compatible but cannot carry these
+optional fields. Generic BRK2 WSM1 tasks default to Throughput; explicitly
+classify inference with `WorkerDirective::inference()`. Lifecycle requests
+are sent as Control.
+
+Example (application code):
+
+```rust
+use yukkios::{WorkerDirective, WorkerClass};
+
+let directive = WorkerDirective::for_task_profile(
+    &task_profile,
+    now_unix_ns,
+    resolved_spatial_payload.as_ref(),
+)?;
+assert_eq!(directive.worker_class, WorkerClass::RealtimeSpatial);
+
+// Submit with LifecycleWireMode::Brk2 using
+// submit_wsm1_task_with_worker_directive(&task, &directive).
+```
+
+Overhauled owns worker pool sizing, admission caps and actual Linux CPU
+affinity. Tune its `--workers-control`, `--workers-realtime`,
+`--workers-throughput`, `--workers-exact-cpu`, `--workers-inference`,
+`--max-outstanding` and `--max-inflight-bytes` options on the broker host.
+Do not interpret YuKKi's preferred NUMA node as proof that a worker was pinned.
+Use the broker's optional BRK2 response telemetry (worker class, queue wait,
+service time, worker ID and applied NUMA node) to verify the actual outcome.
+
+A deadline prevents expired queued work from starting and suppresses late
+success responses; it does not preempt arbitrary native code or guarantee
+hard real-time completion. Validate mixed-class saturation, queued expiry,
+disconnect/reconnect churn, rejected admissions, CPU fallback and resident
+memory under representative datasets before increasing worker or memory
+budgets. See
+[Overhauled worker fabric](https://github.com/rakshas-oss/overhauled/blob/main/docs/YUKKI_WORKER_FABRIC.md).
