@@ -57,6 +57,13 @@ latency, encoded bytes, deterministic checksum, and an estimated peak working
 set based on row size, batch size, and worker count. The working-set figure is
 a bounded estimate, not an operating-system RSS measurement.
 
+The benchmark distributes batches in adaptive chunks: small samples retain
+enough chunks to exercise the requested worker count, while larger samples
+amortise work-index atomics across several batches. Each worker accumulates
+its own encoded-byte count, checksum, and latency samples; the results are
+merged after the parallel region. This avoids a shared metrics mutex and
+per-batch atomic updates distorting the workload.
+
 For geospatial profiles, the selected dataset path is converted from WGS84 to
 ECEF and simplified once across the complete sampled trajectory. It uses
 arc-length excess, perpendicular distance to the secant, and a separate
@@ -145,7 +152,11 @@ For each selected dataset, the runner forms bounded batch correlation matrices
 from the declared `feature_fields`. Each matrix is passed to the native
 real-symmetric Jacobi eigensolver. The output reports decompositions per second,
 mean and P95 solve latency, eigenvalue residual, eigenvector orthogonality
-error, and a deterministic result checksum. The selected candidate is chosen
+error, and a deterministic result checksum. Work is claimed in adaptive
+chunks, and each worker keeps local timing, checksum, residual, and
+orthogonality accumulators. Aggregation occurs after all workers join, reducing
+shared synchronisation while keeping numerical quality checks in the measured
+run. The selected candidate is chosen
 by the profile objective and optional P95 latency ceiling. Data values are
 scaled before covariance accumulation to avoid overflow from large finite
 source values; this benchmark therefore measures the correlation spectrum,

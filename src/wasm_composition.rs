@@ -301,11 +301,18 @@ impl LiveProgram {
             });
         }
 
-        // Candidate ranking blends each replica's recent service-time EWMA
-        // with a stable spatial affinity hint. A busy Store is skipped rather
-        // than waiting on its mutex, so one slow guest cannot head-of-line block
-        // callers assigned to other replicas.
-        for replica_index in self.scheduler.ranked_candidates(spatial_key) {
+        // Rank by measured service time, current active calls, and stable
+        // spatial locality. A busy Store is still skipped non-blockingly; the
+        // load signal helps choose among replicas before attempting the lock.
+        let active_loads: Vec<usize> = self
+            .replicas
+            .iter()
+            .map(|replica| replica.active_calls.load(Ordering::Acquire))
+            .collect();
+        for replica_index in self
+            .scheduler
+            .ranked_candidates_with_load(spatial_key, &active_loads)
+        {
             let replica = &self.replicas[replica_index];
             let mut store = match replica.store.try_lock() {
                 Ok(store) => store,

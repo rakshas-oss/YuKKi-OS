@@ -56,6 +56,17 @@ impl TimeWeightedSpatialScheduler {
     /// tie-break/locality hint, not a pin: time-weighted service cost can route
     /// around a slow replica.
     pub fn ranked_candidates(&self, spatial_key: Option<u64>) -> Vec<usize> {
+        self.ranked_candidates_with_load(spatial_key, &[])
+    }
+
+    /// Rank replicas by estimated service cost multiplied by current active
+    /// load, with a bounded preference for stable spatial locality. Missing
+    /// load entries are treated as zero so callers can use partial telemetry.
+    pub fn ranked_candidates_with_load(
+        &self,
+        spatial_key: Option<u64>,
+        active_calls: &[usize],
+    ) -> Vec<usize> {
         let count = self.replicas.len();
         let cursor = self.cursor.fetch_add(1, Ordering::Relaxed) % count;
         let preferred = spatial_key.map(|key| spatial_slot(key, count));
@@ -65,13 +76,21 @@ impl TimeWeightedSpatialScheduler {
             .enumerate()
             .map(|(index, timing)| {
                 let estimate = timing.service_time_ewma_ns.load(Ordering::Relaxed);
+                let active = active_calls.get(index).copied().unwrap_or(0);
+                let concurrency_cost = estimate.saturating_mul(
+                    u64::try_from(active).unwrap_or(u64::MAX).saturating_add(1),
+                );
                 let locality_penalty = if preferred.is_some_and(|slot| slot != index) {
                     estimate / LOCALITY_PENALTY_DIVISOR
                 } else {
                     0
                 };
                 let tie_break = (index + count - cursor) % count;
-                (estimate.saturating_add(locality_penalty), tie_break, index)
+                (
+                    concurrency_cost.saturating_add(locality_penalty),
+                    tie_break,
+                    index,
+                )
             })
             .collect();
         ranked.sort_unstable();
@@ -155,6 +174,23 @@ mod tests {
             scheduler.record_completion(other, Duration::from_micros(100));
         }
         assert_eq!(scheduler.ranked_candidates(Some(1))[0], other);
+    }
+
+    #[test]
+    fn active_replica_load_can_override_spatial_preference() {
+        let scheduler = TimeWeightedSpatialScheduler::new(2).unwrap();
+        let preferred = scheduler.ranked_candidates(Some(7))[0];
+        let other = 1 - preferred;
+        assert_eq!(
+            scheduler.ranked_candidates_with_load(Some(7), &[0, 0])[0],
+            preferred
+        );
+        let mut loads = vec![0usize; 2];
+        loads[preferred] = 8;
+        assert_eq!(
+            scheduler.ranked_candidates_with_load(Some(7), &loads)[0],
+            other
+        );
     }
 
     #[test]
