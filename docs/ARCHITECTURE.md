@@ -395,6 +395,16 @@ resource boundaries.
   an origin client or relay automatically
 
 
-## NUMA and MPMC primitives
+## NUMA, MPMC, and broker worker directives
 
-See [NUMA_MPMC_RUNTIME.md](NUMA_MPMC_RUNTIME.md). The topology and bounded queue APIs are library primitives; workload scheduling is not yet NUMA-aware.
+See [NUMA_MPMC_RUNTIME.md](NUMA_MPMC_RUNTIME.md) for YuKKi-OS topology discovery
+and bounded MPMC semantics. YuKKi-OS does not pin Overhauled worker threads:
+the new [worker-class policy](WORKER_CLASS_POLICY.md) can forward a resolver
+NUMA hint and logical affinity key through optional BRK2 fields. Overhauled
+discovers its own process-allowed CPU topology and attempts local Linux worker
+affinity. YuKKi's time-weighted Wasm replica scheduler remains separate from
+the broker's per-class FIFO queues.
+
+## YuKKi-directed worker classes
+
+`src/worker_policy.rs` owns the stable workload classes, validation of logical spatial affinity/deadlines, and conversion of resolved spatial payloads into optional broker hints. `src/gpu_adapter.rs` transmits these only in BRK2 and returns optional queue/service/NUMA telemetry alongside the unchanged WSM1 response. Lifecycle operations use Control; generic BRK2 WSM1 task submissions default to Throughput. Callers explicitly classify model inference with the Inference directive. BRK1 and raw WSM1 behavior remains unchanged. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md) for the wire fields and API examples.

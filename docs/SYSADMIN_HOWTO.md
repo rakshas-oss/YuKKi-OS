@@ -542,3 +542,38 @@ sudo systemctl restart yukki-bootstrap.service yukki-peer.service
 Keep configuration and secrets under the same access controls during upgrades.
 Peer registry and stream data are in-memory; restarting a process does not
 restore them from disk.
+
+## 13. Send YuKKi worker directives to Overhauled
+
+The broker adapter remains an application/library integration; configuring the
+native node does not start Overhauled. For explicit workload classes, select
+BRK2 on the `LifecycleClient` and call
+`submit_wsm1_task_with_worker_directive`. BRK1 and raw WSM1 clients remain
+available without worker metadata.
+
+Example API shape:
+
+```rust
+let client = LifecycleClient::new(config)?
+    .with_wire_mode(LifecycleWireMode::Brk2);
+let directive = WorkerDirective::for_resolved_spatial_payload(
+    &resolved_payload,
+    Some(deadline_unix_ns),
+);
+let execution = client
+    .submit_wsm1_task_with_worker_directive(&task, &directive)
+    .await?;
+if let Some(telemetry) = execution.worker_telemetry {
+    println!("queue={}us service={}us worker={} numa={:?}",
+        telemetry.queue_wait_us, telemetry.service_time_us,
+        telemetry.worker_id, telemetry.numa_node);
+}
+```
+
+The deadline is an absolute Unix timestamp in nanoseconds. The affinity key is
+a stable logical stream identity, not a physical CPU ID or geographic distance.
+The NUMA hint is advisory; only Overhauled can apply and report local Linux
+thread affinity. The broker uses dynamically growing FIFO queues, isolated by
+worker class, and enforces a process-wide outstanding-work and in-flight memory
+budget. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md) for the stable
+class names, BRK2 fields, legacy compatibility, and limitations.

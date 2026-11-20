@@ -10,6 +10,7 @@ use yukkios::gpu_adapter::{
     GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmLifecycleStatus, WasmTaskRequest,
     WasmTaskStatus,
 };
+use yukkios::{WorkerClass, WorkerDirective};
 
 /// This test is activated only by the CI job that starts the real C++ broker.
 /// Local cargo test runs remain self-contained when the broker is not present.
@@ -72,10 +73,22 @@ async fn rust_client_interoperates_with_live_overhauled_cpp_broker() {
         buffers: Vec::new(),
         payload: payload.to_vec(),
     };
-    let response = client
-        .submit_wsm1_task(&task)
-        .await
-        .expect("broker WSM1 Task request");
+    let response = if wire_mode == LifecycleWireMode::Brk2 {
+        let directive = WorkerDirective::realtime_spatial(0x5350415449414c, None, None);
+        let execution = client
+            .submit_wsm1_task_with_worker_directive(&task, &directive)
+            .await
+            .expect("broker WSM1 Task with YuKKi worker directive");
+        let telemetry = execution.worker_telemetry.expect("BRK2 worker telemetry");
+        assert_eq!(telemetry.worker_class, WorkerClass::RealtimeSpatial);
+        assert!(telemetry.worker_id > 0);
+        execution.response
+    } else {
+        client
+            .submit_wsm1_task(&task)
+            .await
+            .expect("broker WSM1 Task request")
+    };
     assert_eq!(response.task_id, task.task_id);
     assert_eq!(response.status, WasmTaskStatus::Ok);
     assert_eq!(response.result, payload);

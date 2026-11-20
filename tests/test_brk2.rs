@@ -15,6 +15,9 @@ fn request() -> Brk2BrokerRequest {
         idempotency_key: None,
         deadline_unix_ns: Some(1_900_000_000_000_000_000),
         device_preference: Some("npu".into()),
+        worker_class: Some("inference".into()),
+        spatial_affinity_key: None,
+        preferred_numa_node: Some(2),
     }
 }
 
@@ -26,6 +29,8 @@ fn brk2_request_round_trips_through_public_api() {
     let decoded = decode_brk2_frame(&frame, Brk2Limits::default()).unwrap();
     assert_eq!(decoded.header.request_id, 42);
     assert_eq!(Brk2BrokerRequest::from_message(&decoded).unwrap(), original);
+    assert_eq!(decoded.field(11).unwrap().value, b"inference");
+    assert_eq!(decoded.field(13).unwrap().value, 2u32.to_be_bytes());
 }
 
 #[test]

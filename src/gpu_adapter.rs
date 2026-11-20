@@ -74,6 +74,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use crate::worker_policy::{WorkerClass, WorkerDirective, WorkerTelemetry};
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -617,6 +618,14 @@ pub struct WasmTaskResponse {
     pub error: String,
     pub buffers: Vec<WasmBufferDescriptor>,
     pub result: Vec<u8>,
+}
+
+/// WSM1 task result paired with optional BRK2 worker execution telemetry.
+/// Telemetry is absent when using legacy BRK1/WSM1 paths or an older broker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WasmTaskExecution {
+    pub response: WasmTaskResponse,
+    pub worker_telemetry: Option<WorkerTelemetry>,
 }
 
 /// Decoded WSM1 message envelope.
@@ -2076,11 +2085,19 @@ async fn read_raw_frame(
     Ok(body)
 }
 
+struct DecodedBrk2Response {
+    status: u8,
+    result: Vec<u8>,
+    error: String,
+    backend: Option<String>,
+    worker_telemetry: Option<WorkerTelemetry>,
+}
+
 fn decode_brk2_response_fields(
     body: &[u8],
     expected_request_id: u64,
     expected_task_id: &str,
-) -> Result<(u8, Vec<u8>, String, Option<String>), GpuAdapterError> {
+) -> Result<DecodedBrk2Response, GpuAdapterError> {
     let length = u32::try_from(body.len()).map_err(|_| {
         GpuAdapterError::MalformedResponse("BRK2 response body exceeds uint32".into())
     })?;
@@ -2107,6 +2124,11 @@ fn decode_brk2_response_fields(
         (5, WireType::Bytes, true),
         (6, WireType::Utf8, true),
         (7, WireType::Utf8, false),
+        (8, WireType::Utf8, false),
+        (9, WireType::U64, false),
+        (10, WireType::U64, false),
+        (11, WireType::U32, false),
+        (12, WireType::U32, false),
     ];
     crate::brk2::validate_known_fields(&message, &schema)
         .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
@@ -2131,7 +2153,39 @@ fn decode_brk2_response_fields(
                 .map(|s| s.to_owned())
         })
         .transpose()?;
-    Ok((status, result, error, backend))
+    let telemetry_present = (8..=12).any(|field_id| message.field(field_id).is_some());
+    let worker_telemetry = if telemetry_present {
+        let class_field = message.field(8).ok_or_else(|| {
+            GpuAdapterError::MalformedResponse("BRK2 worker telemetry is missing worker_class".into())
+        })?;
+        let class_name = std::str::from_utf8(&class_field.value)
+            .map_err(|e| GpuAdapterError::MalformedResponse(format!("BRK2 worker_class is not UTF-8: {e}")))?;
+        let worker_class = WorkerClass::parse(class_name).ok_or_else(|| {
+            GpuAdapterError::MalformedResponse(format!("unknown BRK2 worker_class '{class_name}'"))
+        })?;
+        let queue_wait_us = message.field(9).ok_or_else(|| GpuAdapterError::MalformedResponse(
+            "BRK2 worker telemetry is missing queue_wait_us".into()))?;
+        let service_time_us = message.field(10).ok_or_else(|| GpuAdapterError::MalformedResponse(
+            "BRK2 worker telemetry is missing service_time_us".into()))?;
+        let worker_id = message.field(11).ok_or_else(|| GpuAdapterError::MalformedResponse(
+            "BRK2 worker telemetry is missing worker_id".into()))?;
+        Some(WorkerTelemetry {
+            worker_class,
+            queue_wait_us: u64::from_be_bytes(queue_wait_us.value[..8].try_into().unwrap()),
+            service_time_us: u64::from_be_bytes(service_time_us.value[..8].try_into().unwrap()),
+            worker_id: u32::from_be_bytes(worker_id.value[..4].try_into().unwrap()),
+            numa_node: message.field(12).map(|f| u32::from_be_bytes(f.value[..4].try_into().unwrap())),
+        })
+    } else {
+        None
+    };
+    Ok(DecodedBrk2Response {
+        status,
+        result,
+        error,
+        backend,
+        worker_telemetry,
+    })
 }
 
 fn brk2_request_id() -> u64 {
@@ -2139,24 +2193,18 @@ fn brk2_request_id() -> u64 {
     u64::from_be_bytes(bytes[..8].try_into().expect("UUID prefix is eight bytes"))
 }
 
-fn encode_brk2_broker_request(
-    task_id: &str,
-    kind: &str,
-    priority: u8,
-    timeout_ms: u32,
-    payload: Vec<u8>,
-) -> Result<(u64, Vec<u8>), GpuAdapterError> {
-    encode_brk2_broker_request_with_device(task_id, kind, priority, timeout_ms, payload, None)
-}
-
-fn encode_brk2_broker_request_with_device(
+fn encode_brk2_broker_request_with_worker_directive(
     task_id: &str,
     kind: &str,
     priority: u8,
     timeout_ms: u32,
     payload: Vec<u8>,
     device_preference: Option<&str>,
+    directive: Option<&WorkerDirective>,
 ) -> Result<(u64, Vec<u8>), GpuAdapterError> {
+    if let Some(directive) = directive {
+        directive.validate().map_err(|error| GpuAdapterError::InvalidRequest(error.into()))?;
+    }
     let request_id = brk2_request_id();
     let request = crate::brk2::BrokerRequest {
         task_id: task_id.to_owned(),
@@ -2167,8 +2215,11 @@ fn encode_brk2_broker_request_with_device(
         timeout_ms,
         payload,
         idempotency_key: None,
-        deadline_unix_ns: None,
+        deadline_unix_ns: directive.and_then(|value| value.deadline_unix_ns),
         device_preference: device_preference.map(|s| s.to_owned()),
+        worker_class: directive.map(|value| value.worker_class.as_str().to_owned()),
+        spatial_affinity_key: directive.and_then(|value| value.spatial_affinity_key),
+        preferred_numa_node: directive.and_then(|value| value.preferred_numa_node),
     };
     let frame = crate::brk2::encode(&request.to_message(request_id), crate::brk2::Limits::default())
         .map_err(|e| GpuAdapterError::Wsm1Codec(e.to_string()))?;
@@ -2416,9 +2467,10 @@ impl LifecycleClient {
             }
             LifecycleWireMode::Brk2 => {
                 let wsm1_bytes = encode_wsm1_lifecycle_request(request)?;
-                let (id, frame) = encode_brk2_broker_request(
+                let directive = WorkerDirective::control();
+                let (id, frame) = encode_brk2_broker_request_with_worker_directive(
                     &request.request_id, lifecycle_kind, 1,
-                    broker_deadline_ms(config.request_timeout), wsm1_bytes,
+                    broker_deadline_ms(config.request_timeout), wsm1_bytes, None, Some(&directive),
                 )?;
                 brk2_id = Some(id);
                 frame
@@ -2456,9 +2508,8 @@ impl LifecycleClient {
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
 
         if let Some(id) = brk2_id {
-            let (status, result, error, _backend) = decode_brk2_response_fields(
-                &response_bytes, id, &request.request_id,
-            )?;
+            let DecodedBrk2Response { status, result, error, .. } =
+                decode_brk2_response_fields(&response_bytes, id, &request.request_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
             }
@@ -2567,26 +2618,51 @@ impl LifecycleClient {
     }
 
     /// Submit a compute task using WSM1 binary format with automatic retry.
+    /// Generic BRK2 WSM1 requests use the Throughput class by default.
     pub async fn submit_wsm1_task(
         &self,
         task: &WasmTaskRequest,
     ) -> Result<WasmTaskResponse, GpuAdapterError> {
+        self.submit_wsm1_task_using_directive(task, None)
+            .await
+            .map(|execution| execution.response)
+    }
+
+    /// Submit a WSM1 task with explicit YuKKi-OS worker intent.
+    /// Explicit directives require BRK2; legacy BRK1/WSM1 remain unchanged.
+    pub async fn submit_wsm1_task_with_worker_directive(
+        &self,
+        task: &WasmTaskRequest,
+        directive: &WorkerDirective,
+    ) -> Result<WasmTaskExecution, GpuAdapterError> {
+        self.submit_wsm1_task_using_directive(task, Some(directive)).await
+    }
+
+    async fn submit_wsm1_task_using_directive(
+        &self,
+        task: &WasmTaskRequest,
+        directive: Option<&WorkerDirective>,
+    ) -> Result<WasmTaskExecution, GpuAdapterError> {
         let config = self.broker_client.config();
         if !config.enabled {
             return Err(GpuAdapterError::Disabled);
+        }
+        if directive.is_some() && self.wire_mode != LifecycleWireMode::Brk2 {
+            return Err(GpuAdapterError::InvalidRequest(
+                "explicit worker directives require LifecycleWireMode::Brk2".into(),
+            ));
         }
 
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match self.submit_wsm1_task_single(task).await {
+            match self.submit_wsm1_task_single(task, directive).await {
                 Ok(resp) => return Ok(resp),
                 Err(err) => {
                     let is_retryable = matches!(
                         &err,
                         GpuAdapterError::Io(_) | GpuAdapterError::ConnectTimeout(_)
                     );
-
                     let last_error_msg = err.to_string();
                     if !is_retryable || attempt > config.max_retries {
                         return Err(if attempt > 1 {
@@ -2598,10 +2674,8 @@ impl LifecycleClient {
                             err
                         });
                     }
-
                     let backoff_multiplier = 2u32.saturating_pow((attempt - 1) as u32);
-                    let delay = config.retry_backoff.saturating_mul(backoff_multiplier);
-                    sleep(delay).await;
+                    sleep(config.retry_backoff.saturating_mul(backoff_multiplier)).await;
                 }
             }
         }
@@ -2610,7 +2684,8 @@ impl LifecycleClient {
     async fn submit_wsm1_task_single(
         &self,
         task: &WasmTaskRequest,
-    ) -> Result<WasmTaskResponse, GpuAdapterError> {
+        directive: Option<&WorkerDirective>,
+    ) -> Result<WasmTaskExecution, GpuAdapterError> {
         let config = self.broker_client.config();
         let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
             .await
@@ -2622,9 +2697,12 @@ impl LifecycleClient {
             LifecycleWireMode::Json => serde_json::to_vec(task).map_err(GpuAdapterError::Serialization)?,
             LifecycleWireMode::Brk2 => {
                 let wsm1_bytes = encode_wsm1_task_request(task)?;
-                let (id, frame) = encode_brk2_broker_request(
+                let default_directive = WorkerDirective::throughput();
+                let selected_directive = directive.unwrap_or(&default_directive);
+                let (id, frame) = encode_brk2_broker_request_with_worker_directive(
                     &task.task_id, "wasm.task.v1", task.priority,
-                    broker_deadline_ms(config.request_timeout), wsm1_bytes,
+                    broker_deadline_ms(config.request_timeout), wsm1_bytes, None,
+                    Some(selected_directive),
                 )?;
                 brk2_id = Some(id);
                 frame
@@ -2696,7 +2774,8 @@ impl LifecycleClient {
         };
 
         if let Some(id) = brk2_id {
-            let (status, result, error, _backend) = decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
+            let DecodedBrk2Response { status, result, error, worker_telemetry, .. } =
+                decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
             }
@@ -2711,9 +2790,12 @@ impl LifecycleClient {
             if !status_matches {
                 return Err(GpuAdapterError::MalformedResponse("BRK2 outer status conflicts with WSM1 task status".into()));
             }
-            Ok(decoded)
+            Ok(WasmTaskExecution { response: decoded, worker_telemetry })
         } else {
-            parse_task_response(&response_bytes)
+            Ok(WasmTaskExecution {
+                response: parse_task_response(&response_bytes)?,
+                worker_telemetry: None,
+            })
         }
     }
 
@@ -2738,13 +2820,10 @@ impl LifecycleClient {
         if !config.enabled {
             return Err(GpuAdapterError::Disabled);
         }
-        let (request_id, frame) = encode_brk2_broker_request_with_device(
-            task_id,
-            "inference",
-            priority,
-            timeout_ms,
-            payload.to_vec(),
-            Some("npu"),
+        let directive = WorkerDirective::inference();
+        let (request_id, frame) = encode_brk2_broker_request_with_worker_directive(
+            task_id, "inference", priority, timeout_ms, payload.to_vec(),
+            Some("npu"), Some(&directive),
         )?;
         if frame.len() > config.max_frame_size {
             return Err(GpuAdapterError::FrameTooLarge {
@@ -2766,7 +2845,7 @@ impl LifecycleClient {
         )
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
-        let (status, result, error, backend) =
+        let DecodedBrk2Response { status, result, error, backend, .. } =
             decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
         match status {
             0 => {

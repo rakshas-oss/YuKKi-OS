@@ -24,6 +24,7 @@ pub mod nxr1;
 pub mod origin_client;
 pub mod spatiotemporal_resolver;
 pub mod temporal_spatial_scheduler;
+pub mod worker_policy;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
@@ -57,7 +58,7 @@ pub use gpu_adapter::{
     ModuleLifecycleState, ModuleVersionHandle, ModuleVersionResources, ProtocolHandshakeRequest,
     ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor, WasmLifecycleAction,
     WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
-    WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST,
+    WasmTaskExecution, WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC, BRK1_MSG_REQUEST,
     BRK1_MSG_RESPONSE, BRK1_PROTOCOL_VERSION, CURRENT_PROTOCOL_VERSION,
     DEFAULT_GPU_BROKER_ENDPOINT, DEFAULT_GPU_CONNECT_TIMEOUT, DEFAULT_GPU_MAX_FRAME_BYTES,
     DEFAULT_GPU_MAX_RETRIES, DEFAULT_GPU_QUIESCE_TIMEOUT, DEFAULT_GPU_REQUEST_TIMEOUT,
@@ -69,6 +70,7 @@ pub use interop_encryption::{
     derive_hybrid_key, generate_interop_secret, InteropAead, InteropSession,
 };
 pub use origin_client::OriginChunkClient;
+pub use worker_policy::{WorkerClass, WorkerDirective, WorkerTelemetry};
 pub use spatiotemporal_resolver::{
     PayloadReceiver, ResolvedPayload, ResolverError, SequencePolicy, SpatiotemporalPayloadResolver,
 };

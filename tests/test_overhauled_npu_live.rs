@@ -40,6 +40,9 @@ async fn raw_brk2_inference(endpoint: &str, task_id: &str, request_id: u64) -> b
         idempotency_key: None,
         deadline_unix_ns: None,
         device_preference: Some("npu".to_owned()),
+        worker_class: Some("inference".to_owned()),
+        spatial_affinity_key: None,
+        preferred_numa_node: None,
     };
     let frame = brk2::encode(&request.to_message(request_id), Limits::default())
         .expect("encode BRK2 NPU request");

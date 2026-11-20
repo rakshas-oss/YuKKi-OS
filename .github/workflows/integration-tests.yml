@@ -130,7 +130,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
-          ref: main
+          # Pull-request validation uses the paired worker-fabric branch so
+          # the new optional BRK2 worker telemetry is present. Pushes to main
+          # continue to validate against Overhauled main.
+          ref: ${{ github.event_name == 'pull_request' && 'feature/yukki-aware-worker-pools' || 'main' }}
           path: overhauled
       - name: Record canonical interoperability revisions
         run: |
