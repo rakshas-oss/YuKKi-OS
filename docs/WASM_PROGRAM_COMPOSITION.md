@@ -66,13 +66,16 @@ The runtime uses `TimeWeightedSpatialScheduler` from
    work with the same key tends to reuse that replica and its warm state.
 2. Each replica records an exponentially weighted moving average of
    completed service time: 7/8 prior estimate plus 1/8 of the latest call.
-3. The preferred shard receives a 25% locality penalty on competing shards.
-   If another replica is materially faster, time-weighted service cost wins
-   and the request spills to that replica.
+3. The estimated service cost is multiplied by one plus the replica's
+   currently active-call count. This load factor helps avoid concentrating
+   new work on a replica that is already busy. The preferred shard still
+   receives a 25% locality penalty on competing replicas, so locality is
+   retained when the estimated costs are comparable.
 4. Admission uses a non-blocking Store lock. Busy replicas are skipped. If
    every replica is busy, the call immediately returns
    `CompositionError::ProgramSaturated` rather than waiting behind a
-   long-running guest.
+   long-running guest. Active-call load is a snapshot, not a reservation or
+   queue-depth guarantee; the Store lock remains the final admission check.
 
 This avoids head-of-line blocking on one replica while spare replicas exist.
 It does **not** promise zero stalls: if all replicas are busy, the call
