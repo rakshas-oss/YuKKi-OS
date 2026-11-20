@@ -2085,11 +2085,19 @@ async fn read_raw_frame(
     Ok(body)
 }
 
+struct DecodedBrk2Response {
+    status: u8,
+    result: Vec<u8>,
+    error: String,
+    backend: Option<String>,
+    worker_telemetry: Option<WorkerTelemetry>,
+}
+
 fn decode_brk2_response_fields(
     body: &[u8],
     expected_request_id: u64,
     expected_task_id: &str,
-) -> Result<(u8, Vec<u8>, String, Option<String>, Option<WorkerTelemetry>), GpuAdapterError> {
+) -> Result<DecodedBrk2Response, GpuAdapterError> {
     let length = u32::try_from(body.len()).map_err(|_| {
         GpuAdapterError::MalformedResponse("BRK2 response body exceeds uint32".into())
     })?;
@@ -2171,7 +2179,13 @@ fn decode_brk2_response_fields(
     } else {
         None
     };
-    Ok((status, result, error, backend, worker_telemetry))
+    Ok(DecodedBrk2Response {
+        status,
+        result,
+        error,
+        backend,
+        worker_telemetry,
+    })
 }
 
 fn brk2_request_id() -> u64 {
@@ -2494,9 +2508,8 @@ impl LifecycleClient {
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
 
         if let Some(id) = brk2_id {
-            let (status, result, error, _backend, _worker_telemetry) = decode_brk2_response_fields(
-                &response_bytes, id, &request.request_id,
-            )?;
+            let DecodedBrk2Response { status, result, error, .. } =
+                decode_brk2_response_fields(&response_bytes, id, &request.request_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
             }
@@ -2761,7 +2774,7 @@ impl LifecycleClient {
         };
 
         if let Some(id) = brk2_id {
-            let (status, result, error, _backend, worker_telemetry) =
+            let DecodedBrk2Response { status, result, error, worker_telemetry, .. } =
                 decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
@@ -2832,7 +2845,7 @@ impl LifecycleClient {
         )
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
-        let (status, result, error, backend, _worker_telemetry) =
+        let DecodedBrk2Response { status, result, error, backend, .. } =
             decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
         match status {
             0 => {
