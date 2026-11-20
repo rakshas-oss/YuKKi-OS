@@ -86,14 +86,14 @@ uses the adapter boundary; the optional browser benchmark instead executes
 spatial WASM locally in Node and sends host-prepared numeric records as direct
 BRK2 inference requests.
 
-The diagram distinguishes implemented library primitives from stronger
-deployment claims: YuKKi-OS NUMA discovery remains a topology primitive, not
-its own full NUMA scheduler; worker-class queues and actual Linux CPU affinity
-are applied by the separate Overhauled broker when available. The browser
-module is not the native daemon, and accelerator use remains optional and
-broker-reported. For a terminal-rendered 24-bit ANSI version,
-run `bash docs/diagrams/print-ansi.sh`. GitHub's Markdown renderer does not
-execute ANSI escape sequences, so the inline SVG is the readable colour view.
+The diagram now includes the v6.14 worker-directive contract. YuKKi-OS owns
+workload classification and emits optional BRK2 deadline, worker-class,
+logical-affinity and advisory preferred-NUMA metadata. Overhauled owns the
+isolated per-class worker pools and broker-local Linux CPU affinity. These are
+separate stages: a YuKKi logical key or preferred node is a hint, not proof
+that a specific CPU was selected. The browser module is not the native daemon,
+and accelerator use remains optional and broker-reported. For a terminal-
+rendered 24-bit ANSI version, run `bash docs/diagrams/print-ansi.sh`.
 
 
 ## CLI and stream gateway
