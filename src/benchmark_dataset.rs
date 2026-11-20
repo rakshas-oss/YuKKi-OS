@@ -690,6 +690,9 @@ fn measure_candidate(
 ) -> Result<CandidateMetrics, DatasetBenchmarkError> {
     let batch_count = records.len().div_ceil(batch_size);
     let worker_count = workers.min(batch_count).max(1);
+    let chunk_batches = BENCH_BATCH_CHUNK_SIZE
+        .min(batch_count.div_ceil(worker_count.saturating_mul(4)))
+        .max(1);
     let next_batch = AtomicUsize::new(0);
     let max_record_bytes = records
         .iter()
@@ -711,14 +714,14 @@ fn measure_candidate(
                 };
                 loop {
                     let first_batch = next_batch.fetch_add(
-                        BENCH_BATCH_CHUNK_SIZE,
+                        chunk_batches,
                         Ordering::Relaxed,
                     );
                     if first_batch >= batch_count {
                         break;
                     }
                     let end_batch = first_batch
-                        .saturating_add(BENCH_BATCH_CHUNK_SIZE)
+                        .saturating_add(chunk_batches)
                         .min(batch_count);
                     for batch_index in first_batch..end_batch {
                         let begin = batch_index * batch_size;
