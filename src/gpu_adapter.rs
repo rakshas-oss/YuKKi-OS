@@ -2605,7 +2605,7 @@ impl LifecycleClient {
     }
 
     /// Submit a compute task using WSM1 binary format with automatic retry.
-    /// BRK2 requests carry YuKKi-OS's inference worker class by default.
+    /// Generic BRK2 WSM1 requests use the Throughput class by default.
     pub async fn submit_wsm1_task(
         &self,
         task: &WasmTaskRequest,
