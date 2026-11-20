@@ -1,9 +1,9 @@
-# YuKKi-OS v6.13.1 — System Administration How-to
+# YuKKi-OS v6.14.0 — System Administration How-to
 
-> Release candidate: v6.13.0 is the published baseline. The v6.13.1 patch
-> candidate adds benchmark validation and an optional direct BRK2 qualification
-> path; its tag and release archives remain subject to CI and review. This guide
-> describes the implementation on the v6.13.1 candidate branch.
+> Release candidate: v6.13.0 is the published baseline. The v6.14.0 minor
+> candidate adds workload directives and BRK2 worker-class interoperability;
+> its tag and release archives remain subject to CI and review. This guide
+> describes the implementation on the v6.14.0 candidate branch.
 
 ## 1. Scope and deployment components
 

@@ -1,4 +1,4 @@
-# YuKKi-OS v6.13.1 — Architecture
+# YuKKi-OS v6.14.0 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 This is not a claim that YuKKi-OS currently implements a complete general-purpose kernel or a fully NUMA-aware scheduler. NUMA discovery and MPMC queues are library primitives; thread affinity, NUMA-local allocation, per-node worker placement, and cross-node work stealing remain separate scheduler-integration work. Accelerator placement and execution are owned by the configured broker.
 
-This document describes the v6.13.1 patch-release candidate. v6.13.0 is the latest published baseline; the v6.13.1 tag remains pending CI and release qualification.
+This document describes the v6.14.0 minor-release candidate. v6.13.0 is the latest published baseline; the v6.14.0 tag remains pending CI and release qualification.
 
 ### Full-colour system map
 
@@ -92,6 +92,34 @@ These FFI APIs are currently library-side primitives; the node CLI path does not
 - Request/response shape validation before/after I/O
 
 The generic broker client is a separate integration from the Overhauled adapter. Its raw TCP transport is not authenticated by the peer-mesh session. `YUKKI_BROKER_TRANSPORT_SECURITY=authenticated-proxy` records the expected deployment boundary; it does not enable TLS or authenticate the socket.
+
+## Worker-class directives and broker placement
+
+YuKKi-OS owns workload semantics and policy selection. The public
+`WorkerClass` and `WorkerDirective` APIs map existing `TaskProfile` values
+and resolved spatial context into Control, RealtimeSpatial, Throughput,
+ExactCpu or Inference directives. Resolved NXR1 source/destination routes
+produce a stable logical affinity key; the resolver's NUMA node remains an
+advisory hint.
+
+When a directive is submitted through the Overhauled adapter, the client
+requires BRK2 and encodes optional request fields 11 (worker class), 12
+(logical spatial affinity U64) and 13 (preferred NUMA node U32). A relative
+`TaskProfile.deadline_ms` is converted with checked arithmetic to an absolute
+Unix-nanosecond deadline using the caller's submission timestamp.
+
+Lifecycle operations are classified as Control. Generic BRK2 WSM1 task
+submissions default to Throughput; inference work must explicitly use
+Inference. Existing BRK1 and raw WSM1 paths remain compatible and do not
+transmit directives. The inner WSM1 payload and NXR1 frame semantics are
+unchanged.
+
+Overhauled owns local class queues, deadline ordering, process-wide admission
+budgets, Linux worker-thread CPU/NUMA affinity, backend selection and execution.
+A preferred NUMA node or logical affinity key does not prove physical
+placement; the broker reports an applied NUMA node only after affinity
+succeeds. See [Worker class policy](WORKER_CLASS_POLICY.md) and
+[Overhauled worker fabric](https://github.com/rakshas-oss/overhauled/blob/main/docs/YUKKI_WORKER_FABRIC.md).
 
 ## Geospatial and live media codecs
 

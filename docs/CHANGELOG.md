@@ -1,5 +1,41 @@
 # Changelog
 
+## v6.14.0 (release candidate; tag pending)
+
+### YuKKi-aware broker worker directives
+
+- Added public `WorkerClass` and validated `WorkerDirective` types for
+  Control, RealtimeSpatial, Throughput, ExactCpu and Inference workloads.
+- Derive stable logical spatial affinity from resolved NXR1 source/destination
+  routes and preserve the resolver's advisory NUMA hint.
+- Map existing `TaskProfile` semantics into worker classes: ExactCpu takes
+  precedence for exact-precision work; spatial context selects
+  RealtimeSpatial; explicit inference profiles select Inference; remaining
+  and data-parallel work selects Throughput.
+- Convert relative `deadline_ms` values to checked absolute Unix-nanosecond
+  BRK2 deadlines using a caller-supplied submission timestamp.
+- Extend the Rust BRK2 codec with optional worker class, affinity and
+  preferred-NUMA request fields 11–13.
+- Add `submit_wsm1_task_with_worker_directive`, requiring BRK2 when a
+  directive is present and returning optional worker telemetry. Lifecycle
+  operations use Control; generic BRK2 WSM1 tasks default to Throughput;
+  callers explicitly select Inference for model inference.
+- Add policy/protocol tests and live Overhauled interoperability coverage.
+
+### Compatibility and boundaries
+
+- YuKKi-OS selects workload meaning and policy; Overhauled owns local worker
+  queues, admission, CPU/NUMA placement, backend selection and execution.
+- NXR1, WSM1 and BRK envelope identities are unchanged. BRK1/raw WSM1 paths
+  remain compatible and do not transmit worker directives.
+- The logical affinity key and NUMA hint are advisory. Actual NUMA placement
+  is reported by Overhauled only when its Linux affinity operation succeeds.
+- This is a minor feature candidate, not a published release. Required
+  multiplatform, browser-WASM, WASI, security and live interop checks remain
+  release gates.
+
+---
+
 ## Unreleased
 
 ## v6.13.1 (release candidate; tag pending)

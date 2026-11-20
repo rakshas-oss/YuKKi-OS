@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.13.0. The v6.13.1 patch candidate carries browser-WASM benchmark validation and the optional direct BRK2 benchmark leg; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.13.0. The v6.14.0 minor candidate carries YuKKi workload directives and BRK2 worker-class interoperability; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Supported runtime shape
 
