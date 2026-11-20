@@ -436,6 +436,9 @@ fn measure_candidate(
         .filter(|count| *count <= MAX_TOTAL_SOLVES)
         .ok_or("candidate exceeds the one-million-solve safety limit")?;
     let worker_count = workers.min(solve_count).max(1);
+    let chunk_size = SOLVE_CHUNK_SIZE
+        .min(solve_count.div_ceil(worker_count.saturating_mul(4)))
+        .max(1);
     let next = AtomicUsize::new(0);
     let started = Instant::now();
 
@@ -450,11 +453,11 @@ fn measure_candidate(
                     ..WorkerSolveStats::default()
                 };
                 loop {
-                    let chunk_start = next.fetch_add(SOLVE_CHUNK_SIZE, Ordering::Relaxed);
+                    let chunk_start = next.fetch_add(chunk_size, Ordering::Relaxed);
                     if chunk_start >= solve_count {
                         break;
                     }
-                    let chunk_end = chunk_start.saturating_add(SOLVE_CHUNK_SIZE).min(solve_count);
+                    let chunk_end = chunk_start.saturating_add(chunk_size).min(solve_count);
                     for task in chunk_start..chunk_end {
                         let matrix_index = task % matrices.len();
                         let before = Instant::now();
