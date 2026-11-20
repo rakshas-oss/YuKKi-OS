@@ -29,6 +29,22 @@ ring. It prioritizes bounded memory, explicit shutdown, and auditable
 correctness over lock-free progress. It is a correctness baseline, not yet
 a tuned scheduler or NUMA-local work-stealing runtime.
 
+## Parallel payload resolution
+
+`SpatiotemporalPayloadResolver` has two distinct sequencing paths:
+
+- `SequencePolicy::AllowAll` bypasses sequence-state locking and sends
+  directly to the bounded destination queue.
+- `SequencePolicy::RejectNonIncreasing` uses a short destination-map
+  lookup followed by a mutex scoped to the individual source. Different
+  sources targeting the same component can validate and enqueue concurrently,
+  while frames from one source retain atomic check/enqueue/watermark semantics.
+
+Strict per-source sequence tracking is bounded to 65,536 source entries per
+route. This is a contention reduction, not a lock-free MPMC implementation:
+the underlying bounded queue remains mutex/condition-variable based, and a
+full queue does not advance the sequence watermark.
+
 ## Broker worker-class integration
 
 The YuKKi topology snapshot and bounded MPMC queue remain independent library
