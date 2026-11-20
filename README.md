@@ -1,19 +1,19 @@
-# YuKKi-OS v6.13.1 (release candidate)
+# YuKKi-OS v6.14.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.13.1 is a patch-release candidate. The published baseline is v6.13.0; v6.13.1 adds benchmark validation/interop hardening and full-colour architecture maps. Its tag and release archive remain subject to CI and review.
+> **Release status:** v6.14.0 is a minor-release candidate. The published baseline is v6.13.0; v6.14.0 adds YuKKi workload directives and the Overhauled BRK2 worker-class integration. Its tag and release archive remain subject to CI and review.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.13.1 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.14.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.13.1 candidate; the last published release is v6.13.0.
+- **Release line:** v6.14.0 candidate; the last published release is v6.13.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
@@ -23,31 +23,31 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
 
-## What's new in v6.13.1
+## What's new in v6.14.0
 
-The v6.13.1 patch candidate hardens the benchmark and cross-repository
-qualification path without changing the native runtime API or YKMC, BRK1,
-BRK2, NXR1 or WSM1 wire contracts.
+The v6.14.0 candidate adds YuKKi-OS's policy and client side of the
+cross-repository worker-class contract:
 
-- Browser-WASM benchmark arguments and dataset/profile inputs now have
-  explicit bounds and structural validation. Spatial output, resolver
-  success, simplifier indices and result bounds are checked before a report
-  is accepted.
-- The optional broker leg sends host-prepared numeric records to Overhauled
-  as ordinary BRK2 inference requests. It validates response schema,
-  request/task correlation, success status, actual backend identity,
-  selected-GPU consistency, output bounds and deterministic CPU results.
-- The report explicitly records whether broker interoperability was enabled.
-  Local-only runs no longer imply TCP, BRK2, WSM1, placement or accelerator
-  qualification. The live BRK2 path remains distinct from production WSM1
-  guest/lifecycle execution.
-- Full-colour ANSI-inspired architecture maps and terminal renderers clarify
-  the responsibilities of YuKKi-OS, Overhauled, NUMA primitives, browser WASM
-  and host-side Wasmtime composition.
+- Public `WorkerClass` and validated `WorkerDirective` APIs cover Control,
+  RealtimeSpatial, Throughput, ExactCpu and Inference work.
+- Directives derive stable logical spatial affinity from resolved NXR1
+  routes and carry the resolver's advisory NUMA hint.
+- Existing `TaskProfile` values map to worker classes with ExactCpu
+  precedence, then spatial, explicit inference, and Throughput defaults.
+- Relative task deadlines are converted with checked arithmetic to absolute
+  Unix-nanosecond BRK2 deadlines.
+- BRK2 optional request fields 11–13 carry worker class, logical affinity and
+  preferred NUMA node. The explicit WSM1 task API requires BRK2 for directives
+  and exposes optional queue/service/worker/NUMA telemetry.
+- Lifecycle requests use Control; generic BRK2 WSM1 tasks default to
+  Throughput; model inference callers explicitly select Inference.
 
-This is a patch-level benchmark, validation and documentation increment.
-The core composition and time-weighted replica features remain those of
-published v6.13.0.
+YuKKi-OS owns workload semantics and directive policy. Overhauled owns local
+worker queues, admission budgets, Linux CPU/NUMA affinity, backend selection
+and execution. Existing YKMC, BRK1, BRK2, NXR1 and WSM1 identities remain
+compatible. Logical affinity and preferred NUMA values are hints, not proof
+of physical placement. See [Worker class policy](docs/WORKER_CLASS_POLICY.md)
+and [Overhauled interoperability](docs/OVERHAULED_INTEROP.md).
 
 ## v6.12.0 published feature baseline
 
@@ -197,7 +197,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.13.1 .
+docker build -t yukkios:6.14.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
