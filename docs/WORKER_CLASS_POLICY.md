@@ -7,6 +7,13 @@ contract carried through optional BRK2 TLVs; it does not change BRK1, BRK2, or
 WSM1 envelope identities and does not move Wasmtime or NXR1 semantics into
 Overhauled.
 
+![YuKKi-OS policy and Overhauled worker-fabric architecture](diagrams/yukkios-architecture.svg)
+
+The diagram shows the split contract: YuKKi-OS chooses semantic worker intent
+and optional hints; Overhauled selects its local pool and applies local
+placement. Hints are advisory, and the broker reports NUMA only when Linux
+thread affinity was successfully applied.
+
 ## Worker classes
 
 The public types are in `yukkios::worker_policy`:
