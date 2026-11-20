@@ -292,6 +292,45 @@ mod tests {
     }
 
     #[test]
+    fn allow_all_accepts_out_of_order_frames_without_sequence_tracking() {
+        let resolver = SpatiotemporalPayloadResolver::new();
+        let receiver = resolver
+            .register_destination("unordered", 2, None, SequencePolicy::AllowAll)
+            .unwrap();
+
+        assert_eq!(resolver.resolve_and_enqueue(&task("sensor", "unordered", 9)), Ok(9));
+        assert_eq!(resolver.resolve_and_enqueue(&task("sensor", "unordered", 3)), Ok(3));
+        assert_eq!(receiver.try_recv().unwrap().frame.seq_id, 9);
+        assert_eq!(receiver.try_recv().unwrap().frame.seq_id, 3);
+    }
+
+    #[test]
+    fn strict_sequence_state_is_independent_per_source_under_concurrency() {
+        use std::{sync::Arc, thread};
+
+        let resolver = Arc::new(SpatiotemporalPayloadResolver::new());
+        let receiver = resolver
+            .register_destination("parallel", 32, None, SequencePolicy::RejectNonIncreasing)
+            .unwrap();
+        let mut producers = Vec::new();
+        for index in 0..16 {
+            let resolver = Arc::clone(&resolver);
+            producers.push(thread::spawn(move || {
+                let source = format!("sensor-{index}");
+                resolver.resolve_and_enqueue(&task(&source, "parallel", 1))
+            }));
+        }
+        for producer in producers {
+            assert_eq!(producer.join().unwrap(), Ok(1));
+        }
+        let mut received = 0;
+        while receiver.try_recv().is_some() {
+            received += 1;
+        }
+        assert_eq!(received, 16);
+    }
+
+    #[test]
     fn full_queue_does_not_advance_sequence_watermark() {
         let resolver = SpatiotemporalPayloadResolver::new();
         let receiver = resolver
