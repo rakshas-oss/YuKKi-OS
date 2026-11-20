@@ -33,8 +33,12 @@ pub struct ResolvedPayload {
     pub frame: Nxr1Frame,
 }
 
+const MAX_SEQUENCE_SOURCES_PER_ROUTE: usize = 65_536;
+
 struct RouteState {
-    last_sequence_by_source: HashMap<String, u64>,
+    // The map lock is held only while finding/creating a source state. The
+    // source-local lock serialises ordering for that source alone.
+    last_sequence_by_source: HashMap<String, Arc<Mutex<Option<u64>>>>,
 }
 
 struct Route {
@@ -100,6 +104,8 @@ pub enum ResolverError {
     QueueFull(String),
     #[error("component queue for destination '{0}' is closed")]
     QueueClosed(String),
+    #[error("sequence-tracking source limit reached for destination '{0}'")]
+    SequenceSourceLimit(String),
     #[error(transparent)]
     InvalidFrame(#[from] Nxr1Error),
 }
@@ -157,17 +163,38 @@ impl SpatiotemporalPayloadResolver {
 
         let frame = from_broker_task(task)?;
         let sequence = frame.seq_id;
-        let mut state = route.state.lock().unwrap_or_else(|p| p.into_inner());
-
-        if route.sequence_policy == SequencePolicy::RejectNonIncreasing {
-            if let Some(last) = state.last_sequence_by_source.get(&task.source).copied() {
-                if sequence <= last {
-                    return Err(ResolverError::StaleSequence {
-                        source_id: task.source.clone(),
-                        sequence,
-                        last,
-                    });
+        // AllowAll has no sequence-ordering dependency and deliberately
+        // bypasses the route state lock completely. Strict ordering uses a
+        // short map lookup followed by a lock scoped to this source.
+        let source_sequence = if route.sequence_policy == SequencePolicy::RejectNonIncreasing {
+            let mut state = route.state.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(existing) = state.last_sequence_by_source.get(&task.source) {
+                Some(Arc::clone(existing))
+            } else {
+                if state.last_sequence_by_source.len() >= MAX_SEQUENCE_SOURCES_PER_ROUTE {
+                    return Err(ResolverError::SequenceSourceLimit(route.destination.clone()));
                 }
+                let source_state = Arc::new(Mutex::new(None));
+                state.last_sequence_by_source.insert(
+                    task.source.clone(),
+                    Arc::clone(&source_state),
+                );
+                Some(source_state)
+            }
+        } else {
+            None
+        };
+        let mut source_sequence_guard = source_sequence.as_ref().map(|source_state| {
+            source_state.lock().unwrap_or_else(|p| p.into_inner())
+        });
+
+        if let Some(last) = source_sequence_guard.as_ref().and_then(|guard| **guard) {
+            if sequence <= last {
+                return Err(ResolverError::StaleSequence {
+                    source_id: task.source.clone(),
+                    sequence,
+                    last,
+                });
             }
         }
 
@@ -180,10 +207,8 @@ impl SpatiotemporalPayloadResolver {
 
         match route.queue.try_send(payload) {
             Ok(()) => {
-                if route.sequence_policy == SequencePolicy::RejectNonIncreasing {
-                    state
-                        .last_sequence_by_source
-                        .insert(task.source.clone(), sequence);
+                if let Some(last) = source_sequence_guard.as_mut() {
+                    **last = Some(sequence);
                 }
                 Ok(sequence)
             }
