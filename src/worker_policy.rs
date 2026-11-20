@@ -169,8 +169,7 @@ impl WorkerDirective {
         let mut directive = if profile.requires_exact_precision {
             Self::exact_cpu()
         } else if let Some(payload) = spatial {
-            let spatial_directive = Self::for_resolved_spatial_payload(payload, deadline_unix_ns);
-            spatial_directive
+            Self::for_resolved_spatial_payload(payload, deadline_unix_ns)
         } else if profile.is_inference {
             Self::inference()
         } else {
@@ -179,13 +178,16 @@ impl WorkerDirective {
             Self::throughput()
         };
 
+        // The relative TaskProfile deadline applies to every worker class,
+        // not only spatial and exact-precision directives.
+        directive.deadline_unix_ns = deadline_unix_ns;
+
         if profile.requires_exact_precision {
             if let Some(payload) = spatial {
                 let spatial_hint = Self::for_resolved_spatial_payload(payload, deadline_unix_ns);
                 directive.spatial_affinity_key = spatial_hint.spatial_affinity_key;
                 directive.preferred_numa_node = spatial_hint.preferred_numa_node;
             }
-            directive.deadline_unix_ns = deadline_unix_ns;
         }
         directive.validate()?;
         Ok(directive)
@@ -266,11 +268,15 @@ mod tests {
         assert_eq!(directive.worker_class, WorkerClass::Throughput);
         assert_eq!(directive.deadline_unix_ns, Some(1_250_000_000));
 
-        let inference = TaskProfile { is_inference: true, ..TaskProfile::default() };
-        assert_eq!(
-            WorkerDirective::for_task_profile(&inference, 1_000, None).unwrap().worker_class,
-            WorkerClass::Inference
-        );
+        let inference = TaskProfile {
+            is_inference: true,
+            deadline_ms: Some(250),
+            ..TaskProfile::default()
+        };
+        let inference_directive =
+            WorkerDirective::for_task_profile(&inference, 1_000, None).unwrap();
+        assert_eq!(inference_directive.worker_class, WorkerClass::Inference);
+        assert_eq!(inference_directive.deadline_unix_ns, Some(250_001_000));
     }
 
     #[test]
