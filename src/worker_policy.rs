@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::exec_policy::TaskProfile;
 use crate::spatiotemporal_resolver::ResolvedPayload;
 
 /// Scheduling class selected by YuKKi-OS from workload semantics.
@@ -132,6 +133,64 @@ impl WorkerDirective {
         Self::realtime_spatial(hash, payload.numa_node, deadline_unix_ns)
     }
 
+    /// Derive worker scheduling intent from YuKKi-OS's existing task profile.
+    ///
+    /// `now_unix_ns` is captured immediately before submission. A relative
+    /// TaskProfile deadline is converted to the absolute Unix-nanosecond value
+    /// carried by BRK2. Exact-precision requirements take precedence over
+    /// spatial scheduling; their affinity and NUMA hints are still retained.
+    /// A spatial route otherwise selects RealtimeSpatial, then Inference or
+    /// Throughput follows the task profile. Backend preference remains a
+    /// separate BRK2 device-preference decision.
+    pub fn for_task_profile(
+        profile: &TaskProfile,
+        now_unix_ns: u64,
+        spatial: Option<&ResolvedPayload>,
+    ) -> Result<Self, &'static str> {
+        if now_unix_ns == 0 || now_unix_ns > i64::MAX as u64 {
+            return Err("now_unix_ns is outside the supported Unix-nanosecond range");
+        }
+        let deadline_unix_ns = match profile.deadline_ms {
+            Some(0) => return Err("TaskProfile deadline_ms must be nonzero"),
+            Some(milliseconds) => {
+                let delta = milliseconds
+                    .checked_mul(1_000_000)
+                    .ok_or("TaskProfile deadline_ms overflows nanoseconds")?;
+                Some(
+                    now_unix_ns
+                        .checked_add(delta)
+                        .filter(|deadline| *deadline <= i64::MAX as u64)
+                        .ok_or("absolute task deadline is outside the supported range")?,
+                )
+            }
+            None => None,
+        };
+
+        let mut directive = if profile.requires_exact_precision {
+            Self::exact_cpu()
+        } else if let Some(payload) = spatial {
+            let spatial_directive = Self::for_resolved_spatial_payload(payload, deadline_unix_ns);
+            spatial_directive
+        } else if profile.is_inference {
+            Self::inference()
+        } else {
+            // Data-parallel and generic CPU-first work use the Throughput
+            // queue; Overhauled may still select a GPU from local policy.
+            Self::throughput()
+        };
+
+        if profile.requires_exact_precision {
+            if let Some(payload) = spatial {
+                let spatial_hint = Self::for_resolved_spatial_payload(payload, deadline_unix_ns);
+                directive.spatial_affinity_key = spatial_hint.spatial_affinity_key;
+                directive.preferred_numa_node = spatial_hint.preferred_numa_node;
+            }
+            directive.deadline_unix_ns = deadline_unix_ns;
+        }
+        directive.validate()?;
+        Ok(directive)
+    }
+
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.deadline_unix_ns == Some(0) {
             return Err("deadline_unix_ns must be nonzero");
@@ -191,6 +250,56 @@ mod tests {
         let mut directive = WorkerDirective::inference();
         directive.deadline_unix_ns = Some(u64::MAX);
         assert!(directive.validate().is_err());
+    }
+
+    #[test]
+    fn task_profile_selects_worker_class_and_absolute_deadline() {
+        let profile = TaskProfile {
+            is_data_parallel: true,
+            deadline_ms: Some(250),
+            ..TaskProfile::default()
+        };
+        let directive = WorkerDirective::for_task_profile(&profile, 1_000_000_000, None).unwrap();
+        assert_eq!(directive.worker_class, WorkerClass::Throughput);
+        assert_eq!(directive.deadline_unix_ns, Some(1_250_000_000));
+
+        let inference = TaskProfile { is_inference: true, ..TaskProfile::default() };
+        assert_eq!(
+            WorkerDirective::for_task_profile(&inference, 1_000, None).unwrap().worker_class,
+            WorkerClass::Inference
+        );
+    }
+
+    #[test]
+    fn spatial_context_selects_realtime_unless_exact_cpu_is_required() {
+        let payload = ResolvedPayload {
+            source: "sensor-a".into(),
+            destination: "physics".into(),
+            numa_node: Some(2),
+            frame: crate::nxr1::Nxr1Frame {
+                seq_id: 1, x: 0.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0,
+                fluidity: 0.0, drag: 0.0, divergence: 0.0, payload: vec![],
+            },
+        };
+        let profile = TaskProfile { deadline_ms: Some(100), ..TaskProfile::default() };
+        let directive = WorkerDirective::for_task_profile(&profile, 5_000_000, Some(&payload)).unwrap();
+        assert_eq!(directive.worker_class, WorkerClass::RealtimeSpatial);
+        assert_eq!(directive.preferred_numa_node, Some(2));
+        assert_eq!(directive.deadline_unix_ns, Some(105_000_000));
+
+        let exact = TaskProfile { requires_exact_precision: true, ..profile };
+        let exact_directive = WorkerDirective::for_task_profile(&exact, 5_000_000, Some(&payload)).unwrap();
+        assert_eq!(exact_directive.worker_class, WorkerClass::ExactCpu);
+        assert!(exact_directive.spatial_affinity_key.is_some());
+        assert_eq!(exact_directive.preferred_numa_node, Some(2));
+    }
+
+    #[test]
+    fn task_profile_rejects_invalid_relative_deadline() {
+        let zero = TaskProfile { deadline_ms: Some(0), ..TaskProfile::default() };
+        assert!(WorkerDirective::for_task_profile(&zero, 1, None).is_err());
+        let overflow = TaskProfile { deadline_ms: Some(u64::MAX), ..TaskProfile::default() };
+        assert!(WorkerDirective::for_task_profile(&overflow, 1, None).is_err());
     }
 
     #[test]
