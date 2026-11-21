@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.13.0. The v6.14.0 minor candidate carries YuKKi workload directives and BRK2 worker-class interoperability; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.14.0. The v6.15.0 minor candidate carries per-source resolver concurrency, load-aware composed-program replica ranking and lower-contention native benchmarks; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Supported runtime shape
 
@@ -120,13 +120,13 @@ See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for hardened service examples, env fi
 Build image:
 
 ```bash
-docker build -t yukkios:6.13.0 .
+docker build -t yukkios:6.14.0 .
 ```
 
 Run bootstrap:
 
 ```bash
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.13.0 bootstrap 0.0.0.0:7660
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.14.0 bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: container image does not add TLS/mTLS termination; deploy with external network controls.
