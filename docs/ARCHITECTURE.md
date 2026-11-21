@@ -67,6 +67,26 @@ YuKKi-OS runs as a control-plane mesh with two process roles:
 The CLI also provides an authenticated stream gateway and `streams list` /
 `streams tune` clients. When `YUKKI_GATEWAY_TOKEN` is set, a node starts an HTTP/WebSocket gateway sharing its in-process stream registry. Its default bind address is `127.0.0.1:7670`, configurable with `YUKKI_GATEWAY_LISTEN`.
 
+## Broker discovery, NUMA memory locality, and deterministic execution
+
+### Broker discovery control plane
+
+YuKKi-OS is the canonical discovery authority for Overhauled services. The current implementation is a bounded lease registry relayed by the existing authenticated bootstrap/gossip mesh: records are schema-versioned, expire, are capped at 4,096 services, refresh on a 90-second lease, and are forwarded for at most eight hops. This is useful service discovery, but it is not a Kademlia/XOR-routing DHT, has no durable registry, and does not make the C++ broker a direct mesh participant. Keep the BrokerServiceRecord contract stable so a future DHT lookup/routing backend can replace gossip without changing service identity or capability semantics.
+
+Discovery returns candidate endpoints only. YuKKi-OS must apply its own admission policy, and the selected endpoint must still be protected by an independently authenticated transport boundary (for example, an mTLS proxy) because BRK1/BRK2 broker TCP is not authenticated. A discovered record or capability label is never execution authorization or proof that an accelerator is available. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
+
+### NUMA and memory-locality contract
+
+YuKKi-OS owns workload locality policy and the topology context used to form hints. The current BRK2 directive carries a logical affinity key and an advisory preferred NUMA node; Overhauled independently validates its process cpuset and applies best-effort worker-thread CPU affinity. The response can report the node actually applied. This is CPU-thread placement telemetry, not proof that request buffers, guest linear memory, datasets, or accelerator staging buffers were allocated on that node.
+
+NUMA-local memory placement is therefore an explicit next contract, not a current capability. Add it only as a negotiated, versioned optional BRK2 extension: a bounded memory policy (prefer-node, bind-node, or interleave), opaque locality domain, size/admission ceiling, and a result status of honored, rejected, or fallback with a reason. YuKKi-OS selects policy; the host-side allocator that owns each allocation applies it and reports the actual outcome. Unsupported platforms and containers must fall back explicitly rather than silently claim locality. Keep raw CPU masks and machine-specific topology private to each host; do not put them in DHT service records.
+
+### Deterministic execution contract
+
+The existing RealtimeSpatial class isolates capacity and orders deadline-carrying work earliest-deadline-first within each leaf queue. This is a cooperative scheduling policy: it does not preempt a running task, bound worst-case execution time, control interrupt latency, or guarantee deadline completion. Wasmtime fuel is an instruction budget, not a wall-clock deadline.
+
+Treat hard-real-time operation as a separately qualified deployment profile, not a flag or a property inferred from EDF. Qualification would require a supported real-time kernel and scheduler configuration, isolated CPUs and interrupt routing, locked/preallocated memory, bounded allocation and syscall paths, priority-inversion controls, explicit admission/WCET budgets, and worst-case latency/jitter tests under adversarial load. Until those controls and measurements exist for a named hardware/software target, describe the system as deadline-aware or soft-real-time only.
+
 ## Control-plane transport
 
 - Transport: TCP
