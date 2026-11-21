@@ -76,3 +76,8 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 ## Vulnerability reporting
 
 Open a private security report with repository maintainers before public disclosure.
+
+
+## Broker discovery records
+
+Overhauled broker service records are relayed only inside the existing PSK-protected peer mesh. The shared PSK admits every holder as a cluster participant; records are not individually signed identities and discovery does not grant execution authorization. BRK1/BRK2 broker transport remains unauthenticated, so advertise only a trusted private endpoint or an endpoint protected by an independent mTLS proxy. Records intentionally omit raw CPU/NUMA topology and tenant metadata. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
