@@ -27,7 +27,7 @@ claim lock-free queues, guaranteed linear scaling or zero-stall execution.
 
 ## Release policy
 
-- v6.15.0 is the latest published YuKKi-OS release (2026-11-20).
+- v6.15.0 is the latest published YuKKi-OS release (2026-11-21).
 - Do not create or publish v6.16.0 until native platform tests, browser-WASM
   build/smoke, WASI worker, format/Clippy, security, coverage, integration,
   live C++ BRK interoperability and performance benchmark checks pass and
