@@ -1,6 +1,49 @@
 # Changelog
 
-## v6.14.0 (release candidate; tag pending)
+## v6.15.0 (release candidate; tag pending)
+
+### Parallel spatiotemporal payload resolution
+
+- `SequencePolicy::AllowAll` bypasses sequence-state locking and sends
+  directly to the bounded destination queue.
+- Strict `RejectNonIncreasing` sequencing uses a short route-map lookup and
+  per-source mutex, allowing different sources targeting the same destination
+  to validate and enqueue concurrently while preserving atomic check/enqueue/
+  watermark semantics for each individual source.
+- Strict sequence tracking is bounded to 65,536 source entries per route.
+  The new `ResolverError::SequenceSourceLimit` reports a saturated tracking
+  map; queue-full failures do not advance the source watermark.
+
+### Load-aware composed-program scheduling
+
+- Added `TimeWeightedSpatialScheduler::ranked_candidates_with_load` to rank
+  replicas using service-time EWMA multiplied by current active-call load,
+  while retaining the bounded spatial-locality preference.
+- Active-call counts are a scheduling snapshot, not a reservation or queue
+  depth guarantee. Non-blocking Store admission remains the final check;
+  saturated programs still report `ProgramSaturated`.
+
+### Lower-contention native benchmarks
+
+- Dataset and eigensolver benchmark workers claim adaptive chunks instead of
+  issuing a shared atomic operation for every batch/solve.
+- Workers keep latency, checksum, residual and orthogonality metrics locally,
+  then merge after all workers join. Numerical quality checks remain visible
+  in the measured run.
+- The optimization reduces shared benchmark instrumentation in the hot path;
+  it is not a claim of a universal throughput or power improvement.
+
+### Compatibility and release boundary
+
+- No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format changes are introduced.
+- The new resolver sequence-source error is an explicit bounded-resource
+  outcome. Strict per-source ordering and no-watermark-advance-on-queue-full
+  semantics remain intact.
+- v6.15.0 is a candidate until native/browser/WASI, integration, format,
+  Clippy, audit, coverage and benchmark checks pass and the release commit
+  is reviewed.
+
+## v6.14.0 (published 2026-11-20)
 
 ### YuKKi-aware broker worker directives
 
@@ -30,9 +73,8 @@
   remain compatible and do not transmit worker directives.
 - The logical affinity key and NUMA hint are advisory. Actual NUMA placement
   is reported by Overhauled only when its Linux affinity operation succeeds.
-- This is a minor feature candidate, not a published release. Required
-  multiplatform, browser-WASM, WASI, security and live interop checks remain
-  release gates.
+- The v6.14.0 tag and GitHub release were published on 2026-11-20. External
+  package publication remains a separate verification step.
 
 ---
 
@@ -72,8 +114,8 @@
 
 - Bumped the native Cargo package/root lockfile, OCI image label, library
   banner and version metadata assertion to 6.13.1.
-- v6.13.1 remains a candidate until required workflows pass and the release
-  commit is reviewed. v6.13.0 remains the latest published release.
+- v6.13.1 was superseded before publication by v6.14.0; do not treat it as
+  a published tag or release.
 - Benchmark improvements are qualification-tool improvements; no universal
   throughput, latency, power or OPEX gain is claimed.
 
