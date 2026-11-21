@@ -1,8 +1,9 @@
 # YuKKi-OS v6.16.0 — System Administration How-to
 
 > Release candidate: v6.15.0 is the published baseline. The v6.16.0 minor
-> candidate adds per-source resolver concurrency, load-aware composed-program
-> replica ranking and lower-contention native benchmarks. Its tag and release
+> candidate adds lease-based broker endpoint discovery and BRK2 locality-placement
+> intent/result codec helpers. Discovery is not a DHT or authorization; the codec
+> does not apply or verify physical memory placement. Its tag and release
 > archive remain subject to CI and review. This guide describes the v6.16.0
 > candidate branch.
 
