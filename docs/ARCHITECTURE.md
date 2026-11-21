@@ -52,6 +52,31 @@ library service is exposed through the node CLI or an HTTP endpoint, nor a
 claim of hard-real-time behavior or physical NUMA-local memory allocation.
 
 
+## WebAssembly composition ownership and broker interoperability
+
+YuKKi-OS remains the deployment-policy and program-composition authority.
+Its Rust `CompositionRuntime` validates deployment manifests, module
+dependency DAGs, typed function bindings, replica policy and release
+activation. It maintains its own Wasmtime engine, process-local compiled
+module cache, Store/instance graphs and time-weighted replica scheduler.
+
+Overhauled's optional native Wasmtime runtime-composition facility is a
+separate broker-side execution path. When that feature is enabled and built
+with its pinned Wasmtime C API dependency, Overhauled can compile core-Wasm
+module bytes and register modules in its own linker for runtime import
+resolution. It does not become the owner of YuKKi manifests, deployment
+authorization, dependency policy, release routing or YuKKi replica state.
+Likewise, YuKKi does not silently delegate its existing composition runtime
+to the broker.
+
+There is currently no automatic cross-process handoff of compiled artifacts,
+manifests, module namespaces, or activation transactions. A caller must
+explicitly choose a runtime and deliver the required artifacts through an
+authorized integration. The YuKKi and Overhauled runtimes have independent
+engines, stores, caches, limits and lifecycle boundaries; successful
+preparation or activation in one is not evidence of success in the other.
+See [WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
+
 ## Parallel workload resolution and composition scheduling
 
 The v6.16.0 candidate reduces unrelated-work contention without claiming a

@@ -248,9 +248,14 @@ then the old stores and instances can be released.
 Activation is a YuKKi-OS process-local routing operation, not a distributed
 transaction with Overhauled or an external model server. If an application
 also changes broker registrations or model artifacts, its deployment layer
-must coordinate those resources. Overhauled continues to own backend
-selection, accelerator placement, task dispatch and broker-side
-Prepare/Drain/Release metadata; it does not compile or link the Wasm modules.
+must coordinate those resources. Overhauled owns backend selection,
+accelerator placement, task dispatch and broker-side Prepare/Drain/Release
+metadata. Its optional native Wasmtime runtime-composition path is a separate
+execution capability: when enabled, it can compile core-Wasm modules and
+resolve module imports in its own linker. This does not automatically import
+a YuKKi deployment, manifest, compiled cache, replica pool or release state.
+The two runtimes remain independently prepared and activated until an explicit
+artifact/manifest handoff protocol is implemented.
 
 ## Future extensions
 
