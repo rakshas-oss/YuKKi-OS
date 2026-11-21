@@ -127,13 +127,7 @@ uses the adapter boundary; the optional browser benchmark instead executes
 spatial WASM locally in Node and sends host-prepared numeric records as direct
 BRK2 inference requests.
 
-The diagram now includes the v6.14 worker-directive contract. YuKKi-OS owns
-workload classification and emits optional BRK2 deadline, worker-class,
-logical-affinity and advisory preferred-NUMA metadata. Overhauled owns the
-isolated per-class worker pools and broker-local Linux CPU affinity. These are
-separate stages: a YuKKi logical key or preferred node is a hint, not proof
-that a specific CPU was selected. The browser module is not the native daemon,
-and accelerator use remains optional and broker-reported. For a terminal-
+The diagram includes the worker-directive contract and the newly merged BRK2 v1 locality-placement codec. YuKKi-OS owns workload classification and emits optional deadline, worker-class, logical-affinity, advisory preferred-NUMA and bounded nested locality-placement intent (request field 14). The response may carry a structured placement outcome (field 13); an absent result means unknown/not applied. Both repositories currently implement codec validation only: no broker-owned allocator applies or verifies memory placement, and the GPU adapter does not automatically request it. Overhauled owns isolated per-class worker pools and broker-local Linux CPU affinity. A logical key or preferred node remains a hint, not proof of CPU or memory placement. The browser module is not the native daemon, and accelerator use remains optional and broker-reported. For a terminal-
 rendered 24-bit ANSI version, run `bash docs/diagrams/print-ansi.sh`.
 
 
