@@ -248,3 +248,8 @@ Current limitation: no built-in TLS termination for peer or broker links.
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
+
+
+## Overhauled broker discovery
+
+YuKKi-OS nodes can advertise reachable Overhauled worker brokers through the authenticated peer mesh. Set `YUKKI_BROKER_ENDPOINT=host:port` and optionally `YUKKI_BROKER_CAPABILITIES=cpu,gpu,npu`. Discovery uses bounded leases and hop-limited gossip; it is not yet a Kademlia DHT. See [the broker service discovery guide](docs/BROKER_SERVICE_DISCOVERY.md) and [the cross-repository wire contract](docs/OVERHAULED_INTEROP.md).
