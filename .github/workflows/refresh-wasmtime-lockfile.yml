@@ -41,7 +41,7 @@ jobs:
         run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
 
       - name: Update Wasmtime to patched release using Cargo
-        run: cargo update -p wasmtime --precise 50.0.2
+        run: cargo update -p wasmtime --precise 50.0.3
 
       - name: Regenerate canonical workspace lockfile from manifests
         # The manifest removed an unused optional dependency. Resolve that removal
@@ -51,7 +51,58 @@ jobs:
       - name: Confirm resolved Wasmtime version
         run: |
           cargo tree -i wasmtime --locked
-          grep -A2 '^name = "wasmtime"$' Cargo.lock
+          grep -A1 '^name = "wasmtime"
+
+      - name: Apply canonical Rust formatting
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path browser-wasm/Cargo.toml
+          cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
+
+      - name: Check native dependency graph
+        run: cargo check --all-targets --locked
+
+      - name: Run complete native test suite
+        run: cargo test --all-targets --locked --verbose
+
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run RustSec audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --deny warnings
+
+      - name: Build and test WASI guest worker
+        working-directory: guest-worker
+        run: |
+          cargo build --release --locked --target wasm32-wasip1
+          cargo test --locked
+
+      - name: Validate browser WASM application
+        run: |
+          cargo test --manifest-path browser-wasm/Cargo.toml --locked
+          cargo clippy --manifest-path browser-wasm/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
+          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+
+      - name: Commit verified dependency and formatting updates to main
+        if: success()
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No dependency or formatting changes are required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git add Cargo.lock
+          git commit -m "fix: refresh Wasmtime security patches and Rust formatting"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
+ Cargo.lock | grep -F 'version = "50.0.3"'
 
       - name: Apply canonical Rust formatting
         run: |
