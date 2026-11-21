@@ -2,7 +2,7 @@ use std::{fs, path::Path};
 
 #[test]
 fn package_version_is_v6_15_0() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "6.15.0");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "6.16.0");
 }
 
 #[test]
