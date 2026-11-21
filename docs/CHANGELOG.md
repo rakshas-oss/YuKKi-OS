@@ -1,6 +1,23 @@
+## v6.16.0 (release candidate; tag pending)
+
+### Broker discovery and BRK2 locality-placement codec
+
+- Add the bounded lease-based broker service registry and optional endpoint advertisement through `YUKKI_BROKER_ENDPOINT`, relayed over the authenticated peer mesh with bounded hop count, lease expiry, message-ID deduplication and replay to newly joining peers.
+- Clarify that this is bootstrap-relayed authenticated gossip with an in-memory lease cache, not Kademlia or a full DHT. Discovery records are not authorization; BRK1/BRK2 transport still requires a trusted private network or independently authenticated proxy.
+- Add Rust BRK2 request field 14 locality-intent and response field 13 placement-result codec helpers, with bounded nested-TLV validation and explicit criticality rules.
+- Preserve the response rule that an absent placement result means unknown/not applied, never successful placement.
+
+### Ownership and limitations
+
+YuKKi-OS owns workload policy and broker endpoint discovery; Overhauled owns local queueing, admission, worker placement and execution. This release does not add a broker-owned NUMA allocator or verify physical memory placement. The codec does not automatically request locality from the GPU adapter and makes no placement claim for WASM linear memory, datasets, accelerator staging, GPU VRAM or NPU memory. The discovery layer is not a DHT and does not authenticate broker transport.
+
+### Release gate
+
+Require native platform tests, browser-WASM and WASI validation, integration and live Overhauled interoperability, formatting/Clippy, security and dependency audits, coverage and benchmark smoke tests. Do not tag or publish v6.16.0 until all required checks pass and the release commit is approved.
+
 # Changelog
 
-## v6.15.0 (release candidate; tag pending)
+## v6.15.0 (published 2026-11-21)
 
 ### Parallel spatiotemporal payload resolution
 
@@ -39,7 +56,7 @@
 - The new resolver sequence-source error is an explicit bounded-resource
   outcome. Strict per-source ordering and no-watermark-advance-on-queue-full
   semantics remain intact.
-- v6.15.0 is a candidate until native/browser/WASI, integration, format,
+- v6.15.0 was published after native/browser/WASI, integration, format,
   Clippy, audit, coverage and benchmark checks pass and the release commit
   is reviewed.
 
