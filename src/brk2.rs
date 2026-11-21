@@ -208,10 +208,6 @@ fn nested_encode(fields:&[Field])->Result<Vec<u8>,Error>{
         out.extend_from_slice(&n.to_be_bytes());out.extend_from_slice(&f.value);}
     Ok(out)
 }
-fn nested_get<'a>(fields:&'a [Field],id:u16,wt:WireType)->Result<&'a Field,Error>{
-    let f=fields.iter().find(|f|f.id==id).ok_or(Error::MissingField(id))?;
-    if f.wire_type!=wt{return Err(Error::WrongWireType{field_id:id,expected:wt,actual:f.wire_type})} Ok(f)
-}
 /// Attach field 14. Older peers may ignore non-critical prefer; mandatory modes fail closed.
 pub fn set_placement_intent(m:&mut Message,v:PlacementIntent)->Result<(),Error>{
     if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("placement intent requires broker request"))}
