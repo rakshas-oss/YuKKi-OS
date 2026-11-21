@@ -134,3 +134,10 @@ grow dynamically and preserve FIFO order within their class; a process-wide
 request-count and in-flight memory budget remains in force to protect the
 broker from memory exhaustion. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md)
 and the [Overhauled worker-fabric guide](https://github.com/rakshas-oss/overhauled/blob/main/docs/YUKKI_WORKER_FABRIC.md).
+
+
+## Broker service discovery
+
+The optional `YUKKI_BROKER_ENDPOINT=host:port` setting makes a YuKKi-OS node advertise a reachable Overhauled broker through the authenticated peer mesh. `YUKKI_BROKER_CAPABILITIES` optionally supplies descriptive comma-separated capability labels (default `cpu`). Records advertise BRK1/BRK2, a bounded frame limit, node/service IDs, and a lease. YuKKi refreshes the lease every 30 seconds, expires stale records, bounds the registry to 4,096 entries, and forwards announcements for at most eight hops. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
+
+This is gossip-based discovery over the current bootstrap-relayed mesh, not a Kademlia DHT. Discovery does not authorize execution. The broker protocol remains unauthenticated; advertise only an endpoint protected by a trusted private network or independently authenticated mTLS proxy. The service record contains coarse capabilities only and must not expose raw CPU/NUMA topology.
