@@ -357,7 +357,11 @@ mod tests {
       assert_eq!(placement_intent(&mandatory,3).unwrap(),Some(b));
   }
   #[test]fn locality_placement_rejects_oversize_and_mismatched_critical_flag(){
-      let mut m=sample();set_placement_intent(&mut m,PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(1),max_bytes:4}).unwrap();
+      let mut m=sample();
+      // Keep the request internally valid, then validate against a smaller
+      // payload ceiling to exercise decoder-side oversize rejection.
+      m.fields.iter_mut().find(|f|f.id==7).unwrap().value.push(0);
+      set_placement_intent(&mut m,PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(1),max_bytes:4}).unwrap();
       assert!(placement_intent(&m,3).is_err());
       let mut m=sample();set_placement_intent(&mut m,PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(1),max_bytes:3}).unwrap();
       m.fields.iter_mut().find(|f|f.id==14).unwrap().flags|=FIELD_CRITICAL;assert!(placement_intent(&m,3).is_err());
