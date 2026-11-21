@@ -182,8 +182,13 @@ pub struct PlacementResult { pub outcome:PlacementOutcome, pub applied_numa_node
 fn nested_fields(bytes:&[u8], max_fields:usize)->Result<Vec<Field>,Error>{
     let mut out=Vec::new(); let mut seen=HashMap::<u16,bool>::new(); let mut p=0usize;
     while p<bytes.len(){
-        if out.len()>=max_fields{return Err(Error::TooManyFields)}
-        if bytes.len()-p<TLV_HEADER_LEN{return Err(Error::Truncated("nested TLV header"))}
+        if out.len() >= max_fields {
+            return Err(Error::TooManyFields);
+        }
+
+        if bytes.len() - p < TLV_HEADER_LEN {
+            return Err(Error::Truncated("nested TLV header"));
+        }
         let id=u16::from_be_bytes(bytes[p..p+2].try_into().unwrap());
         let wire_type=WireType::try_from(bytes[p+2])?; let flags=bytes[p+3];
         if flags & !KNOWN_FIELD_FLAGS!=0{return Err(Error::InvalidFieldFlags(flags))}
@@ -197,7 +202,7 @@ fn nested_fields(bytes:&[u8], max_fields:usize)->Result<Vec<Field>,Error>{
         out.push(f);p=end;
     } Ok(out)
 }
-fn nested_get<'a>(fields:&'a [Field],id:u16,wt:WireType)->Result<&'a Field,Error>{
+fn nested_get(fields: &[Field], id: u16, wt: WireType) -> Result<&Field, Error> {
     let f=fields.iter().find(|f|f.id==id).ok_or(Error::MissingField(id))?;
     if f.wire_type!=wt{return Err(Error::WrongWireType{field_id:id,expected:wt,actual:f.wire_type})} Ok(f)
 }

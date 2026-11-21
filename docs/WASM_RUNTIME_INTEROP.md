@@ -105,6 +105,8 @@ and the Wasmtime versions used. It must not be described as a full repository
 release gate unless all required native CI jobs from both repositories are
 also included in the aggregate check.
 
-Until Overhauled's runtime-composition PR is merged and its optional Wasmtime
-lane passes, describe that capability as proposed/optional and do not imply
-that the default Overhauled build supports it.
+Overhauled's runtime-composition implementation is present on its main branch
+behind the optional `ENABLE_WASM_RUNTIME` build flag. Its availability in a
+repository checkout is not evidence that the Wasmtime-enabled build or
+cross-runtime conformance suite has passed. Keep the capability described as
+optional until the pinned Wasmtime CI lane passes on the relevant commit.
