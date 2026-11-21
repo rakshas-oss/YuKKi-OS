@@ -1,31 +1,31 @@
-# YuKKi-OS v6.14.0 (release candidate)
+# YuKKi-OS v6.15.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.14.0 is a minor-release candidate. The published baseline is v6.13.0; v6.14.0 adds YuKKi workload directives and the Overhauled BRK2 worker-class integration. Its tag and release archive remain subject to CI and review.
+> **Release status:** v6.15.0 is a minor-release candidate based on published v6.14.0. It adds contention-isolated spatiotemporal resolution, load-aware composed-program replica selection and lower-contention dataset/eigensolver benchmark execution. The tag and release archive remain subject to CI and review.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.14.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.15.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.14.0 candidate; the last published release is v6.13.0.
+- **Release line:** v6.15.0 candidate; the last published release is v6.14.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** patch-release candidate — required CI and release checks pending.
+- **Status:** minor-release candidate — required CI and release checks pending.
 
 ## Security and hardening notes
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
 
-## What's new in v6.14.0
+## v6.14.0 published feature baseline
 
-The v6.14.0 candidate adds YuKKi-OS's policy and client side of the
+The published v6.14.0 release added YuKKi-OS's policy and client side of the
 cross-repository worker-class contract:
 
 - Public `WorkerClass` and validated `WorkerDirective` APIs cover Control,
@@ -55,6 +55,40 @@ tracking, strict ordering is scoped per source, benchmark workers aggregate
 metrics locally, and stateless Wasm replicas are ranked using active-call load
 as well as service-time history. These changes do not alter BRK2 or NXR1 wire
 formats.
+
+## What's new in v6.15.0
+
+The v6.15.0 candidate improves concurrency for parallel resolver, composed
+WASM and benchmark workloads:
+
+- **Per-source resolver sequencing:** `SequencePolicy::AllowAll` bypasses
+  sequence-state locking. Strict `RejectNonIncreasing` sequencing uses a
+  short route-map lookup followed by a mutex scoped to the individual source,
+  allowing different sources targeting the same destination to progress
+  concurrently while preserving atomic check/enqueue/watermark behavior for
+  each source.
+- **Bounded sequence state:** strict sequence tracking is capped at 65,536
+  sources per route. Reaching the ceiling returns
+  `ResolverError::SequenceSourceLimit`; a full destination queue does not
+  advance the source watermark.
+- **Load-aware replica ranking:** `TimeWeightedSpatialScheduler` can rank
+  replicas using recent service-time EWMA multiplied by a snapshot of active
+  calls, retaining a bounded locality preference. Busy Store locks remain
+  the final non-blocking admission check.
+- **Lower-contention benchmark execution:** native dataset and eigensolver
+  benchmarks claim adaptive chunks and accumulate timing, checksum, residual
+  and orthogonality metrics per worker before merging results after joins.
+  This reduces shared instrumentation in the measured hot path while keeping
+  numerical quality checks visible.
+
+The resolver changes preserve per-source ordering in strict mode; the
+scheduler uses active-load snapshots rather than reservations. Neither change
+promises lock-free progress or zero stalls. Existing YKMC, BRK1/BRK2, NXR1 and
+WSM1 wire contracts are unchanged.
+
+See [NUMA and MPMC runtime](docs/NUMA_MPMC_RUNTIME.md),
+[WASM program composition](docs/WASM_PROGRAM_COMPOSITION.md), and
+[benchmarking](docs/BENCHMARKING.md).
 
 ## v6.12.0 published feature baseline
 
@@ -206,7 +240,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.14.0 .
+docker build -t yukkios:6.15.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
