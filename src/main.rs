@@ -625,7 +625,7 @@ async fn send_gossip_digest(
 }
 
 fn usage() -> &'static str {
-    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address> | gateway [listen-address] [--insecure-dev] | streams list [gateway-address] | streams tune <stream-id> [--from <seq>]\nSet YUKKI_PSK_HEX for mesh commands and YUKKI_GATEWAY_TOKEN for the gateway."
+    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address> | gateway [listen-address] [--insecure-dev] | streams list [gateway-address] | streams tune <stream-id> [--from <seq>]\nSet YUKKI_PSK_HEX for mesh commands, YUKKI_BROKER_ENDPOINT=host:port to advertise an Overhauled broker, YUKKI_BROKER_CAPABILITIES=cpu,gpu,npu for capability labels, and YUKKI_GATEWAY_TOKEN for the gateway."
 }
 
 const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:7670";
