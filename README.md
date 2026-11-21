@@ -4,7 +4,7 @@
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.16.0 is a minor-release candidate based on published v6.15.0. It adds contention-isolated spatiotemporal resolution, load-aware composed-program replica selection and lower-contention dataset/eigensolver benchmark execution. The tag and release archive remain subject to CI and review.
+> **Release status:** v6.16.0 is a minor-release candidate based on published v6.15.0. It adds lease-based Overhauled broker discovery and BRK2 locality-placement intent/result codec helpers. The tag and release archive remain subject to CI and review.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
@@ -58,37 +58,30 @@ formats.
 
 ## What's new in v6.16.0
 
-The v6.16.0 candidate improves concurrency for parallel resolver, composed
-WASM and benchmark workloads:
+The v6.16.0 candidate coordinates broker discovery and BRK2 locality intent
+with Overhauled:
 
-- **Per-source resolver sequencing:** `SequencePolicy::AllowAll` bypasses
-  sequence-state locking. Strict `RejectNonIncreasing` sequencing uses a
-  short route-map lookup followed by a mutex scoped to the individual source,
-  allowing different sources targeting the same destination to progress
-  concurrently while preserving atomic check/enqueue/watermark behavior for
-  each source.
-- **Bounded sequence state:** strict sequence tracking is capped at 65,536
-  sources per route. Reaching the ceiling returns
-  `ResolverError::SequenceSourceLimit`; a full destination queue does not
-  advance the source watermark.
-- **Load-aware replica ranking:** `TimeWeightedSpatialScheduler` can rank
-  replicas using recent service-time EWMA multiplied by a snapshot of active
-  calls, retaining a bounded locality preference. Busy Store locks remain
-  the final non-blocking admission check.
-- **Lower-contention benchmark execution:** native dataset and eigensolver
-  benchmarks claim adaptive chunks and accumulate timing, checksum, residual
-  and orthogonality metrics per worker before merging results after joins.
-  This reduces shared instrumentation in the measured hot path while keeping
-  numerical quality checks visible.
+- **Broker service discovery:** bounded lease records advertise an optional
+  broker endpoint through `YUKKI_BROKER_ENDPOINT`. Validated announcements
+  relay over the authenticated peer mesh with message-ID deduplication,
+  bounded hop count, lease expiry and replay to joining peers.
+- **BRK2 locality intent/result codec:** request field 14 carries nested
+  locality intent; response field 13 carries a structured placement result.
+  Validation covers extension version, scope, mode, optional NUMA node,
+  payload ceiling, duplicate nested fields and unknown critical fields.
+- **Compatibility:** `prefer` is non-critical; `bind` and `interleave`
+  require the critical flag. An absent response result means unknown/not
+  applied, never successful placement.
 
-The resolver changes preserve per-source ordering in strict mode; the
-scheduler uses active-load snapshots rather than reservations. Neither change
-promises lock-free progress or zero stalls. Existing YKMC, BRK1/BRK2, NXR1 and
-WSM1 wire contracts are unchanged.
+**Boundaries:** the discovery mechanism is bootstrap-relayed authenticated
+gossip with an in-memory lease cache, not Kademlia or a full DHT. Discovery
+does not authorize execution, and BRK1/BRK2 transport still needs a trusted
+private network or independently authenticated proxy. The locality work is
+codec-only: Overhauled does not yet apply or verify physical memory placement.
+The GPU adapter does not automatically request the extension, and no
+locality claim is made for WASM linear memory, datasets, accelerator staging,
+GPU VRAM or NPU memory.
 
-See [NUMA and MPMC runtime](docs/NUMA_MPMC_RUNTIME.md),
-[WASM program composition](docs/WASM_PROGRAM_COMPOSITION.md), and
-[benchmarking](docs/BENCHMARKING.md).
 
 ## v6.12.0 published feature baseline
 
