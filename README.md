@@ -1,19 +1,19 @@
-# YuKKi-OS v6.15.0 (release candidate)
+# YuKKi-OS v6.16.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.15.0 is a minor-release candidate based on published v6.14.0. It adds contention-isolated spatiotemporal resolution, load-aware composed-program replica selection and lower-contention dataset/eigensolver benchmark execution. The tag and release archive remain subject to CI and review.
+> **Release status:** v6.16.0 is a minor-release candidate based on published v6.15.0. It adds contention-isolated spatiotemporal resolution, load-aware composed-program replica selection and lower-contention dataset/eigensolver benchmark execution. The tag and release archive remain subject to CI and review.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.15.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.16.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.15.0 candidate; the last published release is v6.14.0.
+- **Release line:** v6.16.0 candidate; the last published release is v6.15.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
@@ -56,9 +56,9 @@ metrics locally, and stateless Wasm replicas are ranked using active-call load
 as well as service-time history. These changes do not alter BRK2 or NXR1 wire
 formats.
 
-## What's new in v6.15.0
+## What's new in v6.16.0
 
-The v6.15.0 candidate improves concurrency for parallel resolver, composed
+The v6.16.0 candidate improves concurrency for parallel resolver, composed
 WASM and benchmark workloads:
 
 - **Per-source resolver sequencing:** `SequencePolicy::AllowAll` bypasses
@@ -234,7 +234,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.15.0 .
+docker build -t yukkios:6.16.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
