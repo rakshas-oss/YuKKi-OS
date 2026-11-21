@@ -207,7 +207,7 @@ CPU is the always-available correctness baseline. GPU and NPU are optional, best
 
 ## Platform deployment
 
-See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC, WASI Preview 1 guest, and browser-WASM deployment profiles. The browser client targets `wasm32-unknown-unknown`, using the Rust verifier to validate chunk metadata before fetch/retention operations.
+Mainline Windows/MSVC is unsupported. The browser application (`wasm32-unknown-unknown`) and WASI Preview 1 guest (`wasm32-wasip1`) are separate WebAssembly deployment surfaces, not native Windows builds. See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md), [docs/BROWSER_WASM.md](docs/BROWSER_WASM.md), and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for their distinct build and deployment procedures. The browser client uses the Rust verifier to validate chunk metadata before fetch/retention operations.
 
 ## Documentation
 
