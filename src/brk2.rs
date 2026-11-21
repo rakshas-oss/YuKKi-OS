@@ -246,6 +246,7 @@ pub fn set_placement_result(m:&mut Message,v:PlacementResult)->Result<(),Error>{
     if m.header.message_type!=MSG_RESPONSE||m.header.schema_id!=SCHEMA_BROKER_RESPONSE{return Err(Error::InvalidValue("placement result requires broker response"))}
     if m.field(13).is_some(){return Err(Error::DuplicateSingularField(13))}
     if (v.outcome==PlacementOutcome::Honored&&v.reason.is_some())||(v.outcome!=PlacementOutcome::Honored&&v.reason.is_none()){return Err(Error::InvalidValue("placement outcome/reason mismatch"))}
+    if v.outcome==PlacementOutcome::Rejected && v.applied_numa_node.is_some(){return Err(Error::InvalidValue("rejected placement cannot report an applied NUMA node"))}
     let mut fs=vec![Field::u16(1,1),Field::u8(2,1),Field::u8(3,v.outcome as u8)];
     if let Some(n)=v.applied_numa_node{fs.push(Field::u32(4,n))}
     if let Some(r)=v.reason{fs.push(Field::u16(5,r as u16))}
