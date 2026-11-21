@@ -217,6 +217,8 @@ pub fn set_placement_intent(m:&mut Message,v:PlacementIntent)->Result<(),Error>{
     if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("placement intent requires broker request"))}
     if m.field(14).is_some(){return Err(Error::DuplicateSingularField(14))}
     if v.max_bytes==0{return Err(Error::InvalidValue("placement max_bytes must be nonzero"))}
+    let payload_len=m.field(7).ok_or(Error::MissingField(7))?.value.len();
+    if v.max_bytes>payload_len as u64{return Err(Error::InvalidValue("placement max_bytes exceeds request payload"))}
     match v.mode{PlacementMode::Prefer|PlacementMode::Bind if v.numa_node.is_none()=>return Err(Error::InvalidValue("prefer/bind requires NUMA node")),
         PlacementMode::Interleave if v.numa_node.is_some()=>return Err(Error::InvalidValue("interleave must not name one NUMA node")),_=>{}}
     let mut fs=vec![Field::u16(1,1),Field::u8(2,1),Field::u8(3,v.mode as u8)];
