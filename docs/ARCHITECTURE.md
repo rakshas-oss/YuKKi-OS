@@ -24,7 +24,8 @@ This document describes the v6.15.0 minor-release candidate. v6.14.0 is the late
 The ANSI-inspired source SVG is paired with a terminal renderer:
 `bash docs/diagrams/print-ansi.sh`. The map shows the five YuKKi-selected
 worker classes, the NXR1 spatiotemporal resolver, bounded per-source
-sequence policy, and BRK2 fields 9 and 11–13. It also captures the
+sequence policy, and BRK2 fields 9–14 (including the nested locality-placement
+intent and response outcome codec). It also captures the
 load-aware composition scheduler (service-time EWMA + active-call load +
 logical locality) and adaptive, worker-local benchmark aggregation. The
 responsibility boundary remains explicit: YuKKi emits workload meaning and
@@ -79,7 +80,7 @@ Discovery returns candidate endpoints only. YuKKi-OS must apply its own admissio
 
 YuKKi-OS owns workload locality policy and the topology context used to form hints. The current BRK2 directive carries a logical affinity key and an advisory preferred NUMA node; Overhauled independently validates its process cpuset and applies best-effort worker-thread CPU affinity. The response can report the node actually applied. This is CPU-thread placement telemetry, not proof that request buffers, guest linear memory, datasets, or accelerator staging buffers were allocated on that node.
 
-NUMA-local memory placement is therefore an explicit next contract, not a current capability. Add it only as a negotiated, versioned optional BRK2 extension: a bounded memory policy (prefer-node, bind-node, or interleave), opaque locality domain, size/admission ceiling, and a result status of honored, rejected, or fallback with a reason. YuKKi-OS selects policy; the host-side allocator that owns each allocation applies it and reports the actual outcome. Unsupported platforms and containers must fall back explicitly rather than silently claim locality. Keep raw CPU masks and machine-specific topology private to each host; do not put them in DHT service records.
+BRK2 v1 now defines the negotiated, versioned codec surface for locality placement. Request field 14 contains bounded nested intent with extension version, scope, mode (`prefer`, `bind`, or `interleave`), conditional NUMA node, and payload-size ceiling. `prefer` is non-critical for old-peer compatibility; `bind` and `interleave` require the critical bit. Response field 13 carries a structured placement result. Rust helpers validate version, scope, mode, node presence, size bounds, duplicate nested fields, unknown critical fields, and critical-flag/mode agreement. An absent response result is unknown/not applied, never success. This remains codec support only: the Overhauled broker-owned payload allocator has not yet applied or verified the policy, and the GPU adapter does not automatically request it. Do not claim NUMA-local placement for request buffers, Wasm linear memory, datasets, accelerator staging, GPU VRAM, or NPU memory. The host-side allocator that owns an allocation must apply the intent and report the actual outcome; unsupported platforms and containers must report explicit fallback/rejection rather than silently claim locality. Keep raw CPU masks and machine-specific topology private to each host; do not put them in service-discovery records.
 
 ### Deterministic execution contract
 
