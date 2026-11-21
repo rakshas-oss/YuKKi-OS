@@ -324,10 +324,12 @@ impl LiveProgram {
             let _active = ReplicaActiveGuard(&replica.active_calls);
             let started = Instant::now();
             let result = (|| {
-                store.set_fuel(fuel).map_err(|error| CompositionError::Execution {
-                    program_id: self.program_id.clone(),
-                    message: error.to_string(),
-                })?;
+                store
+                    .set_fuel(fuel)
+                    .map_err(|error| CompositionError::Execution {
+                        program_id: self.program_id.clone(),
+                        message: error.to_string(),
+                    })?;
 
                 let params: Vec<Val> = args.iter().copied().map(Val::I32).collect();
                 let mut results = [Val::I32(0)];
@@ -348,7 +350,8 @@ impl LiveProgram {
                     }),
                 }
             })();
-            self.scheduler.record_completion(replica_index, started.elapsed());
+            self.scheduler
+                .record_completion(replica_index, started.elapsed());
             return result;
         }
 
@@ -362,18 +365,20 @@ impl LiveProgram {
         self.scheduler
             .metrics()
             .into_iter()
-            .map(|ReplicaTimingSnapshot {
-                      replica_index,
-                      service_time_ewma_ns,
-                      completed_calls,
-                  }| ProgramReplicaMetrics {
-                replica_index,
-                service_time_ewma_ns,
-                completed_calls,
-                active_calls: self.replicas[replica_index]
-                    .active_calls
-                    .load(Ordering::Acquire),
-            })
+            .map(
+                |ReplicaTimingSnapshot {
+                     replica_index,
+                     service_time_ewma_ns,
+                     completed_calls,
+                 }| ProgramReplicaMetrics {
+                    replica_index,
+                    service_time_ewma_ns,
+                    completed_calls,
+                    active_calls: self.replicas[replica_index]
+                        .active_calls
+                        .load(Ordering::Acquire),
+                },
+            )
             .collect()
     }
 }
@@ -591,11 +596,9 @@ impl CompositionRuntime {
                     spec.program_id
                 )));
             }
-            total_replicas = total_replicas
-                .checked_add(spec.replicas)
-                .ok_or_else(|| CompositionError::InvalidManifest(
-                    "total replica count overflowed".to_string()
-                ))?;
+            total_replicas = total_replicas.checked_add(spec.replicas).ok_or_else(|| {
+                CompositionError::InvalidManifest("total replica count overflowed".to_string())
+            })?;
             if total_replicas > self.limits.max_total_replicas_per_deployment {
                 return Err(CompositionError::InvalidManifest(format!(
                     "deployment replica count exceeds configured ceiling {}",
@@ -697,12 +700,13 @@ impl CompositionRuntime {
                             module_id
                         ))
                     })?;
-                    let instance = linker
-                        .instantiate(&mut store, &compiled.module)
-                        .map_err(|error| CompositionError::Execution {
-                            program_id: spec.program_id.clone(),
-                            message: format!("instantiate module '{}': {error}", module_id),
-                        })?;
+                    let instance =
+                        linker
+                            .instantiate(&mut store, &compiled.module)
+                            .map_err(|error| CompositionError::Execution {
+                                program_id: spec.program_id.clone(),
+                                message: format!("instantiate module '{}': {error}", module_id),
+                            })?;
 
                     // Expose a provider instance under each namespace that targets it.
                     for (namespace, target) in &spec.bindings {
@@ -723,12 +727,13 @@ impl CompositionRuntime {
                     instances.push(instance);
                 }
 
-                let entry_instance = instances_by_id
-                    .get(&spec.entrypoint.module_id)
-                    .ok_or_else(|| CompositionError::EntrypointModuleMissing {
-                        program_id: spec.program_id.clone(),
-                        module_id: spec.entrypoint.module_id.clone(),
-                    })?;
+                let entry_instance =
+                    instances_by_id
+                        .get(&spec.entrypoint.module_id)
+                        .ok_or_else(|| CompositionError::EntrypointModuleMissing {
+                            program_id: spec.program_id.clone(),
+                            module_id: spec.entrypoint.module_id.clone(),
+                        })?;
                 let entrypoint = entry_instance
                     .get_func(&mut store, &spec.entrypoint.export)
                     .ok_or_else(|| CompositionError::EntrypointMissing {
@@ -750,10 +755,8 @@ impl CompositionRuntime {
                 });
             }
 
-            let scheduler =
-                TimeWeightedSpatialScheduler::new(spec.replicas).map_err(|message| {
-                    CompositionError::InvalidManifest(message.to_string())
-                })?;
+            let scheduler = TimeWeightedSpatialScheduler::new(spec.replicas)
+                .map_err(|message| CompositionError::InvalidManifest(message.to_string()))?;
             programs.insert(
                 spec.program_id.clone(),
                 Arc::new(LiveProgram {
@@ -877,17 +880,19 @@ impl CompositionRuntime {
             .active
             .read()
             .map_err(|_| CompositionError::LockPoisoned)?;
-        let set = active.get(deployment_id).ok_or_else(|| {
-            CompositionError::DeploymentNotActive {
-                deployment_id: deployment_id.to_string(),
-            }
-        })?;
-        let program = set.programs.get(program_id).ok_or_else(|| {
-            CompositionError::ProgramNotActive {
-                deployment_id: deployment_id.to_string(),
-                program_id: program_id.to_string(),
-            }
-        })?;
+        let set =
+            active
+                .get(deployment_id)
+                .ok_or_else(|| CompositionError::DeploymentNotActive {
+                    deployment_id: deployment_id.to_string(),
+                })?;
+        let program =
+            set.programs
+                .get(program_id)
+                .ok_or_else(|| CompositionError::ProgramNotActive {
+                    deployment_id: deployment_id.to_string(),
+                    program_id: program_id.to_string(),
+                })?;
         Ok(program.replica_metrics())
     }
 
@@ -1420,7 +1425,9 @@ mod tests {
                     i32.const 7
                     i32.add))"#,
         );
-        runtime.activate(runtime.prepare(&manifest, &[wasm]).unwrap()).unwrap();
+        runtime
+            .activate(runtime.prepare(&manifest, &[wasm]).unwrap())
+            .unwrap();
 
         for key in 0..48u64 {
             assert_eq!(
@@ -1434,10 +1441,7 @@ mod tests {
         let metrics = runtime
             .replica_metrics("risk-engine", "parallel-policy")
             .unwrap();
-        assert_eq!(
-            metrics.iter().map(|m| m.completed_calls).sum::<u64>(),
-            48
-        );
+        assert_eq!(metrics.iter().map(|m| m.completed_calls).sum::<u64>(), 48);
         assert!(metrics.iter().all(|m| m.service_time_ewma_ns > 0));
         assert!(metrics.iter().all(|m| m.active_calls == 0));
         assert!(metrics.iter().filter(|m| m.completed_calls > 0).count() > 1);
@@ -1446,13 +1450,7 @@ mod tests {
     #[test]
     fn stateful_program_cannot_enable_replica_fanout() {
         let runtime = CompositionRuntime::with_defaults();
-        let mut spec = program(
-            "stateful",
-            &[("policy", "1.0.0")],
-            "policy",
-            "run",
-            0,
-        );
+        let mut spec = program("stateful", &[("policy", "1.0.0")], "policy", "run", 0);
         spec.replicas = 2;
         let manifest = manifest("r1", vec![spec]);
         let wasm = artifact(
@@ -1507,5 +1505,4 @@ mod tests {
         assert!(started.elapsed() < Duration::from_millis(100));
         drop(locks);
     }
-
 }

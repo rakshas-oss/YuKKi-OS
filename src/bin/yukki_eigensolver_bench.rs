@@ -444,62 +444,63 @@ fn measure_candidate(
 
     // Each worker owns its hot-path metrics. The only shared scheduling
     // operation is one relaxed atomic increment per chunk, not per solve.
-    let worker_stats = thread::scope(|scope| -> Result<Vec<WorkerSolveStats>, Box<dyn std::error::Error>> {
-        let mut handles = Vec::with_capacity(worker_count);
-        for _ in 0..worker_count {
-            handles.push(scope.spawn(|| -> Result<WorkerSolveStats, String> {
-                let mut local = WorkerSolveStats {
-                    durations_ns: Vec::new(),
-                    ..WorkerSolveStats::default()
-                };
-                loop {
-                    let chunk_start = next.fetch_add(chunk_size, Ordering::Relaxed);
-                    if chunk_start >= solve_count {
-                        break;
+    let worker_stats = thread::scope(
+        |scope| -> Result<Vec<WorkerSolveStats>, Box<dyn std::error::Error>> {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                handles.push(scope.spawn(|| -> Result<WorkerSolveStats, String> {
+                    let mut local = WorkerSolveStats {
+                        durations_ns: Vec::new(),
+                        ..WorkerSolveStats::default()
+                    };
+                    loop {
+                        let chunk_start = next.fetch_add(chunk_size, Ordering::Relaxed);
+                        if chunk_start >= solve_count {
+                            break;
+                        }
+                        let chunk_end = chunk_start.saturating_add(chunk_size).min(solve_count);
+                        for task in chunk_start..chunk_end {
+                            let matrix_index = task % matrices.len();
+                            let before = Instant::now();
+                            let decomposition = symmetric_eigen_decomposition_with_options(
+                                &matrices[matrix_index],
+                                dimension,
+                                profile.tolerance,
+                                profile.max_sweeps,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            let elapsed = before.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+                            let hash = decomposition
+                                .eigenvalues
+                                .iter()
+                                .fold(0_u64, |hash, value| hash.rotate_left(7) ^ value.to_bits());
+                            local.checksum =
+                                local.checksum.wrapping_add(hash.wrapping_add(task as u64));
+                            local.durations_ns.push(elapsed);
+                            local.max_relative_residual = local
+                                .max_relative_residual
+                                .max(decomposition.relative_residual);
+                            local.max_orthogonality_error = local
+                                .max_orthogonality_error
+                                .max(decomposition.orthogonality_error);
+                        }
                     }
-                    let chunk_end = chunk_start.saturating_add(chunk_size).min(solve_count);
-                    for task in chunk_start..chunk_end {
-                        let matrix_index = task % matrices.len();
-                        let before = Instant::now();
-                        let decomposition = symmetric_eigen_decomposition_with_options(
-                            &matrices[matrix_index],
-                            dimension,
-                            profile.tolerance,
-                            profile.max_sweeps,
-                        )
-                        .map_err(|error| error.to_string())?;
-                        let elapsed = before.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-                        let hash = decomposition
-                            .eigenvalues
-                            .iter()
-                            .fold(0_u64, |hash, value| hash.rotate_left(7) ^ value.to_bits());
-                        local.checksum = local
-                            .checksum
-                            .wrapping_add(hash.wrapping_add(task as u64));
-                        local.durations_ns.push(elapsed);
-                        local.max_relative_residual = local
-                            .max_relative_residual
-                            .max(decomposition.relative_residual);
-                        local.max_orthogonality_error = local
-                            .max_orthogonality_error
-                            .max(decomposition.orthogonality_error);
-                    }
-                }
-                Ok(local)
-            }));
-        }
+                    Ok(local)
+                }));
+            }
 
-        let mut results = Vec::with_capacity(worker_count);
-        for handle in handles {
-            results.push(
-                handle
-                    .join()
-                    .map_err(|_| "eigensolver benchmark worker panicked")?
-                    .map_err(|error| format!("eigensolver failed: {error}"))?,
-            );
-        }
-        Ok(results)
-    })?;
+            let mut results = Vec::with_capacity(worker_count);
+            for handle in handles {
+                results.push(
+                    handle
+                        .join()
+                        .map_err(|_| "eigensolver benchmark worker panicked")?
+                        .map_err(|error| format!("eigensolver failed: {error}"))?,
+                );
+            }
+            Ok(results)
+        },
+    )?;
 
     let elapsed = started.elapsed();
     let mut times = Vec::with_capacity(solve_count);

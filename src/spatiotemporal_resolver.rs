@@ -172,21 +172,22 @@ impl SpatiotemporalPayloadResolver {
                 Some(Arc::clone(existing))
             } else {
                 if state.last_sequence_by_source.len() >= MAX_SEQUENCE_SOURCES_PER_ROUTE {
-                    return Err(ResolverError::SequenceSourceLimit(route.destination.clone()));
+                    return Err(ResolverError::SequenceSourceLimit(
+                        route.destination.clone(),
+                    ));
                 }
                 let source_state = Arc::new(Mutex::new(None));
-                state.last_sequence_by_source.insert(
-                    task.source.clone(),
-                    Arc::clone(&source_state),
-                );
+                state
+                    .last_sequence_by_source
+                    .insert(task.source.clone(), Arc::clone(&source_state));
                 Some(source_state)
             }
         } else {
             None
         };
-        let mut source_sequence_guard = source_sequence.as_ref().map(|source_state| {
-            source_state.lock().unwrap_or_else(|p| p.into_inner())
-        });
+        let mut source_sequence_guard = source_sequence
+            .as_ref()
+            .map(|source_state| source_state.lock().unwrap_or_else(|p| p.into_inner()));
 
         if let Some(last) = source_sequence_guard.as_ref().and_then(|guard| **guard) {
             if sequence <= last {
@@ -298,8 +299,14 @@ mod tests {
             .register_destination("unordered", 2, None, SequencePolicy::AllowAll)
             .unwrap();
 
-        assert_eq!(resolver.resolve_and_enqueue(&task("sensor", "unordered", 9)), Ok(9));
-        assert_eq!(resolver.resolve_and_enqueue(&task("sensor", "unordered", 3)), Ok(3));
+        assert_eq!(
+            resolver.resolve_and_enqueue(&task("sensor", "unordered", 9)),
+            Ok(9)
+        );
+        assert_eq!(
+            resolver.resolve_and_enqueue(&task("sensor", "unordered", 3)),
+            Ok(3)
+        );
         assert_eq!(receiver.try_recv().unwrap().frame.seq_id, 9);
         assert_eq!(receiver.try_recv().unwrap().frame.seq_id, 3);
     }

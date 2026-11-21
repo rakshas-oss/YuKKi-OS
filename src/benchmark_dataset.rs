@@ -707,47 +707,45 @@ fn measure_candidate(
     let worker_stats = thread::scope(|scope| {
         let mut handles = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
-            handles.push(scope.spawn(|| -> Result<WorkerBatchStats, DatasetBenchmarkError> {
-                let mut local = WorkerBatchStats {
-                    latencies_ns: Vec::new(),
-                    ..WorkerBatchStats::default()
-                };
-                loop {
-                    let first_batch = next_batch.fetch_add(
-                        chunk_batches,
-                        Ordering::Relaxed,
-                    );
-                    if first_batch >= batch_count {
-                        break;
-                    }
-                    let end_batch = first_batch
-                        .saturating_add(chunk_batches)
-                        .min(batch_count);
-                    for batch_index in first_batch..end_batch {
-                        let begin = batch_index * batch_size;
-                        let end = (begin + batch_size).min(records.len());
-                        let batch_started = Instant::now();
-                        for record in &records[begin..end] {
-                            let frame = record.to_frame()?;
-                            let bytes = frame
-                                .encode()
-                                .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
-                            let decoded = Nxr1Frame::decode(&bytes)
-                                .map_err(|error| DatasetBenchmarkError::Codec(error.to_string()))?;
-                            local.encoded_bytes =
-                                local.encoded_bytes.saturating_add(bytes.len() as u64);
-                            local.checksum ^= decoded.seq_id
-                                ^ record.timestamp_ns
-                                ^ decoded.payload.len() as u64;
-                            std::hint::black_box(decoded);
+            handles.push(
+                scope.spawn(|| -> Result<WorkerBatchStats, DatasetBenchmarkError> {
+                    let mut local = WorkerBatchStats {
+                        latencies_ns: Vec::new(),
+                        ..WorkerBatchStats::default()
+                    };
+                    loop {
+                        let first_batch = next_batch.fetch_add(chunk_batches, Ordering::Relaxed);
+                        if first_batch >= batch_count {
+                            break;
                         }
-                        local.latencies_ns.push(
-                            batch_started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
-                        );
+                        let end_batch = first_batch.saturating_add(chunk_batches).min(batch_count);
+                        for batch_index in first_batch..end_batch {
+                            let begin = batch_index * batch_size;
+                            let end = (begin + batch_size).min(records.len());
+                            let batch_started = Instant::now();
+                            for record in &records[begin..end] {
+                                let frame = record.to_frame()?;
+                                let bytes = frame.encode().map_err(|error| {
+                                    DatasetBenchmarkError::Codec(error.to_string())
+                                })?;
+                                let decoded = Nxr1Frame::decode(&bytes).map_err(|error| {
+                                    DatasetBenchmarkError::Codec(error.to_string())
+                                })?;
+                                local.encoded_bytes =
+                                    local.encoded_bytes.saturating_add(bytes.len() as u64);
+                                local.checksum ^= decoded.seq_id
+                                    ^ record.timestamp_ns
+                                    ^ decoded.payload.len() as u64;
+                                std::hint::black_box(decoded);
+                            }
+                            local.latencies_ns.push(
+                                batch_started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                            );
+                        }
                     }
-                }
-                Ok(local)
-            }));
+                    Ok(local)
+                }),
+            );
         }
         let mut results = Vec::with_capacity(worker_count);
         for handle in handles {

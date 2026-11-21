@@ -77,9 +77,8 @@ impl TimeWeightedSpatialScheduler {
             .map(|(index, timing)| {
                 let estimate = timing.service_time_ewma_ns.load(Ordering::Relaxed);
                 let active = active_calls.get(index).copied().unwrap_or(0);
-                let concurrency_cost = estimate.saturating_mul(
-                    u64::try_from(active).unwrap_or(u64::MAX).saturating_add(1),
-                );
+                let concurrency_cost = estimate
+                    .saturating_mul(u64::try_from(active).unwrap_or(u64::MAX).saturating_add(1));
                 let locality_penalty = if preferred.is_some_and(|slot| slot != index) {
                     estimate / LOCALITY_PENALTY_DIVISOR
                 } else {

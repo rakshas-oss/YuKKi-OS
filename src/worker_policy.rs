@@ -126,7 +126,12 @@ impl WorkerDirective {
         deadline_unix_ns: Option<u64>,
     ) -> Self {
         let mut hash = 0xcbf29ce484222325u64;
-        for byte in payload.source.bytes().chain([0xff]).chain(payload.destination.bytes()) {
+        for byte in payload
+            .source
+            .bytes()
+            .chain([0xff])
+            .chain(payload.destination.bytes())
+        {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x100000001b3);
         }
@@ -197,13 +202,20 @@ impl WorkerDirective {
         if self.deadline_unix_ns == Some(0) {
             return Err("deadline_unix_ns must be nonzero");
         }
-        if self.deadline_unix_ns.is_some_and(|deadline| deadline > i64::MAX as u64) {
+        if self
+            .deadline_unix_ns
+            .is_some_and(|deadline| deadline > i64::MAX as u64)
+        {
             return Err("deadline_unix_ns exceeds the supported signed clock range");
         }
-        if self.deadline_unix_ns.is_some_and(|value| value > i64::MAX as u64) {
+        if self
+            .deadline_unix_ns
+            .is_some_and(|value| value > i64::MAX as u64)
+        {
             return Err("deadline_unix_ns exceeds the supported Unix clock range");
         }
-        if self.worker_class == WorkerClass::RealtimeSpatial && self.spatial_affinity_key.is_none() {
+        if self.worker_class == WorkerClass::RealtimeSpatial && self.spatial_affinity_key.is_none()
+        {
             return Err("realtime-spatial directives require a spatial_affinity_key");
         }
         Ok(())
@@ -286,18 +298,35 @@ mod tests {
             destination: "physics".into(),
             numa_node: Some(2),
             frame: crate::nxr1::Nxr1Frame {
-                seq_id: 1, x: 0.0, y: 0.0, z: 0.0, u: 0.0, v: 0.0, w: 0.0,
-                fluidity: 0.0, drag: 0.0, divergence: 0.0, payload: vec![],
+                seq_id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                u: 0.0,
+                v: 0.0,
+                w: 0.0,
+                fluidity: 0.0,
+                drag: 0.0,
+                divergence: 0.0,
+                payload: vec![],
             },
         };
-        let profile = TaskProfile { deadline_ms: Some(100), ..TaskProfile::default() };
-        let directive = WorkerDirective::for_task_profile(&profile, 5_000_000, Some(&payload)).unwrap();
+        let profile = TaskProfile {
+            deadline_ms: Some(100),
+            ..TaskProfile::default()
+        };
+        let directive =
+            WorkerDirective::for_task_profile(&profile, 5_000_000, Some(&payload)).unwrap();
         assert_eq!(directive.worker_class, WorkerClass::RealtimeSpatial);
         assert_eq!(directive.preferred_numa_node, Some(2));
         assert_eq!(directive.deadline_unix_ns, Some(105_000_000));
 
-        let exact = TaskProfile { requires_exact_precision: true, ..profile };
-        let exact_directive = WorkerDirective::for_task_profile(&exact, 5_000_000, Some(&payload)).unwrap();
+        let exact = TaskProfile {
+            requires_exact_precision: true,
+            ..profile
+        };
+        let exact_directive =
+            WorkerDirective::for_task_profile(&exact, 5_000_000, Some(&payload)).unwrap();
         assert_eq!(exact_directive.worker_class, WorkerClass::ExactCpu);
         assert!(exact_directive.spatial_affinity_key.is_some());
         assert_eq!(exact_directive.preferred_numa_node, Some(2));
@@ -305,9 +334,15 @@ mod tests {
 
     #[test]
     fn task_profile_rejects_invalid_relative_deadline() {
-        let zero = TaskProfile { deadline_ms: Some(0), ..TaskProfile::default() };
+        let zero = TaskProfile {
+            deadline_ms: Some(0),
+            ..TaskProfile::default()
+        };
         assert!(WorkerDirective::for_task_profile(&zero, 1, None).is_err());
-        let overflow = TaskProfile { deadline_ms: Some(u64::MAX), ..TaskProfile::default() };
+        let overflow = TaskProfile {
+            deadline_ms: Some(u64::MAX),
+            ..TaskProfile::default()
+        };
         assert!(WorkerDirective::for_task_profile(&overflow, 1, None).is_err());
     }
 
@@ -318,8 +353,17 @@ mod tests {
             destination: "physics".into(),
             numa_node: Some(3),
             frame: crate::nxr1::Nxr1Frame {
-                seq_id: 7, x: 1.0, y: 2.0, z: 3.0, u: 0.0, v: 0.0, w: 0.0,
-                fluidity: 0.0, drag: 0.0, divergence: 0.0, payload: vec![],
+                seq_id: 7,
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+                u: 0.0,
+                v: 0.0,
+                w: 0.0,
+                fluidity: 0.0,
+                drag: 0.0,
+                divergence: 0.0,
+                payload: vec![],
             },
         };
         let directive = WorkerDirective::for_resolved_spatial_payload(&payload, Some(99));
