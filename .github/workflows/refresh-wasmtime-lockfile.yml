@@ -37,6 +37,9 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown, wasm32-wasip1
 
+      - name: Ensure WASI Preview 1 target is installed
+        run: rustup target add wasm32-wasip1
+
       - name: Update Wasmtime to patched release using Cargo
         run: cargo update -p wasmtime --precise 50.0.2
 
