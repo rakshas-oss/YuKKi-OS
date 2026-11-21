@@ -36,7 +36,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5a7d05ea6aea7e9e64d25b9156ba2fee3fdd659e34e41063cd2fc7cd020d7f4"
 dependencies = [
- "cc 1.11.2",
+ "cc",
 ]
 
 [[package]]
@@ -221,24 +221,14 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.63"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556e016178bb5662a08681bbe0f00f8e17631781a4dfc8c45e466e4b185ec27f"
-dependencies = [
- "find-msvc-tools 0.1.9",
- "jobserver",
- "libc",
- "shlex",
-]
-
-[[package]]
-name = "cc"
 version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
- "find-msvc-tools 0.1.15",
- "shlex",
+ "jobserver",
+ "libc",
+"find-msvc-tools 0.1.15",
+"shlex",
 ]
 
 [[package]]
@@ -792,12 +782,6 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
-
-[[package]]
-name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
@@ -1223,7 +1207,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f5385394064fa2c886205dba02598013ce83d3e92d33dbdc0c52fe0e7bf4fc"
 dependencies = [
- "cc 1.11.2",
+ "cc",
 ]
 
 [[package]]
@@ -2563,8 +2547,8 @@ dependencies = [
  "bitflags 2.13.2",
  "bumpalo",
  "bytes",
- "cc 1.2.63",
- "cc 1.11.2",
+ "cc",
+ "cc",
  "encoding_rs 0.8.35",
  "encoding_rs 0.8.44",
  "futures",
@@ -2713,8 +2697,8 @@ version = "50.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ead05f9d1428e98562bef6d3c42c5c9911ac25373e9d5f6d81fa26a3efb74ae3"
 dependencies = [
- "cc 1.2.63",
- "cc 1.11.2",
+ "cc",
+ "cc",
  "libc",
  "rustix",
  "wasmtime-environ",
@@ -2728,8 +2712,8 @@ version = "50.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89ea96d3eac206f9e088ebfc13a27f6353bdaa6a9e467e0ba9b05e00c79cee27"
 dependencies = [
- "cc 1.2.63",
- "cc 1.11.2",
+ "cc",
+ "cc",
  "object",
  "rustix",
  "wasmtime-internal-versioned-export-macros",
@@ -2949,7 +2933,7 @@ version = "6.15.0"
 dependencies = [
  "axum",
  "byteorder",
- "cc 1.11.2",
+ "cc",
  "chacha20poly1305",
  "criterion",
  "futures-util",
