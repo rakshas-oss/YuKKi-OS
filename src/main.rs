@@ -33,7 +33,10 @@ use uuid::Uuid;
 use x25519_dalek::{PublicKey, StaticSecret};
 use yukkios::{
     stream_gateway::{self, GatewayAuth},
-    LiveMediaStreams, MediaStreamConfig, StreamAnnouncement, StreamDigestEntry, StreamRegistry,
+    BrokerServiceRecord, BrokerServiceRegistry, LiveMediaStreams, MediaStreamConfig,
+    StreamAnnouncement, StreamDigestEntry, StreamRegistry, BROKER_SERVICE_DEFAULT_LEASE_SECS,
+    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_HOPS,
+    BROKER_SERVICE_SCHEMA,
 };
 use zeroize::Zeroize;
 
@@ -56,6 +59,7 @@ enum SovereignCommand {
     NodeFleet(Vec<PeerInfo>),
     StreamAnnouncement(StreamAnnouncement),
     StreamDigest(Vec<StreamDigestEntry>),
+    BrokerAnnouncement(BrokerServiceRecord),
 }
 
 struct Session {
@@ -244,6 +248,7 @@ async fn secured_session(
 type Fleet = Arc<Mutex<HashMap<Uuid, PeerInfo>>>;
 type Clients = Arc<Mutex<HashMap<Uuid, mpsc::Sender<Vec<u8>>>>>;
 type SeenAnnouncements = Arc<Mutex<(HashSet<String>, VecDeque<String>)>>;
+type BrokerServices = Arc<Mutex<BrokerServiceRegistry>>;
 
 const MAX_ADVERTISED_PEER_ADDR_BYTES: usize = 256;
 
@@ -287,6 +292,7 @@ async fn handle_peer(
     fleet: Fleet,
     clients: Clients,
     seen_announcements: SeenAnnouncements,
+    broker_services: BrokerServices,
 ) {
     let mut session = match secured_session(&mut stream, &psk, true).await {
         Ok(session) => session,
@@ -314,9 +320,18 @@ async fn handle_peer(
     let id = peer.uuid;
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
     fleet.lock().await.insert(id, peer);
-    clients.lock().await.insert(id, tx);
+    clients.lock().await.insert(id, tx.clone());
     info!(%remote, %id, "peer registered");
     broadcast_fleet(&fleet, &clients).await;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let existing_broker_services = broker_services.lock().await.list(now);
+    for record in existing_broker_services {
+        if let Some(record) = record.forwarded() {
+            if let Ok(encoded) = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record)) {
+                let _ = tx.send(encoded).await;
+            }
+        }
+    }
 
     loop {
         tokio::select! {
@@ -364,6 +379,38 @@ async fn handle_peer(
                             {
                                 relay_to_peers(message.clone(), id, &clients).await;
                             }
+                            Ok(SovereignCommand::BrokerAnnouncement(record)) => {
+                                let now = SystemTime::now().duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default().as_secs();
+                                if record.validate(now).is_ok()
+                                    && broker_services.lock().await.upsert(record.clone(), now).is_ok()
+                                {
+                                    let should_forward = {
+                                        let mut seen = seen_announcements.lock().await;
+                                        let key = format!("broker:{}", record.message_id);
+                                        if seen.0.insert(key.clone()) {
+                                            seen.1.push_back(key);
+                                            while seen.1.len() > 4096 {
+                                                if let Some(oldest) = seen.1.pop_front() {
+                                                    seen.0.remove(&oldest);
+                                                }
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    };
+                                    if should_forward {
+                                        if let Some(forwarded) = record.forwarded() {
+                                            if let Ok(encoded) = serde_json::to_vec(
+                                                &SovereignCommand::BrokerAnnouncement(forwarded),
+                                            ) {
+                                                relay_to_peers(encoded, id, &clients).await;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                         message.zeroize();
@@ -384,6 +431,7 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
     let fleet = Arc::new(Mutex::new(HashMap::new()));
     let clients = Arc::new(Mutex::new(HashMap::new()));
     let seen_announcements = Arc::new(Mutex::new((HashSet::new(), VecDeque::new())));
+    let broker_services = Arc::new(Mutex::new(BrokerServiceRegistry::new()));
     let permits = Arc::new(Semaphore::new(128));
     let psk = Arc::new(psk);
     info!(%address, "bootstrap listening");
@@ -400,9 +448,10 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
                 let peer_fleet = fleet.clone();
                 let peer_clients = clients.clone();
                 let peer_seen = seen_announcements.clone();
+                let peer_broker_services = broker_services.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients, peer_seen).await;
+                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients, peer_seen, peer_broker_services).await;
                 });
             }
             result = signal::ctrl_c() => {
@@ -433,6 +482,19 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     send_frame(&mut stream, &mut session, &registration).await?;
     send_gossip_digest(&mut stream, &mut session, &registry).await?;
+    let mut broker_registry = BrokerServiceRegistry::new();
+    let broker_endpoint = env::var("YUKKI_BROKER_ENDPOINT").ok();
+    let broker_service_id = Uuid::new_v4();
+    if let Some(endpoint) = broker_endpoint.as_deref() {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let record = broker_service_record(node_id, broker_service_id, endpoint, now)?;
+        broker_registry.upsert(record.clone(), now)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let bytes = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record))
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        send_frame(&mut stream, &mut session, &bytes).await?;
+        info!(%endpoint, "advertising local Overhauled broker service into authenticated peer mesh");
+    }
     if env::var_os("YUKKI_GATEWAY_TOKEN").is_some() {
         let auth = gateway_auth(false)?;
         let address: SocketAddr = env::var("YUKKI_GATEWAY_LISTEN")
@@ -455,6 +517,7 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     }
     info!(%bootstrap, %advertised, "node registered; press Ctrl-C to stop");
     let mut last_digest = Instant::now();
+    let mut last_broker_lease = Instant::now();
     tokio::select! {
         result = async {
             loop {
@@ -469,6 +532,24 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                                     .unwrap_or_default().as_secs();
                                 if registry.accept_announcement(announcement, now).is_ok() {
                                     info!("received stream announcement");
+                                }
+                            }
+                            Ok(SovereignCommand::BrokerAnnouncement(record)) => {
+                                let now = SystemTime::now().duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default().as_secs();
+                                let service_id = record.service_id;
+                                let endpoint = record.endpoint.clone();
+                                let protocols = record.protocol_versions.clone();
+                                let capabilities = record.capabilities.clone();
+                                if broker_registry.upsert(record, now).is_ok() {
+                                    info!(
+                                        %service_id,
+                                        %endpoint,
+                                        protocols = ?protocols,
+                                        capabilities = ?capabilities,
+                                        services = broker_registry.len(now),
+                                        "discovered Overhauled broker service"
+                                    );
                                 }
                             }
                             Ok(SovereignCommand::StreamDigest(digest))
@@ -499,6 +580,18 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                     send_gossip_digest(&mut stream, &mut session, &registry).await?;
                     last_digest = Instant::now();
                 }
+                if let Some(endpoint) = broker_endpoint.as_deref() {
+                    if last_broker_lease.elapsed() >= Duration::from_secs(30) {
+                        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                        let record = broker_service_record(node_id, broker_service_id, endpoint, now)?;
+                        broker_registry.upsert(record.clone(), now)
+                            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+                        let bytes = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record))
+                            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                        send_frame(&mut stream, &mut session, &bytes).await?;
+                        last_broker_lease = Instant::now();
+                    }
+                }
             }
             #[allow(unreachable_code)]
             Ok::<(), io::Error>(())
@@ -509,6 +602,39 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
             Ok(())
         }
     }
+}
+
+
+fn broker_service_record(
+    node_id: Uuid,
+    service_id: Uuid,
+    endpoint: &str,
+    now_unix: u64,
+) -> io::Result<BrokerServiceRecord> {
+    let capabilities = env::var("YUKKI_BROKER_CAPABILITIES")
+        .unwrap_or_else(|_| "cpu".to_string())
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+    let record = BrokerServiceRecord {
+        schema: BROKER_SERVICE_SCHEMA,
+        service_id,
+        node_id,
+        service_kind: BROKER_SERVICE_KIND.to_string(),
+        endpoint: endpoint.to_string(),
+        protocol_versions: vec!["BRK1".to_string(), "BRK2".to_string()],
+        capabilities,
+        max_frame_bytes: 64 * 1024,
+        issued_at_unix: now_unix,
+        expires_at_unix: now_unix.saturating_add(BROKER_SERVICE_DEFAULT_LEASE_SECS),
+        message_id: Uuid::new_v4(),
+        remaining_hops: BROKER_SERVICE_MAX_HOPS,
+    };
+    record.validate(now_unix)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    Ok(record)
 }
 
 async fn send_gossip_digest(
@@ -525,7 +651,7 @@ async fn send_gossip_digest(
 }
 
 fn usage() -> &'static str {
-    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address> | gateway [listen-address] [--insecure-dev] | streams list [gateway-address] | streams tune <stream-id> [--from <seq>]\nSet YUKKI_PSK_HEX for mesh commands and YUKKI_GATEWAY_TOKEN for the gateway."
+    "Usage: yukki_core_node bootstrap <bind-address> | node <bootstrap-address> <advertised-address> | gateway [listen-address] [--insecure-dev] | streams list [gateway-address] | streams tune <stream-id> [--from <seq>]\nSet YUKKI_PSK_HEX for mesh commands, YUKKI_BROKER_ENDPOINT=host:port to advertise an Overhauled broker, YUKKI_BROKER_CAPABILITIES=cpu,gpu,npu for capability labels, and YUKKI_GATEWAY_TOKEN for the gateway."
 }
 
 const DEFAULT_GATEWAY_ADDRESS: &str = "127.0.0.1:7670";

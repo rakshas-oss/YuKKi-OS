@@ -578,3 +578,8 @@ thread affinity. The broker uses dynamically growing FIFO queues, isolated by
 worker class, and enforces a process-wide outstanding-work and in-flight memory
 budget. See [WORKER_CLASS_POLICY.md](WORKER_CLASS_POLICY.md) for the stable
 class names, BRK2 fields, legacy compatibility, and limitations.
+
+
+## Advertise an Overhauled broker
+
+To publish a broker endpoint from a YuKKi-OS node, configure `YUKKI_BROKER_ENDPOINT=host:port` before starting the node. Optionally set `YUKKI_BROKER_CAPABILITIES=cpu,gpu,npu`; these are descriptive labels, not health or hardware attestations. The node refreshes a 90-second service lease every 30 seconds and gossips it over the authenticated peer mesh. Do not advertise a public unauthenticated broker listener: use a private network or independently authenticated mTLS proxy. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
