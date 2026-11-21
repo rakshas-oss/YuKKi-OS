@@ -233,7 +233,14 @@ pub fn placement_intent(m:&Message,payload_bytes:usize)->Result<Option<Placement
     if outer.flags&FIELD_REPEATED!=0{return Err(Error::InvalidValue("placement request field must be singular"))}
     if outer.wire_type!=WireType::Nested{return Err(Error::WrongWireType{field_id:14,expected:WireType::Nested,actual:outer.wire_type})}
     let fs=nested_fields(&outer.value,16)?;
-    for f in &fs{if (1..=5).contains(&f.id)&&f.flags&FIELD_REPEATED!=0{return Err(Error::InvalidValue("known placement fields are singular"))} if !(1..=5).contains(&f.id)&&f.flags&FIELD_CRITICAL!=0{return Err(Error::UnknownCriticalField(f.id))}}
+    for f in &fs {
+        if (1..=5).contains(&f.id) && f.flags & FIELD_REPEATED != 0 {
+            return Err(Error::InvalidValue("known placement fields are singular"));
+        }
+        if !(1..=5).contains(&f.id) && f.flags & FIELD_CRITICAL != 0 {
+            return Err(Error::UnknownCriticalField(f.id));
+        }
+    }
     if u16::from_be_bytes(nested_get(&fs,1,WireType::U16)?.value[..2].try_into().unwrap())!=1{return Err(Error::InvalidValue("unsupported placement version"))}
     if nested_get(&fs,2,WireType::U8)?.value[0]!=1{return Err(Error::InvalidValue("unsupported placement scope"))}
     let mode=match nested_get(&fs,3,WireType::U8)?.value[0]{1=>PlacementMode::Prefer,2=>PlacementMode::Bind,3=>PlacementMode::Interleave,_=>return Err(Error::InvalidValue("unsupported placement mode"))};
