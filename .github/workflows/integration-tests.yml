@@ -177,11 +177,106 @@ jobs:
           path: /tmp/overhauled-broker.log
           if-no-files-found: ignore
 
+  browser-wasm-live:
+    name: Browser WASM to Overhauled broker smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout paired Overhauled revision
+        uses: actions/checkout@v4
+        with:
+          repository: rakshas-oss/overhauled
+          ref: ${{ inputs.overhauled_ref || 'main' }}
+          path: overhauled
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build browser WASM benchmark module
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+      - name: Build CPU-only broker
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake g++
+          cmake -S overhauled -B overhauled/build -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=OFF -DENABLE_TENSORRT=OFF -DBUILD_BROKER=ON -DBUILD_EXAMPLES=OFF
+          cmake --build overhauled/build --target broker_server --parallel 2
+      - name: Run browser WASM broker smoke test
+        run: |
+          set -euo pipefail
+          overhauled/build/broker_server 19093 --cpu-only > /tmp/overhauled-wasm-broker.log 2>&1 &
+          broker_pid=$!
+          trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if (echo > /dev/tcp/127.0.0.1/19093) >/dev/null 2>&1; then break; fi
+            if ! kill -0 "$broker_pid" 2>/dev/null; then cat /tmp/overhauled-wasm-broker.log; exit 1; fi
+            sleep 0.25
+          done
+          node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 19093 --broker-device cpu --output /tmp/yukkios-wasm-brk2.json
+      - name: Upload browser WASM interoperability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukkios-browser-wasm-overhauled-interop
+          path: /tmp/yukkios-wasm-brk2.json
+          if-no-files-found: ignore
+
+  npu-simulator-and-cpu-fallback:
+    name: BRK2 simulated NPU execution and CPU fallback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout paired Overhauled revision
+        uses: actions/checkout@v4
+        with:
+          repository: rakshas-oss/overhauled
+          ref: ${{ inputs.overhauled_ref || 'main' }}
+          path: overhauled
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CPU-only broker with simulated NPU support
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake g++
+          cmake -S overhauled -B overhauled/build -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=OFF -DENABLE_TENSORRT=OFF -DBUILD_BROKER=ON -DBUILD_EXAMPLES=OFF
+          cmake --build overhauled/build --target broker_server --parallel 2
+      - name: Verify simulated NPU and CPU fallback
+        env:
+          OVERHAULED_NPU_BROKER_ENDPOINT: 127.0.0.1:19091
+          OVERHAULED_CPU_FALLBACK_ENDPOINT: 127.0.0.1:19092
+        run: |
+          set -euo pipefail
+          overhauled/build/broker_server 19091 --npu-simulated > /tmp/overhauled-npu-broker.log 2>&1 &
+          npu_pid=$!
+          overhauled/build/broker_server 19092 > /tmp/overhauled-cpu-fallback-broker.log 2>&1 &
+          cpu_pid=$!
+          trap 'kill "$npu_pid" "$cpu_pid" 2>/dev/null || true; wait "$npu_pid" 2>/dev/null || true; wait "$cpu_pid" 2>/dev/null || true' EXIT
+          for port in 19091 19092; do
+            ready=false
+            for attempt in $(seq 1 40); do
+              if (echo > "/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1; then ready=true; break; fi
+              sleep 0.25
+            done
+            if [[ "$ready" != true ]]; then
+              cat /tmp/overhauled-npu-broker.log
+              cat /tmp/overhauled-cpu-fallback-broker.log
+              exit 1
+            fi
+          done
+          cargo test --locked --test test_overhauled_npu_live -- --nocapture
+      - name: Upload NPU and fallback broker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukkios-npu-cpu-fallback-logs
+          path: |
+            /tmp/overhauled-npu-broker.log
+            /tmp/overhauled-cpu-fallback-broker.log
+          if-no-files-found: ignore
+
   all-integration:
     name: Combined YuKKi-OS + Overhauled integration gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp]
+    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp, browser-wasm-live, npu-simulator-and-cpu-fallback]
     steps:
       - name: Require every integration lane
         env:
