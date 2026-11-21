@@ -1,0 +1,90 @@
+name: Refresh Wasmtime security lockfile
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/refresh-wasmtime-lockfile.yml"
+      - "Cargo.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-wasmtime-lockfile-main
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  refresh-and-verify:
+    name: Resolve, verify, and commit patched Wasmtime lockfile
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Install Rust stable and WebAssembly targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+
+      - name: Update Wasmtime to patched release using Cargo
+        run: cargo update -p wasmtime --precise 50.0.2
+
+      - name: Confirm resolved Wasmtime version
+        run: |
+          cargo tree -i wasmtime --locked
+          grep -A2 '^name = "wasmtime"$' Cargo.lock
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check native dependency graph
+        run: cargo check --all-targets --locked
+
+      - name: Run complete native test suite
+        run: cargo test --all-targets --locked --verbose
+
+      - name: Run Clippy with warnings denied
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run RustSec audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --deny warnings
+
+      - name: Build and test WASI guest worker
+        working-directory: guest-worker
+        run: |
+          cargo build --release --locked --target wasm32-wasip1
+          cargo test --locked
+
+      - name: Validate browser WASM application
+        run: |
+          cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
+          cargo test --manifest-path browser-wasm/Cargo.toml --locked
+          cargo clippy --manifest-path browser-wasm/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
+          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+
+      - name: Commit verified lockfile to main
+        if: success()
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already resolves the requested patched dependency; no commit needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "fix(deps): update Wasmtime security patches"
+          git push origin HEAD:main
