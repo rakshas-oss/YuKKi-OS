@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.16.0 minor-release candidate. v6.15.0 is the latest published baseline (2026-11-21); the v6.15.0 tag and release are published.
+This document describes the v6.16.0 minor-release candidate. v6.15.0 is the latest published baseline (2026-11-21).
 
 ### Broker discovery and BRK2 locality extension (v6.16.0 candidate)
 
