@@ -2,60 +2,63 @@
 
 ## Current release candidate
 
-- **Proposed release line:** `v6.14.0`
-- **Cargo package version:** `6.14.0`
-- **OCI image version:** `6.14.0`
+- **Proposed release line:** `v6.15.0`
+- **Cargo package version:** `6.15.0`
+- **OCI image version:** `6.15.0`
 - **Rust toolchain pin:** `1.98.1`
 - **Runtime binary name:** `yukki_core_node`
-- **Release state:** minor candidate; tag, release archives and external publication are pending
+- **Release state:** minor candidate; v6.15.0 tag and release archive are pending
 
 ## Version assessment
 
-The 6.14.0 minor increment follows the published v6.13.0 baseline and
-incorporates the benchmark qualification/documentation work in PRs #143–#145
-plus the worker-directive integration in PR #147.
+The 6.15.0 minor increment follows published v6.14.0 and adds parallel
+workload capabilities across the resolver, composed-WASM scheduler and
+benchmark harness:
 
-PR #147 adds public workload classes and validated worker directives, derives
-stable logical spatial affinity from resolved NXR1 routes, carries advisory
-NUMA hints, maps existing TaskProfile semantics to worker classes, and
-converts relative deadlines to checked absolute Unix-nanosecond BRK2 deadlines.
-The Rust BRK2 codec transmits optional fields 11–13. The explicit WSM1 task
-submission API requires BRK2 when a directive is supplied and returns optional
-broker worker telemetry. Lifecycle operations use Control; generic BRK2 WSM1
-tasks default to Throughput; inference callers must opt in explicitly.
+- PR #151 changes `SpatiotemporalPayloadResolver` strict ordering from one
+  route-wide critical section to a short source-state map lookup followed by
+  per-source locking. Different sources can progress concurrently; strict
+  ordering remains atomic per source.
+- The strict resolver source-state map is bounded at 65,536 sources per route.
+  The new `SequenceSourceLimit` error reports when the ceiling is reached;
+  queue-full failures do not advance the source sequence watermark.
+- `TimeWeightedSpatialScheduler::ranked_candidates_with_load` ranks replicas
+  using service-time EWMA, current active-call load and the existing bounded
+  locality preference. Store admission remains a non-blocking lock attempt.
+- Native dataset and eigensolver benchmark workers now claim adaptive chunks
+  and keep timing, checksum, residual and orthogonality metrics locally before
+  merging after worker completion. This reduces shared instrumentation
+  contention without suppressing numerical quality checks.
 
-This is a new public native API and cross-repository runtime capability, so a
-minor increment to 6.14.0 is more accurate than a patch increment. Existing
-YKMC, BRK1, BRK2, NXR1 and WSM1 envelope identities and existing required
-fields remain compatible. Browser-WASM, WASI guest-worker and native-host
-composition remain distinct execution surfaces.
+The PR adds a scheduler API and an explicit bounded-sequence-limit error path.
+A minor increment to 6.15.0 is appropriate for this feature-bearing update.
+The changes do not alter YKMC, BRK1/BRK2, NXR1 or WSM1 wire formats. They do not
+claim lock-free queues, guaranteed linear scaling or zero-stall execution.
 
 ## Release policy
 
-- The last verified published baseline is v6.13.0.
-- The earlier v6.13.1 patch candidate is superseded by this feature candidate;
-  do not describe v6.13.1 as published unless its tag/release is independently
-  verified.
-- Do not create or publish v6.14.0 until native platform tests, browser-WASM
-  build/smoke benchmark, WASI worker, format/Clippy, security, coverage,
-  integration and live C++ BRK interoperability checks pass and the release
-  commit is reviewed.
+- v6.14.0 is the latest published YuKKi-OS release (2026-11-20).
+- Do not create or publish v6.15.0 until native platform tests, browser-WASM
+  build/smoke, WASI worker, format/Clippy, security, coverage, integration,
+  live C++ BRK interoperability and performance benchmark checks pass and
+  the release commit is reviewed.
 - Preserve the package/library name `yukkios` and runtime executable name
   `yukki_core_node`.
-- The root Cargo package, root lockfile entry, OCI image label, library banner
-  and version assertion must remain synchronized.
+- Keep Cargo.toml, the root Cargo.lock package entry, OCI image label,
+  library banner and version assertion synchronized.
 - Browser-WASM and WASI guest-worker artifacts retain their separate targets
   and package/build contracts. Their own package versions are not implicitly
   changed by the native crate version bump.
 - Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire contracts remain independently
-  versioned; optional worker TLVs do not replace those contracts.
-- YuKKi-OS owns workload semantics and policy directives. Overhauled owns
-  local class queues, admission budgets, CPU/NUMA affinity, backend selection
-  and execution. A logical spatial key or NUMA hint is advisory, not a promise
-  of physical placement.
+  versioned and unchanged by this release.
+- YuKKi-OS owns workload semantics, spatial resolution and directives.
+  Overhauled owns its local class/CPU-group queues, admission budgets,
+  broker-local NUMA/CPU affinity, accelerator placement and execution.
 
 ## Published release history
 
+- `v6.14.0` — published 2026-11-20; YuKKi workload directives and BRK2
+  worker-class interoperability.
 - `v6.13.0` — published 2026-11-18; native Wasm program composition and
   time-weighted spatial replica pools.
 - `v6.12.0` — published 2026-11-18; browser spatial/motion, multivariate
@@ -64,3 +67,4 @@ composition remain distinct execution surfaces.
 - `v6.10.0` — previous published baseline before v6.12.0.
 - `v6.9.8`, `v6.9.6`, `v6.9.3` and earlier archived lines are documented
   in the corresponding historical release files.
+
