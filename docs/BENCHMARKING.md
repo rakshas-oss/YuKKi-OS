@@ -1,7 +1,7 @@
 # Benchmarking YuKKi-OS
 
 This guide describes the native Criterion suites and the browser-WASM
-measurement runner introduced for v6.12.0 and retained in the published v6.13.0 and v6.14.0 releases and the v6.15.0 candidate. Benchmark inputs are
+measurement runner introduced for v6.12.0 and retained in the published v6.13.0, v6.14.0 and v6.15.0 releases and the v6.16.0 candidate. Benchmark inputs are
 fixture-driven: source datasets live in versioned JSON files, and benchmark
 code consumes those fixtures instead of maintaining independent hard-coded
 sample values.
@@ -384,7 +384,7 @@ scope fields in the JSON report before comparing runs.
 - [API and ABI reference](API.md) — NXR1 resolver and broker boundaries.
 - [Benchmark-driven native datasets and eigensolver](BENCHMARK_DRIVEN_DATASETS.md) — manifest-driven records, queue policy, and accuracy-checked symmetric eigensolver.
 
-## Contention-aware benchmark execution (v6.15.0 candidate)
+## Contention-aware benchmark execution (v6.16.0 candidate)
 
 The native dataset and eigensolver runners reduce measurement-side contention
 so parallel work is less distorted by the benchmark harness itself:

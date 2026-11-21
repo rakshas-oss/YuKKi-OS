@@ -1,19 +1,19 @@
-# YuKKi-OS v6.15.0 (release candidate)
+# YuKKi-OS v6.16.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.15.0 is a minor-release candidate based on published v6.14.0. It adds contention-isolated spatiotemporal resolution, load-aware composed-program replica selection and lower-contention dataset/eigensolver benchmark execution. The tag and release archive remain subject to CI and review.
+> **Release status:** v6.16.0 is a minor-release candidate based on published v6.15.0. It adds lease-based Overhauled broker discovery and BRK2 locality-placement intent/result codec helpers. The tag and release archive remain subject to CI and review.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.15.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.16.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.15.0 candidate; the last published release is v6.14.0.
+- **Release line:** v6.16.0 candidate; the last published release is v6.15.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
@@ -56,39 +56,32 @@ metrics locally, and stateless Wasm replicas are ranked using active-call load
 as well as service-time history. These changes do not alter BRK2 or NXR1 wire
 formats.
 
-## What's new in v6.15.0
+## What's new in v6.16.0
 
-The v6.15.0 candidate improves concurrency for parallel resolver, composed
-WASM and benchmark workloads:
+The v6.16.0 candidate coordinates broker discovery and BRK2 locality intent
+with Overhauled:
 
-- **Per-source resolver sequencing:** `SequencePolicy::AllowAll` bypasses
-  sequence-state locking. Strict `RejectNonIncreasing` sequencing uses a
-  short route-map lookup followed by a mutex scoped to the individual source,
-  allowing different sources targeting the same destination to progress
-  concurrently while preserving atomic check/enqueue/watermark behavior for
-  each source.
-- **Bounded sequence state:** strict sequence tracking is capped at 65,536
-  sources per route. Reaching the ceiling returns
-  `ResolverError::SequenceSourceLimit`; a full destination queue does not
-  advance the source watermark.
-- **Load-aware replica ranking:** `TimeWeightedSpatialScheduler` can rank
-  replicas using recent service-time EWMA multiplied by a snapshot of active
-  calls, retaining a bounded locality preference. Busy Store locks remain
-  the final non-blocking admission check.
-- **Lower-contention benchmark execution:** native dataset and eigensolver
-  benchmarks claim adaptive chunks and accumulate timing, checksum, residual
-  and orthogonality metrics per worker before merging results after joins.
-  This reduces shared instrumentation in the measured hot path while keeping
-  numerical quality checks visible.
+- **Broker service discovery:** bounded lease records advertise an optional
+  broker endpoint through `YUKKI_BROKER_ENDPOINT`. Validated announcements
+  relay over the authenticated peer mesh with message-ID deduplication,
+  bounded hop count, lease expiry and replay to joining peers.
+- **BRK2 locality intent/result codec:** request field 14 carries nested
+  locality intent; response field 13 carries a structured placement result.
+  Validation covers extension version, scope, mode, optional NUMA node,
+  payload ceiling, duplicate nested fields and unknown critical fields.
+- **Compatibility:** `prefer` is non-critical; `bind` and `interleave`
+  require the critical flag. An absent response result means unknown/not
+  applied, never successful placement.
 
-The resolver changes preserve per-source ordering in strict mode; the
-scheduler uses active-load snapshots rather than reservations. Neither change
-promises lock-free progress or zero stalls. Existing YKMC, BRK1/BRK2, NXR1 and
-WSM1 wire contracts are unchanged.
+**Boundaries:** the discovery mechanism is bootstrap-relayed authenticated
+gossip with an in-memory lease cache, not Kademlia or a full DHT. Discovery
+does not authorize execution, and BRK1/BRK2 transport still needs a trusted
+private network or independently authenticated proxy. The locality work is
+codec-only: Overhauled does not yet apply or verify physical memory placement.
+The GPU adapter does not automatically request the extension, and no
+locality claim is made for WASM linear memory, datasets, accelerator staging,
+GPU VRAM or NPU memory.
 
-See [NUMA and MPMC runtime](docs/NUMA_MPMC_RUNTIME.md),
-[WASM program composition](docs/WASM_PROGRAM_COMPOSITION.md), and
-[benchmarking](docs/BENCHMARKING.md).
 
 ## v6.12.0 published feature baseline
 
@@ -214,7 +207,7 @@ CPU is the always-available correctness baseline. GPU and NPU are optional, best
 
 ## Platform deployment
 
-See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC, WASI Preview 1 guest, and browser-WASM deployment profiles. The browser client targets `wasm32-unknown-unknown`, using the Rust verifier to validate chunk metadata before fetch/retention operations.
+Mainline Windows/MSVC is unsupported. The browser application (`wasm32-unknown-unknown`) and WASI Preview 1 guest (`wasm32-wasip1`) are separate WebAssembly deployment surfaces, not native Windows builds. See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md), [docs/BROWSER_WASM.md](docs/BROWSER_WASM.md), and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for their distinct build and deployment procedures. The browser client uses the Rust verifier to validate chunk metadata before fetch/retention operations.
 
 ## Documentation
 
@@ -223,7 +216,8 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 - [Versioning](docs/VERSIONING.md) · [Changelog](docs/CHANGELOG.md)
 
 - [Overhauled broker interoperability](docs/OVERHAULED_INTEROP.md) · [Ethos-U85 deployment](docs/ETHOSU_U85_DEPLOYMENT.md)
-- [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
+- [BRK2 conformance](docs/BRK2_CONFORMANCE_V1.md) · [BRK2 locality placement v1](docs/BRK2_LOCALITY_PLACEMENT_V1.md) · [BRK1/BRK2 executable corpus](docs/BRK_CONFORMANCE_V1.md)
+- [Overhauled broker service discovery](docs/BROKER_SERVICE_DISCOVERY.md)
 - [Deployment](docs/DEPLOYMENT.md) · [System administration](docs/SYSADMIN_HOWTO.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Browser WASM](docs/BROWSER_WASM.md) · [MMO browser spatial core](docs/MMO_BROWSER_WASM.md) · [Spatial and multivariate data how-to](docs/USER_HOWTO_MMO.md) · [Benchmarking](docs/BENCHMARKING.md) · [Benchmark-driven datasets and eigensolver](docs/BENCHMARK_DRIVEN_DATASETS.md) · [Streaming how-to](docs/USER_HOWTO_STREAMING.md)
 - [Native benchmark-driven datasets and eigensolver](docs/BENCHMARK_DRIVEN_DATASETS.md) · [Example multivariate manifest](examples/benchmark-datasets/manifest.json)
@@ -234,7 +228,7 @@ See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for native Windows MSVC
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.15.0 .
+docker build -t yukkios:6.16.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.

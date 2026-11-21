@@ -2,7 +2,7 @@
 
 This guide covers the browser-side spatial and motion feature set first shipped in
 the published YuKKi-OS v6.12.0, v6.13.0 and v6.14.0 releases, and retained
-in the v6.15.0 feature candidate. It is additive: the native node, the separate
+in the published v6.15.0 release. It is additive: the native node, the separate
 `rakshas-oss/overhauled` repository, and the existing wire protocols remain in
 place. The browser path uses the existing `browser-wasm/` application and
 `wasm32-unknown-unknown` target.

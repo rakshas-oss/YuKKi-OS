@@ -1,4 +1,4 @@
-# YuKKi-OS v6.15.0 — Architecture
+# YuKKi-OS v6.16.0 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,24 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.15.0 minor-release candidate. v6.14.0 is the latest published baseline (2026-11-20); the v6.15.0 tag remains pending CI and release qualification.
+This document describes the v6.16.0 minor-release candidate. v6.15.0 is the latest published baseline (2026-11-21).
+
+### Broker discovery and BRK2 locality extension (v6.16.0 candidate)
+
+YuKKi-OS owns workload policy and the control-plane side of broker endpoint
+discovery. Its bounded lease-based `BrokerServiceRegistry` advertises an
+optional endpoint and relays validated records through the authenticated
+bootstrap/gossip mesh. The bootstrap cache is in-memory and the mechanism is
+not a Kademlia DHT. Discovery records are not authorization; the BRK1/BRK2
+broker transport remains unauthenticated and must be protected by a trusted
+private network or independent mTLS proxy.
+
+The BRK2 locality codec encodes request field 14 intent and response field 13
+placement results. This is wire-codec support only: Overhauled remains the
+owner of local allocation and execution, and does not yet apply or verify
+physical payload-memory placement. An absent result means unknown/not applied.
+The codec does not imply locality for WASM linear memory, datasets, accelerator
+staging, GPU VRAM or NPU memory.
 
 ### Full-colour system map
 
@@ -37,7 +54,7 @@ claim of hard-real-time behavior or physical NUMA-local memory allocation.
 
 ## Parallel workload resolution and composition scheduling
 
-The v6.15.0 candidate reduces unrelated-work contention without claiming a
+The v6.16.0 candidate reduces unrelated-work contention without claiming a
 lock-free runtime:
 
 - Resolver `AllowAll` traffic bypasses sequence-state locks. Strict sequence

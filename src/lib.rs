@@ -1,4 +1,4 @@
-//! YuKKi-OS v6.15.0 — Library Interface
+//! YuKKi-OS v6.16.0 — Library Interface
 //! Exports core modules for testing and external use
 
 pub mod adi_auto_tune;
