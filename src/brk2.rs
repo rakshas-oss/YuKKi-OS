@@ -197,6 +197,10 @@ fn nested_fields(bytes:&[u8], max_fields:usize)->Result<Vec<Field>,Error>{
         out.push(f);p=end;
     } Ok(out)
 }
+fn nested_get<'a>(fields:&'a [Field],id:u16,wt:WireType)->Result<&'a Field,Error>{
+    let f=fields.iter().find(|f|f.id==id).ok_or(Error::MissingField(id))?;
+    if f.wire_type!=wt{return Err(Error::WrongWireType{field_id:id,expected:wt,actual:f.wire_type})} Ok(f)
+}
 fn nested_encode(fields:&[Field])->Result<Vec<u8>,Error>{
     validate_duplicates(fields)?;let mut out=Vec::new();
     for f in fields{validate_value(f)?;let n=u32::try_from(f.value.len()).map_err(|_|Error::PayloadTooLarge(f.value.len()))?;
