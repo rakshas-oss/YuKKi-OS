@@ -305,6 +305,22 @@ endpoint; the embedding application owns artifact delivery, authorization and
 the host call path. See [WASM program composition](WASM_PROGRAM_COMPOSITION.md)
 for the manifest and end-to-end Rust example.
 
+## Wasm runtime interoperability boundary
+
+YuKKi-OS `CompositionRuntime` remains the deployment-side composition API:
+it validates manifests and typed module dependencies, prepares program
+replicas, and activates releases within the YuKKi process. Overhauled may
+provide a separate optional native Wasmtime C API runtime-composition path
+for broker-side module compilation and linker-based runtime import
+resolution. These are independent runtimes, not a shared engine or an
+automatic delegation path.
+
+No automatic manifest, artifact, cache, replica, or release-state transfer
+currently exists between the repositories. Applications must explicitly
+select the runtime and deliver artifacts through an authorized integration.
+The two runtimes must be qualified independently. See
+[WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
+
 ## Parallel resolver and composed-program scheduling (v6.16.0 candidate)
 
 `SpatiotemporalPayloadResolver` supports two sequence policies:
