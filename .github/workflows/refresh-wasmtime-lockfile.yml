@@ -37,11 +37,16 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown, wasm32-wasip1
 
-      - name: Ensure WASI Preview 1 target is installed
-        run: rustup target add wasm32-wasip1
+      - name: Ensure WASI and browser WebAssembly targets are installed
+        run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
 
       - name: Update Wasmtime to patched release using Cargo
         run: cargo update -p wasmtime --precise 50.0.2
+
+      - name: Regenerate canonical workspace lockfile from manifests
+        # The manifest removed an unused optional dependency. Resolve that removal
+        # with Cargo before any downstream --locked validation is run.
+        run: cargo check --workspace
 
       - name: Confirm resolved Wasmtime version
         run: |
