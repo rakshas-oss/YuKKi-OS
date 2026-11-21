@@ -248,6 +248,7 @@ async fn secured_session(
 type Fleet = Arc<Mutex<HashMap<Uuid, PeerInfo>>>;
 type Clients = Arc<Mutex<HashMap<Uuid, mpsc::Sender<Vec<u8>>>>>;
 type SeenAnnouncements = Arc<Mutex<(HashSet<String>, VecDeque<String>)>>;
+type BrokerServices = Arc<Mutex<BrokerServiceRegistry>>;
 
 const MAX_ADVERTISED_PEER_ADDR_BYTES: usize = 256;
 
@@ -291,6 +292,7 @@ async fn handle_peer(
     fleet: Fleet,
     clients: Clients,
     seen_announcements: SeenAnnouncements,
+    broker_services: BrokerServices,
 ) {
     let mut session = match secured_session(&mut stream, &psk, true).await {
         Ok(session) => session,
@@ -318,9 +320,17 @@ async fn handle_peer(
     let id = peer.uuid;
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
     fleet.lock().await.insert(id, peer);
-    clients.lock().await.insert(id, tx);
+    clients.lock().await.insert(id, tx.clone());
     info!(%remote, %id, "peer registered");
     broadcast_fleet(&fleet, &clients).await;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    for record in broker_services.lock().await.list(now) {
+        if let Some(record) = record.forwarded() {
+            if let Ok(encoded) = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record)) {
+                let _ = tx.send(encoded).await;
+            }
+        }
+    }
 
     loop {
         tokio::select! {
@@ -371,7 +381,9 @@ async fn handle_peer(
                             Ok(SovereignCommand::BrokerAnnouncement(record)) => {
                                 let now = SystemTime::now().duration_since(UNIX_EPOCH)
                                     .unwrap_or_default().as_secs();
-                                if record.validate(now).is_ok() {
+                                if record.validate(now).is_ok()
+                                    && broker_services.lock().await.upsert(record.clone(), now).is_ok()
+                                {
                                     let should_forward = {
                                         let mut seen = seen_announcements.lock().await;
                                         let key = format!("broker:{}", record.message_id);
@@ -418,6 +430,7 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
     let fleet = Arc::new(Mutex::new(HashMap::new()));
     let clients = Arc::new(Mutex::new(HashMap::new()));
     let seen_announcements = Arc::new(Mutex::new((HashSet::new(), VecDeque::new())));
+    let broker_services = Arc::new(Mutex::new(BrokerServiceRegistry::new()));
     let permits = Arc::new(Semaphore::new(128));
     let psk = Arc::new(psk);
     info!(%address, "bootstrap listening");
@@ -434,9 +447,10 @@ async fn run_bootstrap(address: SocketAddr, psk: [u8; 32]) -> io::Result<()> {
                 let peer_fleet = fleet.clone();
                 let peer_clients = clients.clone();
                 let peer_seen = seen_announcements.clone();
+                let peer_broker_services = broker_services.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients, peer_seen).await;
+                    handle_peer(stream, remote, peer_psk, peer_fleet, peer_clients, peer_seen, peer_broker_services).await;
                 });
             }
             result = signal::ctrl_c() => {
