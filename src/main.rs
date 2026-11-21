@@ -522,8 +522,19 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                             Ok(SovereignCommand::BrokerAnnouncement(record)) => {
                                 let now = SystemTime::now().duration_since(UNIX_EPOCH)
                                     .unwrap_or_default().as_secs();
+                                let service_id = record.service_id;
+                                let endpoint = record.endpoint.clone();
+                                let protocols = record.protocol_versions.clone();
+                                let capabilities = record.capabilities.clone();
                                 if broker_registry.upsert(record, now).is_ok() {
-                                    info!(services = broker_registry.len(now), "updated discovered Overhauled broker registry");
+                                    info!(
+                                        %service_id,
+                                        %endpoint,
+                                        protocols = ?protocols,
+                                        capabilities = ?capabilities,
+                                        services = broker_registry.len(now),
+                                        "discovered Overhauled broker service"
+                                    );
                                 }
                             }
                             Ok(SovereignCommand::StreamDigest(digest))
