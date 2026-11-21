@@ -35,7 +35,7 @@ use yukkios::{
     stream_gateway::{self, GatewayAuth},
     BrokerServiceRecord, BrokerServiceRegistry, LiveMediaStreams, MediaStreamConfig,
     StreamAnnouncement, StreamDigestEntry, StreamRegistry, BROKER_SERVICE_DEFAULT_LEASE_SECS,
-    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_FRAME_BYTES, BROKER_SERVICE_MAX_HOPS,
+    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_HOPS,
     BROKER_SERVICE_SCHEMA,
 };
 use zeroize::Zeroize;
@@ -611,7 +611,7 @@ fn broker_service_record(
         endpoint: endpoint.to_string(),
         protocol_versions: vec!["BRK1".to_string(), "BRK2".to_string()],
         capabilities,
-        max_frame_bytes: 64 * 1024_u32.min(BROKER_SERVICE_MAX_FRAME_BYTES),
+        max_frame_bytes: 64 * 1024,
         issued_at_unix: now_unix,
         expires_at_unix: now_unix.saturating_add(BROKER_SERVICE_DEFAULT_LEASE_SECS),
         message_id: Uuid::new_v4(),
