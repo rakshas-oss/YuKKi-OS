@@ -1,6 +1,7 @@
 name: Test & Code Quality
 
 on:
+  workflow_dispatch:
   push:
     branches: ["main", "copilot/**"]
   pull_request:
