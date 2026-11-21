@@ -5,6 +5,7 @@ pub mod adi_auto_tune;
 pub mod arcgis;
 pub mod benchmark_dataset;
 pub mod broker_client;
+pub mod broker_discovery;
 pub mod symmetric_eigen;
 #[rustfmt::skip]
 pub mod brk2;
@@ -39,6 +40,12 @@ pub use brk2::{
     validate_known_fields as validate_brk2_schema, BrokerRequest as Brk2BrokerRequest,
     Error as Brk2Error, Field as Brk2Field, Header as Brk2Header, Limits as Brk2Limits,
     Message as Brk2Message, WireType as Brk2WireType,
+};
+
+pub use broker_discovery::{
+    BrokerDiscoveryError, BrokerServiceRecord, BrokerServiceRegistry, BROKER_SERVICE_DEFAULT_LEASE_SECS,
+    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_FRAME_BYTES, BROKER_SERVICE_MAX_HOPS,
+    BROKER_SERVICE_MAX_LEASE_SECS, BROKER_SERVICE_MAX_RECORDS, BROKER_SERVICE_SCHEMA,
 };
 
 pub use broker_client::{
