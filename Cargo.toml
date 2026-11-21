@@ -22,7 +22,7 @@ path = "src/bin/yukki_eigensolver_bench.rs"
 
 [features]
 default = []
-mesh_dashboard = ["dep:rstar", "dep:serde_cbor"]
+mesh_dashboard = ["dep:rstar"]
 interop_encryption = []
 native-crypto = []
 
@@ -72,7 +72,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 axum = { version = "0.8.9", features = ["json", "ws"] }
 tokio-tungstenite = "0.30.0"
 rstar = { version = "0.14", optional = true }
-serde_cbor = { version = "0.11", optional = true }
 
 # Enable getrandom's JavaScript backend only for wasm32 builds.
 # This satisfies getrandom 0.4 users without changing native targets.
