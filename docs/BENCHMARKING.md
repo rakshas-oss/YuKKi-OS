@@ -1,7 +1,7 @@
 # Benchmarking YuKKi-OS
 
 This guide describes the native Criterion suites and the browser-WASM
-measurement runner introduced for v6.12.0 and retained in the published v6.13.0 baseline and v6.14.0 feature candidate. Benchmark inputs are
+measurement runner introduced for v6.12.0 and retained in the published v6.13.0 and v6.14.0 releases and the v6.15.0 candidate. Benchmark inputs are
 fixture-driven: source datasets live in versioned JSON files, and benchmark
 code consumes those fixtures instead of maintaining independent hard-coded
 sample values.
@@ -383,3 +383,22 @@ scope fields in the JSON report before comparing runs.
 - [Browser WASM deployment](BROWSER_WASM.md) — build and hosting instructions.
 - [API and ABI reference](API.md) — NXR1 resolver and broker boundaries.
 - [Benchmark-driven native datasets and eigensolver](BENCHMARK_DRIVEN_DATASETS.md) — manifest-driven records, queue policy, and accuracy-checked symmetric eigensolver.
+
+## Contention-aware benchmark execution (v6.15.0 candidate)
+
+The native dataset and eigensolver runners reduce measurement-side contention
+so parallel work is less distorted by the benchmark harness itself:
+
+- Batch and solve indices are claimed in adaptive chunks rather than through
+  one shared atomic operation per individual unit of work.
+- Each worker accumulates its own latency samples, checksum, encoded-byte
+  count, residual and orthogonality statistics.
+- Worker-local results are merged after all worker threads join. Numerical
+  residual and orthogonality checks remain part of the measured run.
+
+This removes shared metric locks/atomics from the per-batch or per-solve hot
+path; it does not eliminate all scheduler synchronization or imply lock-free
+execution. Compare before/after results on the same host, dataset, profile,
+toolchain and worker budget. Do not infer universal scaling, latency, power
+or OPEX improvements from these instrumentation changes.
+
