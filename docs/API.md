@@ -1,4 +1,4 @@
-# YuKKi OS v6.15.0 — API and ABI Reference
+# YuKKi OS v6.16.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -287,7 +287,7 @@ endpoint; the embedding application owns artifact delivery, authorization and
 the host call path. See [WASM program composition](WASM_PROGRAM_COMPOSITION.md)
 for the manifest and end-to-end Rust example.
 
-## Parallel resolver and composed-program scheduling (v6.15.0 candidate)
+## Parallel resolver and composed-program scheduling (v6.16.0 candidate)
 
 `SpatiotemporalPayloadResolver` supports two sequence policies:
 
