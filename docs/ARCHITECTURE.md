@@ -22,13 +22,16 @@ This document describes the v6.15.0 minor-release candidate. v6.14.0 is the late
 ![YuKKi-OS control and runtime architecture diagram](diagrams/yukkios-architecture.svg)
 
 The ANSI-inspired source SVG is paired with a terminal renderer:
-`bash docs/diagrams/print-ansi.sh`. The updated map shows the five
-YuKKi-selected worker classes and optional BRK2 fields 9 and 11–13. It
-separates YuKKi's policy/hint generation from Overhauled's broker-local
-worker queues and best-effort Linux affinity. It is a responsibility map,
-not a claim that every library service is exposed through the node CLI or
-an HTTP endpoint; no hard-real-time or physical NUMA-local memory guarantee
-is implied.
+`bash docs/diagrams/print-ansi.sh`. The map shows the five YuKKi-selected
+worker classes, the NXR1 spatiotemporal resolver, bounded per-source
+sequence policy, and BRK2 fields 9 and 11–13. It also captures the
+load-aware composition scheduler (service-time EWMA + active-call load +
+logical locality) and adaptive, worker-local benchmark aggregation. The
+responsibility boundary remains explicit: YuKKi emits workload meaning and
+advisory hints; Overhauled owns broker queues, physical CPU placement,
+backend dispatch and execution telemetry. It is not a claim that every
+library service is exposed through the node CLI or an HTTP endpoint, nor a
+claim of hard-real-time behavior or physical NUMA-local memory allocation.
 
 
 ## Parallel workload resolution and composition scheduling
