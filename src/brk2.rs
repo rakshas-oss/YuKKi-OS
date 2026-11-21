@@ -161,6 +161,107 @@ pub fn validate_known_fields(m:&Message,known:&[(u16,WireType,bool)])->Result<()
     for (id,_,required) in known{if *required&&m.field(*id).is_none(){return Err(Error::MissingField(*id))}}Ok(())
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PlacementMode { Prefer=1, Bind=2, Interleave=3 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PlacementOutcome { Honored=1, Rejected=2, Fallback=3 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum PlacementReason {
+    UnsupportedScope=1, UnsupportedMode=2, LocalityDomainMismatch=3, NodeUnavailable=4,
+    ProcessPolicyDenied=5, MemoryQuota=6, AllocatorUnavailable=7, SizeLimit=8, PlacementFailed=9,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlacementIntent { pub mode:PlacementMode, pub numa_node:Option<u32>, pub max_bytes:u64 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlacementResult { pub outcome:PlacementOutcome, pub applied_numa_node:Option<u32>, pub reason:Option<PlacementReason> }
+
+fn nested_fields(bytes:&[u8], max_fields:usize)->Result<Vec<Field>,Error>{
+    let mut out=Vec::new(); let mut seen=HashMap::<u16,bool>::new(); let mut p=0usize;
+    while p<bytes.len(){
+        if out.len()>=max_fields{return Err(Error::TooManyFields)}
+        if bytes.len()-p<TLV_HEADER_LEN{return Err(Error::Truncated("nested TLV header"))}
+        let id=u16::from_be_bytes(bytes[p..p+2].try_into().unwrap());
+        let wire_type=WireType::try_from(bytes[p+2])?; let flags=bytes[p+3];
+        if flags & !KNOWN_FIELD_FLAGS!=0{return Err(Error::InvalidFieldFlags(flags))}
+        let repeated=flags&FIELD_REPEATED!=0;
+        if let Some(prev)=seen.get(&id){if !repeated||!*prev{return Err(Error::DuplicateSingularField(id))}}
+        else{seen.insert(id,repeated);}
+        let n=u32::from_be_bytes(bytes[p+4..p+8].try_into().unwrap()) as usize;p+=8;
+        let end=p.checked_add(n).ok_or(Error::LengthMismatch)?;
+        if end>bytes.len(){return Err(Error::Truncated("nested TLV value"))}
+        let f=Field{id,wire_type,flags,value:bytes[p..end].to_vec()};validate_value(&f)?;
+        out.push(f);p=end;
+    } Ok(out)
+}
+fn nested_encode(fields:&[Field])->Result<Vec<u8>,Error>{
+    validate_duplicates(fields)?;let mut out=Vec::new();
+    for f in fields{validate_value(f)?;let n=u32::try_from(f.value.len()).map_err(|_|Error::PayloadTooLarge(f.value.len()))?;
+        out.extend_from_slice(&f.id.to_be_bytes());out.push(f.wire_type as u8);out.push(f.flags);
+        out.extend_from_slice(&n.to_be_bytes());out.extend_from_slice(&f.value);}
+    Ok(out)
+}
+fn nested_get<'a>(fields:&'a [Field],id:u16,wt:WireType)->Result<&'a Field,Error>{
+    let f=fields.iter().find(|f|f.id==id).ok_or(Error::MissingField(id))?;
+    if f.wire_type!=wt{return Err(Error::WrongWireType{field_id:id,expected:wt,actual:f.wire_type})} Ok(f)
+}
+/// Attach field 14. Older peers may ignore non-critical prefer; mandatory modes fail closed.
+pub fn set_placement_intent(m:&mut Message,v:PlacementIntent)->Result<(),Error>{
+    if m.header.message_type!=MSG_REQUEST||m.header.schema_id!=SCHEMA_BROKER_REQUEST{return Err(Error::InvalidValue("placement intent requires broker request"))}
+    if m.field(14).is_some(){return Err(Error::DuplicateSingularField(14))}
+    if v.max_bytes==0{return Err(Error::InvalidValue("placement max_bytes must be nonzero"))}
+    match v.mode{PlacementMode::Prefer|PlacementMode::Bind if v.numa_node.is_none()=>return Err(Error::InvalidValue("prefer/bind requires NUMA node")),
+        PlacementMode::Interleave if v.numa_node.is_some()=>return Err(Error::InvalidValue("interleave must not name one NUMA node")),_=>{}}
+    let mut fs=vec![Field::u16(1,1),Field::u8(2,1),Field::u8(3,v.mode as u8)];
+    if let Some(n)=v.numa_node{fs.push(Field::u32(4,n));} fs.push(Field::u64(5,v.max_bytes));
+    let mut outer=Field::new(14,WireType::Nested,nested_encode(&fs)?);
+    if v.mode!=PlacementMode::Prefer{outer=outer.critical();} m.push(outer);Ok(())
+}
+/// Decode field 14. payload_bytes is the already-bounded decoded request payload size.
+pub fn placement_intent(m:&Message,payload_bytes:usize)->Result<Option<PlacementIntent>,Error>{
+    let Some(outer)=m.field(14) else{return Ok(None)};
+    if outer.wire_type!=WireType::Nested{return Err(Error::WrongWireType{field_id:14,expected:WireType::Nested,actual:outer.wire_type})}
+    let fs=nested_fields(&outer.value,16)?;
+    for f in &fs{if !(1..=5).contains(&f.id)&&f.flags&FIELD_CRITICAL!=0{return Err(Error::UnknownCriticalField(f.id))}}
+    if u16::from_be_bytes(nested_get(&fs,1,WireType::U16)?.value[..2].try_into().unwrap())!=1{return Err(Error::InvalidValue("unsupported placement version"))}
+    if nested_get(&fs,2,WireType::U8)?.value[0]!=1{return Err(Error::InvalidValue("unsupported placement scope"))}
+    let mode=match nested_get(&fs,3,WireType::U8)?.value[0]{1=>PlacementMode::Prefer,2=>PlacementMode::Bind,3=>PlacementMode::Interleave,_=>return Err(Error::InvalidValue("unsupported placement mode"))};
+    let node=fs.iter().find(|f|f.id==4).map(|f|{if f.wire_type!=WireType::U32{return Err(Error::WrongWireType{field_id:4,expected:WireType::U32,actual:f.wire_type})}Ok(u32::from_be_bytes(f.value[..4].try_into().unwrap()))}).transpose()?;
+    let max_bytes=u64::from_be_bytes(nested_get(&fs,5,WireType::U64)?.value[..8].try_into().unwrap());
+    if max_bytes==0||max_bytes>payload_bytes as u64{return Err(Error::InvalidValue("placement max_bytes exceeds payload"))}
+    match mode{PlacementMode::Prefer|PlacementMode::Bind if node.is_none()=>return Err(Error::InvalidValue("prefer/bind requires NUMA node")),
+        PlacementMode::Interleave if node.is_some()=>return Err(Error::InvalidValue("interleave must not name one NUMA node")),_=>{}}
+    if (outer.flags&FIELD_CRITICAL!=0)!=(mode!=PlacementMode::Prefer){return Err(Error::InvalidValue("placement critical flag/mode mismatch"))}
+    Ok(Some(PlacementIntent{mode,numa_node:node,max_bytes}))
+}
+/// Attach response field 13 with allocator-verified outcome. No outcome means unknown.
+pub fn set_placement_result(m:&mut Message,v:PlacementResult)->Result<(),Error>{
+    if m.header.message_type!=MSG_RESPONSE||m.header.schema_id!=SCHEMA_BROKER_RESPONSE{return Err(Error::InvalidValue("placement result requires broker response"))}
+    if m.field(13).is_some(){return Err(Error::DuplicateSingularField(13))}
+    if (v.outcome==PlacementOutcome::Honored&&v.reason.is_some())||(v.outcome!=PlacementOutcome::Honored&&v.reason.is_none()){return Err(Error::InvalidValue("placement outcome/reason mismatch"))}
+    let mut fs=vec![Field::u16(1,1),Field::u8(2,1),Field::u8(3,v.outcome as u8)];
+    if let Some(n)=v.applied_numa_node{fs.push(Field::u32(4,n))}
+    if let Some(r)=v.reason{fs.push(Field::u16(5,r as u16))}
+    m.push(Field::new(13,WireType::Nested,nested_encode(&fs)?));Ok(())
+}
+/// Decode response field 13. Absence is unknown/not applied, never success.
+pub fn placement_result(m:&Message)->Result<Option<PlacementResult>,Error>{
+    let Some(outer)=m.field(13) else{return Ok(None)};
+    if outer.wire_type!=WireType::Nested{return Err(Error::WrongWireType{field_id:13,expected:WireType::Nested,actual:outer.wire_type})}
+    let fs=nested_fields(&outer.value,16)?;
+    for f in &fs{if !(1..=5).contains(&f.id)&&f.flags&FIELD_CRITICAL!=0{return Err(Error::UnknownCriticalField(f.id))}}
+    if u16::from_be_bytes(nested_get(&fs,1,WireType::U16)?.value[..2].try_into().unwrap())!=1||nested_get(&fs,2,WireType::U8)?.value[0]!=1{return Err(Error::InvalidValue("unsupported placement result version/scope"))}
+    let outcome=match nested_get(&fs,3,WireType::U8)?.value[0]{1=>PlacementOutcome::Honored,2=>PlacementOutcome::Rejected,3=>PlacementOutcome::Fallback,_=>return Err(Error::InvalidValue("unknown placement outcome"))};
+    let node=fs.iter().find(|f|f.id==4).map(|f|{if f.wire_type!=WireType::U32{return Err(Error::WrongWireType{field_id:4,expected:WireType::U32,actual:f.wire_type})}Ok(u32::from_be_bytes(f.value[..4].try_into().unwrap()))}).transpose()?;
+    let reason=fs.iter().find(|f|f.id==5).map(|f|{if f.wire_type!=WireType::U16{return Err(Error::WrongWireType{field_id:5,expected:WireType::U16,actual:f.wire_type})}
+        Ok(match u16::from_be_bytes(f.value[..2].try_into().unwrap()){1=>PlacementReason::UnsupportedScope,2=>PlacementReason::UnsupportedMode,3=>PlacementReason::LocalityDomainMismatch,4=>PlacementReason::NodeUnavailable,5=>PlacementReason::ProcessPolicyDenied,6=>PlacementReason::MemoryQuota,7=>PlacementReason::AllocatorUnavailable,8=>PlacementReason::SizeLimit,9=>PlacementReason::PlacementFailed,_=>return Err(Error::InvalidValue("unknown placement reason"))})}).transpose()?;
+    if (outcome==PlacementOutcome::Honored&&reason.is_some())||(outcome!=PlacementOutcome::Honored&&reason.is_none()){return Err(Error::InvalidValue("placement outcome/reason mismatch"))}
+    Ok(Some(PlacementResult{outcome,applied_numa_node:node,reason}))
+}
+
 pub mod request_field {
     pub const TASK_ID:u16=1; pub const SOURCE:u16=2; pub const DESTINATION:u16=3;
     pub const KIND:u16=4; pub const PRIORITY:u16=5; pub const TIMEOUT_MS:u16=6;
@@ -195,9 +296,10 @@ impl BrokerRequest {
             (4,WireType::Utf8,true),(5,WireType::U8,true),(6,WireType::U32,true),
             (7,WireType::Bytes,true),(8,WireType::Uuid,false),(9,WireType::U64,false),
             (10,WireType::Utf8,false),(11,WireType::Utf8,false),(12,WireType::U64,false),
-            (13,WireType::U32,false)
+            (13,WireType::U32,false),(14,WireType::Nested,false)
         ];
         validate_known_fields(m,&schema)?;
+        let _ = placement_intent(m, m.field(7).map_or(0, |f| f.value.len()))?;
         let s=|id:u16|->Result<String,Error>{Ok(std::str::from_utf8(&m.field(id).unwrap().value).map_err(|_|Error::InvalidUtf8(id))?.to_owned())};
         let task_id=s(1)?;let source=s(2)?;let destination=s(3)?;let kind=s(4)?;
         for (name,v) in [("task_id",&task_id),("source",&source),("destination",&destination),("kind",&kind)]{if v.trim().is_empty(){return Err(Error::InvalidValue(name))}}
@@ -241,6 +343,26 @@ mod tests {
   #[test]fn rejects_duplicate_and_invalid_utf8(){let mut m=sample();m.push(Field::utf8(1,"dup"));assert_eq!(encode(&m,Limits::default()),Err(Error::DuplicateSingularField(1)));m=sample();m.fields.iter_mut().find(|f|f.id==1).unwrap().value = vec![0xff];assert_eq!(BrokerRequest::from_message(&m), Err(Error::InvalidUtf8(1)));}
   #[test]fn rejects_unknown_critical_but_preserves_optional(){let mut m=Message::new(Header::new(MSG_REQUEST,1,SCHEMA_BROKER_REQUEST,1));m.push(Field::utf8(1,"known").critical());m.push(Field::u8(99,1));assert!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]).is_ok());m.fields.last_mut().unwrap().flags |= FIELD_CRITICAL;assert_eq!(validate_known_fields(&m,&[(1,WireType::Utf8,true)]),Err(Error::UnknownCriticalField(99)));}
   #[test]fn rejects_limits_and_zero_timeout(){let b=encode(&sample(),Limits::default()).unwrap();let l=Limits{max_frame_bytes:32,..Limits::default()};assert!(matches!(decode(&b,l),Err(Error::FrameTooLarge(_))));let mut bad=sample();bad.fields.iter_mut().find(|f|f.id==6).unwrap().value=0u32.to_be_bytes().to_vec();assert_eq!(BrokerRequest::from_message(&bad),Err(Error::InvalidValue("timeout_ms must be nonzero")));}
+  #[test]fn locality_placement_intent_round_trip_and_legacy_flags(){
+      let mut m=sample();let v=PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(2),max_bytes:3};
+      set_placement_intent(&mut m,v).unwrap();assert_eq!(placement_intent(&m,3).unwrap(),Some(v));
+      assert_eq!(m.field(14).unwrap().flags&FIELD_CRITICAL,0);
+      let mut mandatory=sample();let b=PlacementIntent{mode:PlacementMode::Bind,numa_node:Some(1),max_bytes:3};
+      set_placement_intent(&mut mandatory,b).unwrap();assert_ne!(mandatory.field(14).unwrap().flags&FIELD_CRITICAL,0);
+      assert_eq!(placement_intent(&mandatory,3).unwrap(),Some(b));
+  }
+  #[test]fn locality_placement_rejects_oversize_and_mismatched_critical_flag(){
+      let mut m=sample();set_placement_intent(&mut m,PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(1),max_bytes:4}).unwrap();
+      assert!(placement_intent(&m,3).is_err());
+      let mut m=sample();set_placement_intent(&mut m,PlacementIntent{mode:PlacementMode::Prefer,numa_node:Some(1),max_bytes:3}).unwrap();
+      m.fields.iter_mut().find(|f|f.id==14).unwrap().flags|=FIELD_CRITICAL;assert!(placement_intent(&m,3).is_err());
+  }
+  #[test]fn locality_placement_result_round_trip_and_absence_is_unknown(){
+      let mut m=Message::new(Header::new(MSG_RESPONSE,7,SCHEMA_BROKER_RESPONSE,1));
+      let v=PlacementResult{outcome:PlacementOutcome::Fallback,applied_numa_node:None,reason:Some(PlacementReason::AllocatorUnavailable)};
+      set_placement_result(&mut m,v).unwrap();assert_eq!(placement_result(&m).unwrap(),Some(v));
+      let empty=Message::new(Header::new(MSG_RESPONSE,8,SCHEMA_BROKER_RESPONSE,1));assert_eq!(placement_result(&empty).unwrap(),None);
+  }
   #[test]fn repeated_fields_require_explicit_flags(){let mut m=Message::new(Header::new(MSG_PING,1,0,0));m.push(Field::u8(77,1).repeated());m.push(Field::u8(77,2).repeated());assert!(encode(&m,Limits::default()).is_ok());}
   #[test]fn deterministic_malformed_corpus_never_panics(){
       use std::panic::{catch_unwind, AssertUnwindSafe};
