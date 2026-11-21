@@ -1,5 +1,23 @@
 # YuKKi OS v6.16.0 — API and ABI Reference
 
+## Broker service discovery and locality codec (v6.16.0 candidate)
+
+The optional broker discovery path uses the bounded `BrokerServiceRecord`
+and `BrokerServiceRegistry`. Configure `YUKKI_BROKER_ENDPOINT` to advertise
+a local Overhauled broker; without it, no broker advertisement is emitted.
+Lease records are relayed through the existing authenticated peer mesh and
+cached in memory by the bootstrap. This is not a full DHT, and discovery is
+not authorization. Protect BRK1/BRK2 broker TCP with a trusted private network
+or independent authenticated proxy.
+
+BRK2 codec helpers encode locality intent in request field 14 and structured
+placement results in response field 13. `prefer` is non-critical;
+`bind` and `interleave` require the critical flag. An absent response result
+means unknown/not applied. The codec does not allocate or verify physical
+memory placement; see
+[broker discovery](BROKER_SERVICE_DISCOVERY.md) and
+[architecture](ARCHITECTURE.md) for ownership and limitations.
+
 ## Stream dashboard and relay
 
 The gateway serves a static stream dashboard at `/dashboard`. The page itself
