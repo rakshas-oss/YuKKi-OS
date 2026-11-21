@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.14.0. The v6.15.0 minor candidate carries per-source resolver concurrency, load-aware composed-program replica ranking and lower-contention native benchmarks; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.15.0. The v6.16.0 minor candidate adds lease-based Overhauled broker discovery and BRK2 locality-placement codec helpers; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Supported runtime shape
 
