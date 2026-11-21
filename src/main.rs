@@ -324,7 +324,8 @@ async fn handle_peer(
     info!(%remote, %id, "peer registered");
     broadcast_fleet(&fleet, &clients).await;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    for record in broker_services.lock().await.list(now) {
+    let existing_broker_services = broker_services.lock().await.list(now);
+    for record in existing_broker_services {
         if let Some(record) = record.forwarded() {
             if let Ok(encoded) = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record)) {
                 let _ = tx.send(encoded).await;
