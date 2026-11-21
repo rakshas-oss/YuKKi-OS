@@ -2,6 +2,11 @@ name: Integration Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      overhauled_ref:
+        description: "Overhauled branch, tag, or commit to test against"
+        required: false
+        default: main
   push:
     branches: ["main", "copilot/**"]
   pull_request:
@@ -9,6 +14,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: paired-overhauled-interop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,10 +27,10 @@ jobs:
     name: P2P Mesh & Network Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -35,10 +44,10 @@ jobs:
     name: Cryptography Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -52,10 +61,10 @@ jobs:
     name: ABI Stability & FFI Verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -69,10 +78,10 @@ jobs:
     name: WebAssembly Sandbox Isolation Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -86,10 +95,10 @@ jobs:
     name: ADI Hardware Calibration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -103,10 +112,10 @@ jobs:
     name: GPU WASM Adapter & Lifecycle Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -116,43 +125,25 @@ jobs:
       - name: Run GPU WASM adapter tests
         run: cargo test --test test_gpu_adapter -- --nocapture
 
-  all-integration:
-    name: All Integration Tests
-    runs-on: ubuntu-latest
-    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp]
-    steps:
-      - run: echo "All integration tests passed"
-
   overhauled-live-cpp:
-    name: Live C++ overhauled BRK1/BRK2 WSM1 interoperability
+    name: Paired Overhauled BRK1/BRK2 live interoperability
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
+      - name: Checkout paired Overhauled revision
+        uses: actions/checkout@v4
         with:
           repository: rakshas-oss/overhauled
-          # Pull-request validation uses the paired worker-fabric branch so
-          # the new optional BRK2 worker telemetry is present. Pushes to main
-          # continue to validate against Overhauled main.
-          ref: ${{ github.event_name == 'pull_request' && 'feature/yukki-aware-worker-pools' || 'main' }}
+          ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
-      - name: Record canonical interoperability revisions
+      - name: Record paired revisions
         run: |
           echo "YuKKi-OS: $(git rev-parse HEAD)"
-          echo "overhauled: $(git -C overhauled rev-parse HEAD)"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
+          echo "Overhauled: $(git -C overhauled rev-parse HEAD)"
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Build browser WASM benchmark module
-        run: |
-          rustup target add wasm32-unknown-unknown
-          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
-      - name: Build the real CPU-only broker and BRK2 test
+      - name: Build CPU broker and BRK2 tests
         run: |
           cmake -S overhauled -B overhauled/build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -161,13 +152,13 @@ jobs:
             -DBUILD_BROKER=ON \
             -DBUILD_EXAMPLES=OFF
           cmake --build overhauled/build --target broker_server brk2_protocol_test brk_conformance_test --parallel 2
-      - name: Verify mirrored conformance corpus
+      - name: Verify shared conformance corpus
         run: cmp tests/fixtures/protocol/brk-conformance-v1.corpus overhauled/tests/fixtures/protocol/brk-conformance-v1.corpus
-      - name: Run Rust shared BRK conformance corpus
+      - name: Run Rust BRK conformance corpus
         run: cargo test --locked --test brk_conformance -- --nocapture
       - name: Run C++ BRK conformance tests
         run: ctest --test-dir overhauled/build --output-on-failure -R '^(brk2_protocol_test|brk_conformance_test)$'
-      - name: Run live Rust-to-C++ BRK1 and BRK2 round trips
+      - name: Run live BRK1 and BRK2 Rust-to-C++ round trips
         env:
           OVERHAULED_BROKER_ENDPOINT: 127.0.0.1:19090
         run: |
@@ -176,28 +167,82 @@ jobs:
           broker_pid=$!
           trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 40); do
-            if (echo > /dev/tcp/127.0.0.1/19090) >/dev/null 2>&1; then
-              break
-            fi
-            if ! kill -0 "$broker_pid" 2>/dev/null; then
-              cat /tmp/overhauled-broker.log
-              exit 1
-            fi
+            if (echo > /dev/tcp/127.0.0.1/19090) >/dev/null 2>&1; then break; fi
+            if ! kill -0 "$broker_pid" 2>/dev/null; then cat /tmp/overhauled-broker.log; exit 1; fi
             sleep 0.25
           done
           OVERHAULED_WIRE_MODE=brk1 cargo test --locked --test test_overhauled_live -- --nocapture
           OVERHAULED_WIRE_MODE=brk2 cargo test --locked --test test_overhauled_live -- --nocapture
-          node browser-wasm/bench/run.mjs --quick \
-            --broker-host 127.0.0.1 --broker-port 19090 --broker-device cpu \
-            --output /tmp/yukkios-wasm-brk2.json
-      - name: Upload live WASM-to-BRK2 qualification report
+      - name: Upload broker logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yukkios-wasm-brk2-interop
+          name: yukkios-overhauled-live-interop
+          path: /tmp/overhauled-broker.log
+          if-no-files-found: ignore
+
+  browser-wasm-live:
+    name: Browser WASM to Overhauled broker smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout paired Overhauled revision
+        uses: actions/checkout@v4
+        with:
+          repository: rakshas-oss/overhauled
+          ref: ${{ inputs.overhauled_ref || 'main' }}
+          path: overhauled
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build browser WASM benchmark module
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+      - name: Build CPU-only broker
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake g++
+          cmake -S overhauled -B overhauled/build -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=OFF -DENABLE_TENSORRT=OFF -DBUILD_BROKER=ON -DBUILD_EXAMPLES=OFF
+          cmake --build overhauled/build --target broker_server --parallel 2
+      - name: Run browser WASM broker smoke test
+        run: |
+          set -euo pipefail
+          overhauled/build/broker_server 19093 --cpu-only > /tmp/overhauled-wasm-broker.log 2>&1 &
+          broker_pid=$!
+          trap 'kill "$broker_pid" 2>/dev/null || true; wait "$broker_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if (echo > /dev/tcp/127.0.0.1/19093) >/dev/null 2>&1; then break; fi
+            if ! kill -0 "$broker_pid" 2>/dev/null; then cat /tmp/overhauled-wasm-broker.log; exit 1; fi
+            sleep 0.25
+          done
+          node browser-wasm/bench/run.mjs --quick --broker-host 127.0.0.1 --broker-port 19093 --broker-device cpu --output /tmp/yukkios-wasm-brk2.json
+      - name: Upload browser WASM interoperability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukkios-browser-wasm-overhauled-interop
           path: /tmp/yukkios-wasm-brk2.json
           if-no-files-found: ignore
-      - name: Run live BRK2 NPU execution and CPU fallback
+
+  npu-simulator-and-cpu-fallback:
+    name: BRK2 simulated NPU execution and CPU fallback
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout paired Overhauled revision
+        uses: actions/checkout@v4
+        with:
+          repository: rakshas-oss/overhauled
+          ref: ${{ inputs.overhauled_ref || 'main' }}
+          path: overhauled
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CPU-only broker with simulated NPU support
+        run: |
+          sudo apt-get update && sudo apt-get install -y cmake g++
+          cmake -S overhauled -B overhauled/build -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=OFF -DENABLE_TENSORRT=OFF -DBUILD_BROKER=ON -DBUILD_EXAMPLES=OFF
+          cmake --build overhauled/build --target broker_server --parallel 2
+      - name: Verify simulated NPU and CPU fallback
         env:
           OVERHAULED_NPU_BROKER_ENDPOINT: 127.0.0.1:19091
           OVERHAULED_CPU_FALLBACK_ENDPOINT: 127.0.0.1:19092
@@ -211,10 +256,7 @@ jobs:
           for port in 19091 19092; do
             ready=false
             for attempt in $(seq 1 40); do
-              if (echo > "/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1; then
-                ready=true
-                break
-              fi
+              if (echo > "/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1; then ready=true; break; fi
               sleep 0.25
             done
             if [[ "$ready" != true ]]; then
@@ -224,3 +266,33 @@ jobs:
             fi
           done
           cargo test --locked --test test_overhauled_npu_live -- --nocapture
+      - name: Upload NPU and fallback broker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yukkios-npu-cpu-fallback-logs
+          path: |
+            /tmp/overhauled-npu-broker.log
+            /tmp/overhauled-cpu-fallback-broker.log
+          if-no-files-found: ignore
+
+  all-integration:
+    name: Combined YuKKi-OS + Overhauled integration gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp, browser-wasm-live, npu-simulator-and-cpu-fallback]
+    steps:
+      - name: Require every integration lane
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"result"[[:space:]]*:[[:space:]]*"(failure|cancelled|skipped)"'; then
+            echo "At least one integration lane did not pass."
+            exit 1
+          fi
+          if ! echo "$RESULTS" | grep -Eq '"result"[[:space:]]*:[[:space:]]*"success"'; then
+            echo "No successful integration results were reported."
+            exit 1
+          fi
+          echo "All YuKKi-OS and Overhauled integration lanes passed."
