@@ -14,6 +14,12 @@ and optional hints; Overhauled selects its local pool and applies local
 placement. Hints are advisory, and the broker reports NUMA only when Linux
 thread affinity was successfully applied.
 
+## Discovery and locality boundary
+
+The Overhauled endpoint may be obtained from YuKKi-OS's bounded lease-based broker registry, which is relayed over the authenticated bootstrap/gossip mesh. This is not a Kademlia DHT and discovery does not authorize execution. The caller must enforce broker admission and protect BRK1/BRK2 transport with a trusted network or independent authenticated proxy.
+
+The current directive carries a logical affinity key and advisory preferred NUMA node for CPU-thread placement. It does not carry a memory bind/interleave policy, and the applied-NUMA response field reports worker affinity only. Do not infer NUMA-local placement of guest memory, datasets, payload buffers, or accelerator staging memory. A memory-locality extension must be versioned and optional, with explicit honored/rejected/fallback feedback.
+
 ## Worker classes
 
 The public types are in `yukkios::worker_policy`:
