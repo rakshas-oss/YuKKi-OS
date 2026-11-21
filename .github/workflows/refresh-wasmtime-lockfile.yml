@@ -99,4 +99,6 @@ jobs:
           git add -u
           git add Cargo.lock
           git commit -m "fix: refresh Wasmtime security patches and Rust formatting"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
