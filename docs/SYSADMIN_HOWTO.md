@@ -1,9 +1,9 @@
-# YuKKi-OS v6.15.0 — System Administration How-to
+# YuKKi-OS v6.16.0 — System Administration How-to
 
-> Release candidate: v6.14.0 is the published baseline. The v6.15.0 minor
+> Release candidate: v6.15.0 is the published baseline. The v6.16.0 minor
 > candidate adds per-source resolver concurrency, load-aware composed-program
 > replica ranking and lower-contention native benchmarks. Its tag and release
-> archive remain subject to CI and review. This guide describes the v6.15.0
+> archive remain subject to CI and review. This guide describes the v6.16.0
 > candidate branch.
 
 ## 1. Scope and deployment components
