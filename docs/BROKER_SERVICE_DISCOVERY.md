@@ -35,7 +35,7 @@ The version-1 `overhauled.worker-broker` record contains:
 Records are validated before insertion. Leases are limited to 300 seconds;
 the node refreshes its advertisement every 30 seconds with a 90-second lease.
 The registry expires stale entries and is bounded to 4,096 services. Gossip
-forwarding is bounded to eight hops and deduplicated by message UUID.
+forwarding is bounded to eight hops and deduplicated by message UUID. The bootstrap keeps an in-memory lease cache and replays active records to newly joining peers; records are not persisted across bootstrap restarts.
 
 The library API is exported from `yukkios::broker_discovery`:
 `BrokerServiceRecord` and `BrokerServiceRegistry`. Consumers should call
