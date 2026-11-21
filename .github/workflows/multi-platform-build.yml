@@ -97,31 +97,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/yukki_core_node
 
-  build-windows:
-    name: Windows (MSVC)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - name: Ensure Rust target is installed
-        run: rustup target add x86_64-pc-windows-msvc
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo build --release --locked --target x86_64-pc-windows-msvc
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: yukki_core_node-windows-x86_64
-          path: target/x86_64-pc-windows-msvc/release/yukki_core_node.exe
-
+  # Windows MSVC is intentionally not a supported target.
   build-wasm:
     name: WebAssembly guest worker (WASI Preview 1)
     runs-on: ubuntu-latest
