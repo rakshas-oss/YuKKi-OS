@@ -46,16 +46,19 @@ impl BrokerServiceRecord {
         if self.service_kind != BROKER_SERVICE_KIND {
             return Err(BrokerDiscoveryError::Invalid("unexpected service kind"));
         }
+        let endpoint_valid = self.endpoint.rsplit_once(':').is_some_and(|(host, port)| {
+            !host.is_empty()
+                && host.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+                })
+                && port.parse::<u16>().is_ok_and(|value| value != 0)
+        });
         if self.endpoint.is_empty()
             || self.endpoint.len() > BROKER_SERVICE_MAX_ENDPOINT_BYTES
             || self.endpoint.trim() != self.endpoint
-            || self.endpoint.chars().any(char::is_whitespace)
-            || !self.endpoint.rsplit_once(':').is_some_and(|(host, port)| {
-                !host.is_empty()
-                    && port.parse::<u16>().is_ok_and(|value| value != 0)
-            })
+            || !endpoint_valid
         {
-            return Err(BrokerDiscoveryError::Invalid("endpoint must be host:port or socket-address form"));
+            return Err(BrokerDiscoveryError::Invalid("endpoint must be a plain host:port or socket-address, without URL, path, credentials, or query"));
         }
         if self.protocol_versions.is_empty()
             || self.protocol_versions.len() > BROKER_SERVICE_MAX_PROTOCOLS
