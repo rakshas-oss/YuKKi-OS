@@ -1,4 +1,4 @@
-# YuKKi OS v6.14.0 — API and ABI Reference
+# YuKKi OS v6.15.0 — API and ABI Reference
 
 ## Stream dashboard and relay
 
@@ -286,3 +286,29 @@ not a wall-clock deadline. The API has no built-in CLI or HTTP deployment
 endpoint; the embedding application owns artifact delivery, authorization and
 the host call path. See [WASM program composition](WASM_PROGRAM_COMPOSITION.md)
 for the manifest and end-to-end Rust example.
+
+## Parallel resolver and composed-program scheduling (v6.15.0 candidate)
+
+`SpatiotemporalPayloadResolver` supports two sequence policies:
+
+- `AllowAll` bypasses sequence-state tracking and the route-state lock.
+- `RejectNonIncreasing` performs a short source-state map lookup, then
+  serializes validation and enqueue for that source with a source-local mutex.
+  Different sources targeting the same destination can progress concurrently.
+  The check, enqueue and watermark update remain atomic for each source.
+
+Strict sequence tracking is bounded to 65,536 source entries per route. When
+that limit is reached, resolution returns
+`ResolverError::SequenceSourceLimit`. A full destination queue does not
+advance the source's last-accepted sequence.
+
+`TimeWeightedSpatialScheduler::ranked_candidates_with_load(spatial_key,
+active_calls)` ranks replicas by estimated service-time EWMA multiplied by
+one plus the active-call count, with the existing locality penalty applied
+to non-preferred replicas. Active-call counts are a snapshot; they are not
+reservations. Each replica's non-blocking Store lock remains the final
+admission check, and a fully saturated program still returns
+`CompositionError::ProgramSaturated`.
+
+These are library APIs and internal concurrency policies, not new CLI or HTTP
+routes. They do not change YKMC, BRK1/BRK2, NXR1 or WSM1 wire formats.

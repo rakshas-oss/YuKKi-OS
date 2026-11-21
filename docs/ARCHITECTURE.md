@@ -1,4 +1,4 @@
-# YuKKi-OS v6.14.0 — Architecture
+# YuKKi-OS v6.15.0 — Architecture
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.14.0 minor-release candidate. v6.13.0 is the latest published baseline; the v6.14.0 tag remains pending CI and release qualification.
+This document describes the v6.15.0 minor-release candidate. v6.14.0 is the latest published baseline (2026-11-20); the v6.15.0 tag remains pending CI and release qualification.
 
 ### Full-colour system map
 
@@ -30,6 +30,29 @@ not a claim that every library service is exposed through the node CLI or
 an HTTP endpoint; no hard-real-time or physical NUMA-local memory guarantee
 is implied.
 
+
+## Parallel workload resolution and composition scheduling
+
+The v6.15.0 candidate reduces unrelated-work contention without claiming a
+lock-free runtime:
+
+- Resolver `AllowAll` traffic bypasses sequence-state locks. Strict sequence
+  validation uses a bounded source map and one mutex per source, so distinct
+  sources can proceed concurrently while same-source check/enqueue/watermark
+  ordering remains serialized.
+- Strict source-state tracking is capped at 65,536 source identities per
+  route. Reaching the cap returns an explicit error; queue-full does not
+  advance the accepted-sequence watermark.
+- Composed-program replica ranking incorporates a snapshot of active calls
+  alongside the measured service-time EWMA and stable logical locality hint.
+  The scheduler uses the snapshot to avoid overloading a busy replica, while
+  the Store's non-blocking lock remains the authoritative admission check.
+- Native benchmark workers claim batches/solves in adaptive chunks and merge
+  worker-local measurement accumulators after completion.
+
+The bounded MPMC queues remain mutex/condition-variable based. These changes
+do not add physical NUMA pinning, a new daemon deployment interface, or
+zero-stall guarantees. They preserve YKMC, BRK1/BRK2, NXR1 and WSM1 contracts.
 
 ## Runtime topology
 
