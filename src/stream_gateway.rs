@@ -956,13 +956,25 @@ mod flood_control_tests {
     }
 
     #[test]
+    fn global_request_bucket_caps_aggregate_flooding() {
+        let limiter = GatewayFloodLimiter::new();
+        for value in 1..=(REQUEST_BURST_GLOBAL as u32) {
+            let peer = IpAddr::V4(Ipv4Addr::from(value));
+            assert!(limiter.allow_request(peer));
+        }
+        let extra_peer = IpAddr::V4(Ipv4Addr::from(REQUEST_BURST_GLOBAL as u32 + 1));
+        assert!(!limiter.allow_request(extra_peer));
+    }
+
+    #[test]
     fn client_budget_table_is_hard_bounded() {
         let limiter = GatewayFloodLimiter::new();
+        let mut state = limiter.state.lock().unwrap();
+        let now = Instant::now();
         for value in 1..=(MAX_TRACKED_CLIENTS + 8) {
             let peer = IpAddr::V4(Ipv4Addr::from(value as u32));
-            let _ = limiter.allow_request(peer);
+            let _ = GatewayFloodLimiter::ensure_client(&mut state, peer, now);
         }
-        let state = limiter.state.lock().unwrap();
         assert!(state.clients.len() <= MAX_TRACKED_CLIENTS);
     }
 }
