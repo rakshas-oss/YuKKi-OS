@@ -130,7 +130,7 @@ pub struct PrepareDecision {
     pub decision: String,
     #[serde(default)]
     pub rejection_code: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "artifact_transfer_id")]
     pub transfer_id: Option<String>,
     #[serde(default)]
     pub chunk_size_bytes: usize,
@@ -144,6 +144,15 @@ pub struct PrepareDecision {
     pub abi_profile: Option<String>,
     #[serde(default)]
     pub accepted_capabilities: Vec<String>,
+    pub message_id: String,
+    pub issued_at: u64,
+    pub expires_at: u64,
+    pub nonce: String,
+    pub audience: String,
+    pub issuer: String,
+    pub subject: String,
+    pub signer_key_id: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -172,7 +181,7 @@ pub struct HandoffReceipt {
 /// receiver trust key. Implementations should pin issuer, subject, key ID and
 /// audience, not merely accept any key that verifies the signature.
 pub trait HandoffReceiptVerifier {
-    fn verify_receipt(
+    fn verify_ed25519(
         &self,
         issuer: &str,
         subject: &str,
@@ -440,14 +449,16 @@ impl HandoffSender {
             issued_at,
         )?;
         let decision = transport.prepare(&prepare.bytes).map_err(HandoffError::Transport)?;
+        verify_prepare_decision(
+            &decision,
+            &request_id,
+            &self.options.receipt_audience,
+            issued_at,
+            receipt_verifier,
+        )?;
         if !decision.accepted || decision.decision != "accepted" {
             return Err(HandoffError::Rejected(
                 decision.rejection_code.unwrap_or_else(|| "unspecified".into()),
-            ));
-        }
-        if decision.request_id != request_id {
-            return Err(HandoffError::InvalidDecision(
-                "receiver response request_id does not match".into(),
             ));
         }
         let transfer_id = decision.transfer_id.ok_or_else(|| {
@@ -495,7 +506,7 @@ impl HandoffSender {
         validate_uuid(&receipt.message_id, "receipt message_id")?;
         validate_uuid(&receipt.nonce, "receipt nonce")?;
         let receipt_bytes = canonical_receipt(&receipt)?;
-        if !receipt_verifier.verify_receipt(
+        if !receipt_verifier.verify_ed25519(
             &receipt.issuer,
             &receipt.subject,
             &receipt.signer_key_id,
@@ -619,6 +630,101 @@ fn artifact_set_digest(descriptors: &[Value]) -> Result<String, HandoffError> {
         hasher.update(bytes);
     }
     Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn canonical_prepare_decision(decision: &PrepareDecision) -> Result<Vec<u8>, HandoffError> {
+    let payload = if decision.accepted && decision.decision == "accepted" {
+        json!({
+            "accepted_capabilities": decision.accepted_capabilities,
+            "abi_profile": decision.abi_profile,
+            "artifact_transfer_id": decision.transfer_id,
+            "backend_id": decision.backend_id,
+            "chunk_size_bytes": decision.chunk_size_bytes,
+            "decision": "accepted",
+            "engine": decision.engine,
+            "engine_version": decision.engine_version,
+            "kind": "prepare_decision",
+            "request_id": decision.request_id
+        })
+    } else {
+        json!({
+            "decision": "rejected",
+            "kind": "prepare_decision",
+            "rejection_code": decision.rejection_code,
+            "request_id": decision.request_id
+        })
+    };
+    let mut envelope = Map::new();
+    envelope.insert("audience".into(), json!(decision.audience));
+    envelope.insert("contract".into(), json!(HANDOFF_CONTRACT));
+    envelope.insert("expires_at".into(), json!(decision.expires_at));
+    envelope.insert("issued_at".into(), json!(decision.issued_at));
+    envelope.insert("message_id".into(), json!(decision.message_id));
+    envelope.insert("nonce".into(), json!(decision.nonce));
+    envelope.insert("payload".into(), payload);
+    envelope.insert("sender".into(), json!({
+        "issuer": decision.issuer,
+        "key_id": decision.signer_key_id,
+        "subject": decision.subject
+    }));
+    canonical_json(&Value::Object(envelope))
+}
+
+fn verify_prepare_decision(
+    decision: &PrepareDecision,
+    expected_request_id: &str,
+    expected_audience: &str,
+    now: u64,
+    verifier: &dyn HandoffReceiptVerifier,
+) -> Result<(), HandoffError> {
+    if decision.request_id != expected_request_id
+        || decision.audience != expected_audience
+        || decision.issuer.is_empty()
+        || decision.subject.is_empty()
+        || decision.signer_key_id.is_empty()
+        || decision.expires_at <= decision.issued_at
+        || decision.expires_at - decision.issued_at > 300
+        || decision.issued_at > now.saturating_add(30)
+        || decision.expires_at.saturating_add(30) < now
+    {
+        return Err(HandoffError::InvalidDecision(
+            "prepare decision identity, audience, or lifetime is invalid".into(),
+        ));
+    }
+    validate_uuid(&decision.message_id, "decision message_id")?;
+    validate_uuid(&decision.nonce, "decision nonce")?;
+    if decision.accepted != (decision.decision == "accepted") {
+        return Err(HandoffError::InvalidDecision(
+            "prepare decision accepted flag disagrees with decision state".into(),
+        ));
+    }
+    if decision.accepted
+        && (decision.transfer_id.is_none()
+            || decision.chunk_size_bytes < 4096
+            || decision.chunk_size_bytes > MAX_CHUNK_BYTES
+            || decision.backend_id.as_deref().unwrap_or("").is_empty()
+            || decision.engine.as_deref() != Some("wasmtime")
+            || decision.engine_version.as_deref().unwrap_or("").is_empty()
+            || decision.abi_profile.as_deref().unwrap_or("").is_empty())
+    {
+        return Err(HandoffError::InvalidDecision(
+            "accepted prepare decision omitted a required backend/transfer field".into(),
+        ));
+    }
+    let canonical = canonical_prepare_decision(decision)?;
+    if !verifier.verify_ed25519(
+        &decision.issuer,
+        &decision.subject,
+        &decision.signer_key_id,
+        &decision.audience,
+        &canonical,
+        &decision.signature,
+    ) {
+        return Err(HandoffError::InvalidDecision(
+            "prepare decision signature or receiver identity could not be verified".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn canonical_receipt(receipt: &HandoffReceipt) -> Result<Vec<u8>, HandoffError> {
