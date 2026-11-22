@@ -5,7 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::serve::Listener;
+use axum::extract::connect_info::Connected;
+use axum::serve::{IncomingStream, Listener};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -281,6 +282,12 @@ impl AsyncWrite for CappedStream {
     }
 }
 
+impl Connected<IncomingStream<'_, CappedListener>> for SocketAddr {
+    fn connect_info(stream: IncomingStream<'_, CappedListener>) -> Self {
+        *stream.remote_addr()
+    }
+}
+
 impl Listener for CappedListener {
     type Io = CappedStream;
     type Addr = SocketAddr;
@@ -416,9 +423,8 @@ pub async fn serve_with_relay(
             listener,
             permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
         },
-        app,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_connect_info::<SocketAddr>()
     .await
 }
 
