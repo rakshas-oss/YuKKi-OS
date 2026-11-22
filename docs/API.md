@@ -1,6 +1,6 @@
-# YuKKi OS v6.16.0 — API and ABI Reference
+# YuKKi-OS v6.18.0 — API and ABI Reference (release candidate)
 
-## Broker service discovery and locality codec (v6.16.0 candidate)
+## Broker service discovery and locality codec (v6.16.0 published baseline)
 
 The optional broker discovery path uses the bounded `BrokerServiceRecord`
 and `BrokerServiceRegistry`. Configure `YUKKI_BROKER_ENDPOINT` to advertise
@@ -315,13 +315,43 @@ for broker-side module compilation and linker-based runtime import
 resolution. These are independent runtimes, not a shared engine or an
 automatic delegation path.
 
-No automatic manifest, artifact, cache, replica, or release-state transfer
-currently exists between the repositories. Applications must explicitly
-select the runtime and deliver artifacts through an authorized integration.
-The two runtimes must be qualified independently. See
-[WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
+The explicit artifact-transfer API is documented separately below. It moves
+portable core-Wasm artifact bytes and signed deployment metadata; it does not
+transfer compiled-module caches, Stores, instances, replica pools or
+CompositionRuntime routing state. The two runtimes must be qualified
+independently. See [WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
 
-## Parallel resolver and composed-program scheduling (v6.16.0 candidate)
+## Authenticated WASM handoff sender API (v6.18.0 candidate)
+
+The public `yukkios::wasm_handoff` module provides an explicit client-side API for sending portable core-Wasm artifacts to a compatible receiver. It is separate from `CompositionRuntime`, WSM1 task/lifecycle messages and the ordinary BRK1/BRK2 broker socket.
+
+### Public types and flow
+
+- `HandoffIdentity` pins the deployment sender's issuer, subject and key ID.
+- `HandoffSigner` supplies Ed25519 signing; it can be backed by an HSM, OS key store, KMS or local key implementation. This module does not store private keys.
+- `WasmArtifact` carries module ID, version and core-Wasm bytes.
+- `PrepareOptions` carries receiver/receipt/publisher audiences, deployment/release IDs, runtime policy, required capabilities and resource limits.
+- `HandoffSender::build_prepare` validates the artifact set, builds canonical manifest/module/aggregate SHA-256 digests, signs the prepare request and adds a separately signed publisher attestation.
+- `HandoffSender::for_each_chunk` emits bounded, individually signed chunks sequentially through a callback, so the caller can apply transport backpressure without assembling a second full set of encoded chunks.
+- `HandoffSender::build_activation` emits the signed activation request after the receiver accepts transfer.
+- `HandoffSender::deploy` runs prepare, chunk transfer and activation through `HandoffTransport`, verifies the signed prepare decision and verifies the final receipt through `HandoffReceiptVerifier` before returning it.
+
+### Limits
+
+- The sender accepts 1–256 modules, at most 64 MiB per module and 256 MiB aggregate artifact bytes.
+- Chunk sizes must be between 4 KiB and 4 MiB; the default is 1 MiB. The sender respects a lower chunk size returned by the receiver.
+- Signed message lifetime is 1–300 seconds. Resource-intent validation also bounds memory, fuel, wall time and maximum instances.
+- The receiver applies its own stricter local limits; sender-side values are requests, not authority to expand receiver policy.
+
+### Transport and trust requirements
+
+`HandoffTransport` is an application-supplied interface, not a built-in TCP/TLS client. Its implementation must use mutually authenticated TLS 1.3 or an equivalently protected authenticated channel, bind the authenticated peer identity to the signed deployment sender, reject plaintext downgrade, enforce frame limits before allocation and decode the shared schema into the typed decision/receipt structures. `HandoffReceiptVerifier` must pin receiver issuer, subject, key ID and audience.
+
+The paired Overhauled receiver is a library API and is not wired into its ordinary BRK1/BRK2 listener. Replay/staging state is process-local until an integration provides durable shared storage. The optional Wasmtime bridge does not make the shared-Store runtime a multi-tenant sandbox.
+
+Untrusted NXR1/MED1/YKMC streams remain outside this executable-artifact trust policy. They do not require a WASM publisher key and continue to be constrained by their separate stream storage, rate, connection and backpressure controls.
+
+## Parallel resolver and composed-program scheduling (v6.15.0 published baseline)
 
 `SpatiotemporalPayloadResolver` supports two sequence policies:
 

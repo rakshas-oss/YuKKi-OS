@@ -23,7 +23,7 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 - **Authenticated WASM handoff sender:** add a Rust sender API with pluggable signing and receiver-receipt verification, separate deployment-sender and artifact-publisher identities, canonical manifests/digests, bounded sequential chunk transfer and signed activation requests.
 - **Untrusted stream availability:** stream ingestion and consumption remain independent of executable-artifact publisher authorization. Untrusted NXR1/MED1/media sources do not need a WASM publisher key.
-- **Stream flood controls:** enforce hard media-store ceilings (64 MiB retained media, 256 streams, 16,384 retained chunks and 256 KiB per chunk), global and per-stream chunk/byte token buckets, and stream-open churn limits. The gateway and WebSocket paths also apply global/per-peer request, connection and control-rate limits with backpressure.
+- **Stream flood controls:** enforce hard media-store ceilings (64 MiB retained media, 256 streams, 4,096 chunks per stream, 16,384 total retained chunks and 256 KiB per chunk). Default ingestion budgets are 1,024 chunks/s globally (burst 256) and 8 MiB/s globally (burst 4 MiB), plus 256 chunks/s per stream (burst 64) and 2 MiB/s per stream (burst 1 MiB); stream opening is limited to 16/s (burst 32). The gateway and WebSocket paths also apply global/per-peer request, connection and control-rate limits with backpressure.
 - **Transport boundary:** YuKKi-OS supplies the handoff protocol client and caller-provided transport abstraction; it does not silently fall back to plaintext TCP or provide TLS itself. The integration must use mTLS 1.3 or an equivalent authenticated protected channel and verify the receiver's signed decision/receipt.
 - **Flood boundary:** application-level quotas bound process work and retained memory; they do not stop volumetric DDoS before traffic reaches the host. Keep network-edge firewall/proxy/provider mitigation in place.
 
@@ -91,12 +91,7 @@ BRK2 locality-codec baseline:
   Ed25519 signatures over RFC 8785 canonical bytes, sender/audience binding,
   expiry and replay checks, bounded transfer, backend capability negotiation,
   and separate prepare/activate phases.
-- **Security boundary:** the contract is a protocol specification, not a
-  completed network receiver or end-to-end deployment path. Transport handlers,
-  receiver-side cryptographic enforcement, persistent replay state, artifact
-  publisher provenance checks and cross-repository activation remain separate
-  implementation work. The documented Overhauled shared-Store isolation
-  limitation still applies.
+- **Implementation boundary at v6.17.0:** that release delivered the normative handoff schema and protocol specification. The subsequent v6.18.0 candidate adds the Rust `HandoffSender` API, separate deployment/publisher signing, bounded sequential chunk streaming, signed prepare-decision and receipt verification, and the paired Overhauled `HandoffReceiver` state machine/runtime bridge (PR #86). A concrete mTLS transport adapter, durable replay/staging service and ordinary broker-listener integration are still not included. The shared-Store Wasmtime isolation limitation still applies.
 
 See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md),
 [the handoff contract](docs/WASM_AUTHENTICATED_HANDOFF.md), and

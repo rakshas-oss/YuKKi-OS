@@ -25,8 +25,13 @@ storage, concurrency and rate controls.
 
 Current in-process defaults/hard limits include:
 
+- Default media ingestion budgets are 1,024 chunks/second globally (burst 256) and 8 MiB/second globally (burst 4 MiB).
+- Each stream also has a default 256 chunks/second budget (burst 64) and 2 MiB/second budget (burst 1 MiB). Stream creation is independently limited to 16 opens/second (burst 32).
+- The configurable ingestion ceilings are 4,096 chunks/second and 64 MiB/second globally or per stream. Configurations cannot exceed those implementation hard caps.
 - Retained media payload is capped at 64 MiB; stream configuration cannot
-  exceed 256 streams, 16,384 retained chunks or 256 KiB per chunk.
+  exceed 256 streams, 4,096 chunks per stream, 16,384 retained chunks or
+  256 KiB per chunk. The default store is smaller: 64 streams, 64 chunks per
+  stream and 256 total chunks.
 - The gateway accepts at most 128 TCP connections. It rate-limits each
   remote IP to a 40-request burst and 20 requests/second, with an aggregate
   300-request burst and 100 requests/second.
