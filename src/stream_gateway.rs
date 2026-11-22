@@ -1,6 +1,7 @@
 use std::{
-    net::SocketAddr,
-    sync::Arc,
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -8,7 +9,7 @@ use axum::serve::Listener;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, Path, Query, State,
+        ConnectInfo, DefaultBodyLimit, Path, Query, State,
     },
     http::{header, HeaderMap, Request, StatusCode},
     middleware::{self, Next},
@@ -54,6 +55,141 @@ const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_CONCURRENT_ORIGIN_PULLS: usize = 8;
 static ORIGIN_PULL_PERMITS: Semaphore = Semaphore::const_new(MAX_CONCURRENT_ORIGIN_PULLS);
 const DEFAULT_DRONE_DASHBOARD_MAX_CHUNKS: u64 = 256;
+
+const MAX_TRACKED_CLIENTS: usize = 4096;
+const REQUEST_BURST_PER_CLIENT: f64 = 40.0;
+const REQUEST_RATE_PER_CLIENT_PER_SEC: f64 = 20.0;
+const REQUEST_BURST_GLOBAL: f64 = 300.0;
+const REQUEST_RATE_GLOBAL_PER_SEC: f64 = 100.0;
+const MAX_WEBSOCKETS_GLOBAL: usize = 64;
+const MAX_WEBSOCKETS_PER_CLIENT: usize = 4;
+
+struct ClientBudget {
+    request_tokens: f64,
+    last_refill: Instant,
+    last_seen: Instant,
+    active_websockets: usize,
+}
+
+struct GatewayBudgetState {
+    clients: HashMap<IpAddr, ClientBudget>,
+    global_tokens: f64,
+    global_refill: Instant,
+    active_websockets: usize,
+}
+
+/// Admission controls for the read-only stream gateway. This intentionally
+/// limits abusive access by network peer, not by publisher identity: untrusted
+/// streams remain readable without being allowed to monopolize resources.
+struct GatewayFloodLimiter {
+    state: Mutex<GatewayBudgetState>,
+}
+
+impl GatewayFloodLimiter {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            state: Mutex::new(GatewayBudgetState {
+                clients: HashMap::new(),
+                global_tokens: REQUEST_BURST_GLOBAL,
+                global_refill: now,
+                active_websockets: 0,
+            }),
+        }
+    }
+
+    fn ensure_client<'a>(
+        state: &'a mut GatewayBudgetState,
+        peer: IpAddr,
+        now: Instant,
+    ) -> Option<&'a mut ClientBudget> {
+        state.clients.retain(|_, budget| {
+            now.saturating_duration_since(budget.last_seen) <= Duration::from_secs(300)
+                || budget.active_websockets != 0
+        });
+        if !state.clients.contains_key(&peer) {
+            if state.clients.len() >= MAX_TRACKED_CLIENTS {
+                return None;
+            }
+            state.clients.insert(
+                peer,
+                ClientBudget {
+                    request_tokens: REQUEST_BURST_PER_CLIENT,
+                    last_refill: now,
+                    last_seen: now,
+                    active_websockets: 0,
+                },
+            );
+        }
+        state.clients.get_mut(&peer)
+    }
+
+    fn allow_request(&self, peer: IpAddr) -> bool {
+        let now = Instant::now();
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let elapsed = now.saturating_duration_since(state.global_refill).as_secs_f64();
+        state.global_tokens = (state.global_tokens
+            + elapsed * REQUEST_RATE_GLOBAL_PER_SEC)
+            .min(REQUEST_BURST_GLOBAL);
+        state.global_refill = now;
+        if state.global_tokens < 1.0 {
+            return false;
+        }
+        let Some(client) = Self::ensure_client(&mut state, peer, now) else {
+            return false;
+        };
+        let elapsed = now.saturating_duration_since(client.last_refill).as_secs_f64();
+        client.request_tokens = (client.request_tokens
+            + elapsed * REQUEST_RATE_PER_CLIENT_PER_SEC)
+            .min(REQUEST_BURST_PER_CLIENT);
+        client.last_refill = now;
+        client.last_seen = now;
+        if client.request_tokens < 1.0 {
+            return false;
+        }
+        client.request_tokens -= 1.0;
+        state.global_tokens -= 1.0;
+        true
+    }
+
+    fn acquire_websocket(self: &Arc<Self>, peer: IpAddr) -> Option<WebSocketPermit> {
+        let now = Instant::now();
+        let mut state = self.state.lock().ok()?;
+        if state.active_websockets >= MAX_WEBSOCKETS_GLOBAL {
+            return None;
+        }
+        let client = Self::ensure_client(&mut state, peer, now)?;
+        if client.active_websockets >= MAX_WEBSOCKETS_PER_CLIENT {
+            return None;
+        }
+        client.active_websockets += 1;
+        client.last_seen = now;
+        state.active_websockets += 1;
+        Some(WebSocketPermit {
+            limiter: self.clone(),
+            peer,
+        })
+    }
+}
+
+struct WebSocketPermit {
+    limiter: Arc<GatewayFloodLimiter>,
+    peer: IpAddr,
+}
+
+impl Drop for WebSocketPermit {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.limiter.state.lock() {
+            state.active_websockets = state.active_websockets.saturating_sub(1);
+            if let Some(client) = state.clients.get_mut(&self.peer) {
+                client.active_websockets = client.active_websockets.saturating_sub(1);
+                client.last_seen = Instant::now();
+            }
+        }
+    }
+}
 struct CappedListener {
     listener: TcpListener,
     permits: Arc<Semaphore>,
@@ -135,6 +271,7 @@ struct GatewayState {
     registry: StreamRegistry,
     auth: GatewayAuth,
     relay: Option<Arc<StreamRelay>>,
+    flood_limiter: Arc<GatewayFloodLimiter>,
     #[cfg(feature = "mesh_dashboard")]
     mesh: Arc<MeshStore>,
 }
@@ -201,6 +338,7 @@ pub async fn serve_with_relay(
         registry,
         auth,
         relay,
+        flood_limiter: Arc::new(GatewayFloodLimiter::new()),
         #[cfg(feature = "mesh_dashboard")]
         mesh,
     };
@@ -232,6 +370,7 @@ pub async fn serve_with_relay(
         },
         app,
     )
+    .with_connect_info::<SocketAddr>()
     .await
 }
 
@@ -345,6 +484,14 @@ async fn authenticate_and_limit(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| address.ip())
+        .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    if !state.flood_limiter.allow_request(peer) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
     let path = request.uri().path();
     let drone_dashboard = path.starts_with("/dashboard/drones");
     if path != "/dashboard" && !drone_dashboard && !authorized(request.headers(), &state.auth) {
@@ -536,11 +683,15 @@ async fn read_chunks(
 
 async fn websocket_tune_in(
     State(state): State<GatewayState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(id): Path<String>,
     Query(query): Query<StreamQuery>,
     websocket: WebSocketUpgrade,
 ) -> Response {
     let from = query.from.unwrap_or(0);
+    let Some(ws_permit) = state.flood_limiter.acquire_websocket(peer.ip()) else {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    };
     let result = match state.relay.clone() {
         Some(relay) => {
             let id = id.clone();
@@ -574,7 +725,7 @@ async fn websocket_tune_in(
         .max_frame_size(MAX_WS_FRAME_BYTES)
         .max_message_size(MAX_WS_FRAME_BYTES)
         .on_upgrade(move |socket| {
-            websocket_session(socket, subscription, state.registry, state.relay, id)
+            websocket_session(socket, subscription, state.registry, state.relay, id, ws_permit)
         })
 }
 
@@ -584,6 +735,7 @@ async fn websocket_session(
     registry: StreamRegistry,
     relay: Option<Arc<StreamRelay>>,
     stream_id: String,
+    _permit: WebSocketPermit,
 ) {
     let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
     let mut ping = interval(PING_INTERVAL);
@@ -771,5 +923,46 @@ mod tests {
             GatewayAuth::Bearer(token) => token,
             GatewayAuth::InsecureDev => "",
         }
+    }
+}
+
+#[cfg(test)]
+mod flood_control_tests {
+    use super::*;
+
+    #[test]
+    fn per_peer_request_bucket_rejects_bursts_and_refills() {
+        let limiter = GatewayFloodLimiter::new();
+        let peer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
+        for _ in 0..(REQUEST_BURST_PER_CLIENT as usize) {
+            assert!(limiter.allow_request(peer));
+        }
+        assert!(!limiter.allow_request(peer));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(limiter.allow_request(peer));
+    }
+
+    #[test]
+    fn websocket_concurrency_is_bounded_per_peer_and_globally() {
+        let limiter = Arc::new(GatewayFloodLimiter::new());
+        let peer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 11));
+        let mut permits = Vec::new();
+        for _ in 0..MAX_WEBSOCKETS_PER_CLIENT {
+            permits.push(limiter.acquire_websocket(peer).expect("within per-peer limit"));
+        }
+        assert!(limiter.acquire_websocket(peer).is_none());
+        drop(permits);
+        assert!(limiter.acquire_websocket(peer).is_some());
+    }
+
+    #[test]
+    fn client_budget_table_is_hard_bounded() {
+        let limiter = GatewayFloodLimiter::new();
+        for value in 1..=(MAX_TRACKED_CLIENTS + 8) {
+            let peer = IpAddr::V4(Ipv4Addr::from(value as u32));
+            let _ = limiter.allow_request(peer);
+        }
+        let state = limiter.state.lock().unwrap();
+        assert!(state.clients.len() <= MAX_TRACKED_CLIENTS);
     }
 }
