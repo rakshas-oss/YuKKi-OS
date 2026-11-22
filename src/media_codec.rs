@@ -6,7 +6,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,15 @@ pub const MEDIA_CHUNK_VERSION: u8 = 1;
 pub const MEDIA_CHUNK_HEADER_LEN: usize = 31;
 /// Hard upper bound on one opaque audio/video payload.
 pub const MEDIA_MAX_CHUNK_BYTES: usize = 256 * 1024;
+/// Hard ceilings for configurable stream ingestion throughput.
+pub const MEDIA_MAX_INGEST_CHUNKS_PER_SECOND: f64 = 4096.0;
+pub const MEDIA_MAX_INGEST_BYTES_PER_SECOND: f64 = 64.0 * 1024.0 * 1024.0;
+/// Absolute retained media payload ceiling, independent of caller configuration.
+pub const MEDIA_MAX_RETAINED_BYTES: usize = 64 * 1024 * 1024;
+/// Hard caps prevent configurations from expanding maps or retention queues without bound.
+pub const MEDIA_MAX_STREAMS_HARD: usize = 256;
+pub const MEDIA_MAX_CHUNKS_PER_STREAM_HARD: usize = 4096;
+pub const MEDIA_MAX_TOTAL_CHUNKS_HARD: usize = 16 * 1024;
 /// Maximum stream identifier length in UTF-8 bytes.
 pub const MEDIA_MAX_STREAM_ID_BYTES: usize = 128;
 /// Maximum codec label length in UTF-8 bytes.
@@ -96,12 +105,27 @@ pub struct MediaChunk {
 }
 
 /// Limits for an in-memory live media stream collection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MediaStreamConfig {
     pub max_streams: usize,
     pub max_chunks_per_stream: usize,
     pub max_total_chunks: usize,
     pub max_chunk_bytes: usize,
+    /// Caller may choose a lower retained-byte limit, never above the hard cap.
+    pub max_retained_bytes: usize,
+    /// Global ingestion limits across all untrusted stream producers.
+    pub ingest_chunks_per_second: f64,
+    pub ingest_chunk_burst: usize,
+    pub ingest_bytes_per_second: f64,
+    pub ingest_byte_burst: usize,
+    /// Per-stream fairness limits in addition to the global limits.
+    pub per_stream_chunks_per_second: f64,
+    pub per_stream_chunk_burst: usize,
+    pub per_stream_bytes_per_second: f64,
+    pub per_stream_byte_burst: usize,
+    /// Prevent rapid open/remove churn from consuming unbounded CPU.
+    pub stream_open_per_second: f64,
+    pub stream_open_burst: usize,
 }
 
 impl Default for MediaStreamConfig {
@@ -111,21 +135,85 @@ impl Default for MediaStreamConfig {
             max_chunks_per_stream: 64,
             max_total_chunks: 256,
             max_chunk_bytes: MEDIA_MAX_CHUNK_BYTES,
+            max_retained_bytes: MEDIA_MAX_RETAINED_BYTES,
+            ingest_chunks_per_second: 1024.0,
+            ingest_chunk_burst: 256,
+            ingest_bytes_per_second: 8.0 * 1024.0 * 1024.0,
+            ingest_byte_burst: 4 * 1024 * 1024,
+            per_stream_chunks_per_second: 256.0,
+            per_stream_chunk_burst: 64,
+            per_stream_bytes_per_second: 2.0 * 1024.0 * 1024.0,
+            per_stream_byte_burst: 1024 * 1024,
+            stream_open_per_second: 16.0,
+            stream_open_burst: 32,
         }
     }
 }
 
 impl MediaStreamConfig {
     pub fn validate(&self) -> Result<(), MediaError> {
+        let worst_case_retained_bytes =
+            self.max_total_chunks.checked_mul(self.max_chunk_bytes);
         if self.max_streams == 0
+            || self.max_streams > MEDIA_MAX_STREAMS_HARD
             || self.max_chunks_per_stream == 0
+            || self.max_chunks_per_stream > MEDIA_MAX_CHUNKS_PER_STREAM_HARD
             || self.max_total_chunks == 0
+            || self.max_total_chunks > MEDIA_MAX_TOTAL_CHUNKS_HARD
             || self.max_chunk_bytes == 0
             || self.max_chunk_bytes > MEDIA_MAX_CHUNK_BYTES
+            || self.max_retained_bytes == 0
+            || self.max_retained_bytes > MEDIA_MAX_RETAINED_BYTES
+            || worst_case_retained_bytes.is_none_or(|bytes| bytes > self.max_retained_bytes)
+            || !rate_valid(self.ingest_chunks_per_second, MEDIA_MAX_INGEST_CHUNKS_PER_SECOND)
+            || self.ingest_chunk_burst == 0 || self.ingest_chunk_burst > 65_536
+            || !rate_valid(self.ingest_bytes_per_second, MEDIA_MAX_INGEST_BYTES_PER_SECOND)
+            || self.ingest_byte_burst < self.max_chunk_bytes
+            || self.ingest_byte_burst > MEDIA_MAX_RETAINED_BYTES
+            || !rate_valid(self.per_stream_chunks_per_second, MEDIA_MAX_INGEST_CHUNKS_PER_SECOND)
+            || self.per_stream_chunk_burst == 0 || self.per_stream_chunk_burst > 65_536
+            || !rate_valid(self.per_stream_bytes_per_second, MEDIA_MAX_INGEST_BYTES_PER_SECOND)
+            || self.per_stream_byte_burst < self.max_chunk_bytes
+            || self.per_stream_byte_burst > MEDIA_MAX_RETAINED_BYTES
+            || !rate_valid(self.stream_open_per_second, 1024.0)
+            || self.stream_open_burst == 0 || self.stream_open_burst > 4096
         {
             return Err(MediaError::InvalidConfig);
         }
         Ok(())
+    }
+}
+
+fn rate_valid(value: f64, maximum: f64) -> bool {
+    value.is_finite() && value > 0.0 && value <= maximum
+}
+
+/// Small fixed-state token bucket. Every stream shares a global bucket and
+/// owns a second bucket, so many stream IDs cannot evade the global ceiling.
+#[derive(Debug, Clone, Copy)]
+struct TokenBucket {
+    tokens: f64,
+    updated: Instant,
+}
+
+impl TokenBucket {
+    fn full(capacity: usize) -> Self {
+        Self {
+            tokens: capacity as f64,
+            updated: Instant::now(),
+        }
+    }
+
+    fn take(&mut self, cost: usize, rate_per_second: f64, capacity: usize, now: Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.updated).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * rate_per_second).min(capacity as f64);
+        self.updated = now;
+        let cost = cost as f64;
+        if self.tokens < cost {
+            return false;
+        }
+        self.tokens -= cost;
+        true
     }
 }
 
@@ -162,6 +250,8 @@ pub enum MediaError {
     StreamLimit { max: usize },
     #[error("media chunk capacity reached; acknowledge or remove retained chunks")]
     Backpressure,
+    #[error("media ingestion rate limit exceeded")]
+    RateLimited,
     #[error("media chunk sequence {found} duplicates an already accepted sequence")]
     DuplicateChunk { found: u64 },
     #[error("media chunk is out of order: expected sequence {expected}, got {found}")]
@@ -392,6 +482,10 @@ pub struct LiveMediaStreams {
 struct CollectionState {
     streams: HashMap<String, StreamState>,
     retained_chunks: usize,
+    retained_bytes: usize,
+    global_chunk_rate: TokenBucket,
+    global_byte_rate: TokenBucket,
+    stream_open_rate: TokenBucket,
 }
 
 struct StreamState {
@@ -401,16 +495,25 @@ struct StreamState {
     acknowledged_through: Option<u64>,
     closed: bool,
     updated_at: u64,
+    chunk_rate: TokenBucket,
+    byte_rate: TokenBucket,
 }
 
 impl LiveMediaStreams {
     pub fn new(config: MediaStreamConfig) -> Result<Self, MediaError> {
         config.validate()?;
+        let global_chunk_rate = TokenBucket::full(config.ingest_chunk_burst);
+        let global_byte_rate = TokenBucket::full(config.ingest_byte_burst);
+        let stream_open_rate = TokenBucket::full(config.stream_open_burst);
         Ok(Self {
             config,
             state: Mutex::new(CollectionState {
                 streams: HashMap::new(),
                 retained_chunks: 0,
+                retained_bytes: 0,
+                global_chunk_rate,
+                global_byte_rate,
+                stream_open_rate,
             }),
         })
     }
@@ -427,6 +530,12 @@ impl LiveMediaStreams {
                 max: self.config.max_streams,
             });
         }
+        let now = Instant::now();
+        if !state.stream_open_rate.take(
+            1, self.config.stream_open_per_second, self.config.stream_open_burst, now
+        ) {
+            return Err(MediaError::RateLimited);
+        }
         state.streams.insert(
             metadata.stream_id.clone(),
             StreamState {
@@ -436,6 +545,8 @@ impl LiveMediaStreams {
                 acknowledged_through: None,
                 closed: false,
                 updated_at: unix_timestamp(),
+                chunk_rate: TokenBucket::full(self.config.per_stream_chunk_burst),
+                byte_rate: TokenBucket::full(self.config.per_stream_byte_burst),
             },
         );
         Ok(())
@@ -456,9 +567,17 @@ impl LiveMediaStreams {
         }
         let mut state = self.state.lock().map_err(|_| MediaError::LockPoisoned)?;
         let global_capacity_reached = state.retained_chunks >= self.config.max_total_chunks;
+        let payload_bytes = chunk.payload.len();
+        let byte_capacity_reached = state.retained_bytes
+            .checked_add(payload_bytes)
+            .is_none_or(|bytes| bytes > MEDIA_MAX_RETAINED_BYTES
+                || bytes > self.config.max_retained_bytes);
+        let now = Instant::now();
         let sequence_no = {
-            let stream = state
-                .streams
+            let CollectionState {
+                streams, global_chunk_rate, global_byte_rate, ..
+            } = &mut *state;
+            let stream = streams
                 .get_mut(stream_id)
                 .ok_or_else(|| MediaError::StreamNotFound(stream_id.to_string()))?;
             if stream.closed {
@@ -483,9 +602,35 @@ impl LiveMediaStreams {
             if stream.next_sequence == u64::MAX {
                 return Err(MediaError::SequenceExhausted);
             }
-            if stream.chunks.len() >= self.config.max_chunks_per_stream || global_capacity_reached {
+            if stream.chunks.len() >= self.config.max_chunks_per_stream
+                || global_capacity_reached || byte_capacity_reached
+            {
                 return Err(MediaError::Backpressure);
             }
+
+            // Check all buckets using local copies, then commit them together.
+            // A failed per-stream/global check never consumes only part of the
+            // shared budget.
+            let mut global_chunks = *global_chunk_rate;
+            let mut global_bytes = *global_byte_rate;
+            let mut stream_chunks = stream.chunk_rate;
+            let mut stream_bytes = stream.byte_rate;
+            if !global_chunks.take(1, self.config.ingest_chunks_per_second,
+                                  self.config.ingest_chunk_burst, now)
+                || !global_bytes.take(payload_bytes, self.config.ingest_bytes_per_second,
+                                      self.config.ingest_byte_burst, now)
+                || !stream_chunks.take(1, self.config.per_stream_chunks_per_second,
+                                       self.config.per_stream_chunk_burst, now)
+                || !stream_bytes.take(payload_bytes, self.config.per_stream_bytes_per_second,
+                                      self.config.per_stream_byte_burst, now)
+            {
+                return Err(MediaError::RateLimited);
+            }
+            *global_chunk_rate = global_chunks;
+            *global_byte_rate = global_bytes;
+            stream.chunk_rate = stream_chunks;
+            stream.byte_rate = stream_bytes;
+
             let sequence_no = chunk.sequence_no;
             stream.chunks.insert(sequence_no, chunk);
             stream.next_sequence += 1;
@@ -493,6 +638,7 @@ impl LiveMediaStreams {
             sequence_no
         };
         state.retained_chunks += 1;
+        state.retained_bytes += payload_bytes;
         Ok(sequence_no)
     }
 
@@ -546,6 +692,8 @@ impl LiveMediaStreams {
             return Err(MediaError::MissingChunk { sequence });
         }
         let removed = stream.chunks.range(..=sequence).count();
+        let removed_bytes: usize = stream.chunks.range(..=sequence)
+            .map(|(_, chunk)| chunk.payload.len()).sum();
         stream
             .chunks
             .retain(|chunk_sequence, _| *chunk_sequence > sequence);
@@ -556,6 +704,7 @@ impl LiveMediaStreams {
         );
         stream.updated_at = unix_timestamp();
         state.retained_chunks -= removed;
+        state.retained_bytes -= removed_bytes;
         Ok(removed)
     }
 
@@ -582,7 +731,10 @@ impl LiveMediaStreams {
             .remove(stream_id)
             .ok_or_else(|| MediaError::StreamNotFound(stream_id.to_string()))?;
         let removed = stream.chunks.len();
+        let removed_bytes: usize = stream.chunks.values()
+            .map(|chunk| chunk.payload.len()).sum();
         state.retained_chunks -= removed;
+        state.retained_bytes -= removed_bytes;
         Ok(removed)
     }
 

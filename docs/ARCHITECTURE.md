@@ -52,6 +52,25 @@ library service is exposed through the node CLI or an HTTP endpoint, nor a
 claim of hard-real-time behavior or physical NUMA-local memory allocation.
 
 
+## Authenticated deployment and independent stream trust
+
+The `yukkios::wasm_handoff` module builds signed WASM prepare, publisher
+attestation, sequential artifact chunk and activation messages. It uses
+pluggable Ed25519 signer and receiver-verifier interfaces; its
+`HandoffTransport` boundary requires an authenticated protected channel and
+does not silently fall back to the ordinary unauthenticated BRK1/BRK2 socket.
+The Rust sender verifies signed receiver decisions and receipts before
+reporting acceptance/activation. A concrete TLS adapter and durable replay
+store are not included yet.
+
+This executable-artifact trust domain is deliberately separate from streams.
+Untrusted NXR1/MED1/YKMC sources can still be ingested and consumed without
+being trusted WASM publishers. Their resource protection comes from byte
+ceilings, bounded registries/queues, per-peer gateway request buckets,
+per-peer/global WebSocket limits, acknowledgement backpressure, relay pull
+limits and idle timeouts. See [streaming how-to](USER_HOWTO_STREAMING.md) and
+[authenticated handoff](WASM_AUTHENTICATED_HANDOFF.md).
+
 ## WebAssembly composition ownership and broker interoperability
 
 YuKKi-OS remains the deployment-policy and program-composition authority.
