@@ -1,13 +1,13 @@
 # YuKKi-OS — Versioning
 
-## Current release candidate
+## Current published release
 
-- **Proposed release:** `v6.17.0`
+- **Published release:** `v6.17.0`
 - **Cargo package version:** `6.17.0`
 - **OCI image version:** `6.17.0`
 - **Rust toolchain pin:** `1.98.1`
 - **Runtime binary name:** `yukki_core_node`
-- **Release state:** CI-validated candidate; no v6.17.0 tag or release has been created
+- **Release state:** published 2026-11-22; GitHub Release contains 10 assets
 
 ## Version assessment
 
@@ -37,7 +37,7 @@ The increment is additive and does not intentionally change YKMC, BRK1/BRK2,
 NXR1 or WSM1 wire formats. The published v6.16.0 baseline remains available
 and independently versioned protocol contracts are unchanged.
 
-## CI validation — v6.17.0 candidate
+## CI validation — v6.17.0
 
 PR #164 merged the version metadata candidate. All four required workflows
 completed successfully on PR head commit `ced85a24636b35c2506f83a47ffd57cee918e996`
@@ -55,18 +55,20 @@ completed successfully on PR head commit `ced85a24636b35c2506f83a47ffd57cee918e9
 - Coverage & Metrics — code metrics, license compliance, dependency audit,
   coverage upload and Criterion performance benchmarks.
 
-All required workflow conclusions were `success`. The versioned release
-archive job was skipped because this was not a release-tag event. These runs
-validate the merged candidate commit; they do not constitute a tag, GitHub
-release or external package publication.
+All required workflow conclusions were `success`. The pull-request CI run skipped its release-archive job because it was not a
+release-tag event. After merge, tag `6.17.0` was published against release
+commit `c07052f2011dc727c4a0cb7a0684a8ca435faa52`; the GitHub Release then
+attached 10 assets: native Linux x86_64, ARM64, ARMv7 and musl binaries,
+macOS x86_64 and ARM64 binaries, the WASI guest worker, browser-WASM app and
+benchmark archives, and `SHA256SUMS`.
 
 ## Release policy
 
-- v6.16.0 remains the latest published YuKKi-OS release until v6.17.0 is
-  explicitly tagged and published.
-- Before tagging, review the merged release metadata and verify that the
-  candidate documentation still distinguishes the specified handoff protocol
-  from implemented receiver/runtime behavior.
+- v6.17.0 is the latest published YuKKi-OS release (2026-11-22).
+- External package publication, where applicable, is separate from the GitHub
+  Release and must be verified independently.
+- Keep the handoff protocol documentation explicit about which behavior is
+  specified and which receiver/runtime behavior is implemented.
 - Keep the handoff JSON Schema and protocol claims scoped to the actual
   specification; green CI does not prove the not-yet-implemented network
   receiver, durable replay storage, publisher provenance checks or distributed
