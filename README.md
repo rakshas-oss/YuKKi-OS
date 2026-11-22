@@ -1,23 +1,23 @@
-# YuKKi-OS v6.17.0 (release candidate)
+# YuKKi-OS v6.17.0
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.17.0 is a minor-release candidate based on published v6.16.0. It adds conventional WebAssembly module-import binding and the authenticated WASM handoff v1 contract/schema. The v6.17.0 candidate PR is merged and its four required CI workflows passed. The release tag and archive have not yet been created.
+> **Release status:** v6.17.0 was published on 2026-11-22 from the merged release commit. GitHub Release assets include native Linux/macOS binaries, browser-WASM and WASI artifacts, and SHA-256 checksums.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.17.0 (CI-validated candidate; tag and publication pending). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Published release: v6.17.0 (2026-11-22). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.17.0 candidate; the last published release is v6.16.0.
+- **Release line:** v6.17.0 published; previous release v6.16.0 (2026-11-21).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** CI-validated minor-release candidate; release tag and publication pending.
+- **Status:** GitHub Release published with 10 attached assets, including SHA256SUMS.
 
 ## Security and hardening notes
 
@@ -58,7 +58,7 @@ formats.
 
 ## What's new in v6.17.0
 
-The v6.17.0 candidate builds on the published v6.16.0 broker-discovery and
+The published v6.17.0 release builds on the v6.16.0 broker-discovery and
 BRK2 locality-codec baseline:
 
 - **Conventional WASM imports:** when a core-Wasm import namespace exactly
