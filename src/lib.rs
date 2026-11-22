@@ -32,6 +32,7 @@ pub mod stream_registry;
 pub mod stream_relay;
 pub mod wasm_composition;
 pub mod wasm_ingest;
+pub mod wasm_handoff;
 #[rustfmt::skip]
 pub mod wasm_sandbox;
 
