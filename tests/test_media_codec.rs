@@ -295,6 +295,7 @@ fn media_stream_checks_metadata_limits_and_stream_capacity() {
 #[test]
 fn media_stream_ingestion_is_rate_limited_globally_and_per_stream() {
     let config = MediaStreamConfig {
+        max_chunk_bytes: 1024,
         ingest_chunks_per_second: 0.001,
         ingest_chunk_burst: 1,
         ingest_bytes_per_second: 1024.0,
