@@ -225,7 +225,7 @@ impl HandoffSender {
                 "message lifetime must be in 1..=300 seconds".into(),
             ));
         }
-        if chunk_bytes < 4096 || chunk_bytes > MAX_CHUNK_BYTES {
+        if !(4096..=MAX_CHUNK_BYTES).contains(&chunk_bytes) {
             return Err(HandoffError::InvalidInput(format!(
                 "chunk size must be in 4096..={MAX_CHUNK_BYTES}"
             )));
@@ -381,7 +381,7 @@ impl HandoffSender {
         sorted_artifacts.sort_by(|a, b| a.module_id.cmp(&b.module_id));
         for (artifact, descriptor) in sorted_artifacts.into_iter().zip(descriptors.iter()) {
             let bytes = &artifact.bytes;
-            let count = (bytes.len() + self.chunk_bytes - 1) / self.chunk_bytes;
+            let count = bytes.len().div_ceil(self.chunk_bytes);
             for (index, chunk) in bytes.chunks(self.chunk_bytes).enumerate() {
                 let offset = index * self.chunk_bytes;
                 let payload = json!({
@@ -826,11 +826,13 @@ fn lower_hex(bytes: &[u8]) -> String {
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, HandoffError> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err(HandoffError::InvalidInput("invalid hexadecimal digest".into()));
     }
     let mut output = Vec::with_capacity(value.len() / 2);
-    for pair in value.as_bytes().chunks_exact(2) {
+    let (pairs, remainder) = value.as_bytes().as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    for pair in pairs {
         let digit = |byte: u8| -> Option<u8> {
             match byte {
                 b'0'..=b'9' => Some(byte - b'0'),
@@ -847,7 +849,7 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, HandoffError> {
 
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::with_capacity(4 * ((bytes.len() + 2) / 3));
+    let mut output = String::with_capacity(4 * bytes.len().div_ceil(3));
     for chunk in bytes.chunks(3) {
         let a = chunk[0] as u32;
         let b = chunk.get(1).copied().unwrap_or(0) as u32;
@@ -940,7 +942,7 @@ mod tests {
             deployment.identity.clone(), PrepareOptions::default(), 4096
         ).unwrap();
         let mut artifact = wasm();
-        artifact.bytes.extend(std::iter::repeat(0x11).take(8200));
+        artifact.bytes.extend(std::iter::repeat_n(0x11, 8200));
         let mut chunks = Vec::new();
         sender.for_each_chunk(
             &[artifact], &Uuid::new_v4().to_string(), &deployment, 1_800_000_000,
