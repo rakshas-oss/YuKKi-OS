@@ -63,18 +63,28 @@ const REQUEST_BURST_GLOBAL: f64 = 300.0;
 const REQUEST_RATE_GLOBAL_PER_SEC: f64 = 100.0;
 const MAX_WEBSOCKETS_GLOBAL: usize = 64;
 const MAX_WEBSOCKETS_PER_CLIENT: usize = 4;
+const EGRESS_BURST_GLOBAL_BYTES: f64 = 16.0 * 1024.0 * 1024.0;
+const EGRESS_RATE_GLOBAL_BYTES_PER_SEC: f64 = 64.0 * 1024.0 * 1024.0;
+const EGRESS_BURST_PER_CLIENT_BYTES: f64 = 4.0 * 1024.0 * 1024.0;
+const EGRESS_RATE_PER_CLIENT_BYTES_PER_SEC: f64 = 8.0 * 1024.0 * 1024.0;
+const WS_CONTROL_BURST: f64 = 40.0;
+const WS_CONTROL_RATE_PER_SEC: f64 = 20.0;
 
 struct ClientBudget {
     request_tokens: f64,
     last_refill: Instant,
     last_seen: Instant,
     active_websockets: usize,
+    egress_tokens: f64,
+    egress_refill: Instant,
 }
 
 struct GatewayBudgetState {
     clients: HashMap<IpAddr, ClientBudget>,
     global_tokens: f64,
     global_refill: Instant,
+    global_egress_tokens: f64,
+    global_egress_refill: Instant,
     active_websockets: usize,
 }
 
@@ -93,6 +103,8 @@ impl GatewayFloodLimiter {
                 clients: HashMap::new(),
                 global_tokens: REQUEST_BURST_GLOBAL,
                 global_refill: now,
+                global_egress_tokens: EGRESS_BURST_GLOBAL_BYTES,
+                global_egress_refill: now,
                 active_websockets: 0,
             }),
         }
@@ -118,6 +130,8 @@ impl GatewayFloodLimiter {
                     last_refill: now,
                     last_seen: now,
                     active_websockets: 0,
+                    egress_tokens: EGRESS_BURST_PER_CLIENT_BYTES,
+                    egress_refill: now,
                 },
             );
         }
@@ -151,6 +165,40 @@ impl GatewayFloodLimiter {
         }
         client.request_tokens -= 1.0;
         state.global_tokens -= 1.0;
+        true
+    }
+
+    fn allow_egress_bytes(&self, peer: IpAddr, byte_cost: usize) -> bool {
+        let now = Instant::now();
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let global_elapsed = now
+            .saturating_duration_since(state.global_egress_refill)
+            .as_secs_f64();
+        state.global_egress_tokens = (state.global_egress_tokens
+            + global_elapsed * EGRESS_RATE_GLOBAL_BYTES_PER_SEC)
+            .min(EGRESS_BURST_GLOBAL_BYTES);
+        state.global_egress_refill = now;
+        if byte_cost as f64 > state.global_egress_tokens {
+            return false;
+        }
+        let Some(client) = Self::ensure_client(&mut state, peer, now) else {
+            return false;
+        };
+        let client_elapsed = now
+            .saturating_duration_since(client.egress_refill)
+            .as_secs_f64();
+        client.egress_tokens = (client.egress_tokens
+            + client_elapsed * EGRESS_RATE_PER_CLIENT_BYTES_PER_SEC)
+            .min(EGRESS_BURST_PER_CLIENT_BYTES);
+        client.egress_refill = now;
+        client.last_seen = now;
+        if byte_cost as f64 > client.egress_tokens {
+            return false;
+        }
+        client.egress_tokens -= byte_cost as f64;
+        state.global_egress_tokens -= byte_cost as f64;
         true
     }
 
@@ -664,6 +712,7 @@ async fn describe_stream(State(state): State<GatewayState>, Path(id): Path<Strin
 
 async fn read_chunks(
     State(state): State<GatewayState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(id): Path<String>,
     Query(query): Query<ChunkQuery>,
 ) -> Response {
@@ -675,7 +724,18 @@ async fn read_chunks(
         return StatusCode::BAD_REQUEST.into_response();
     };
     match state.streams.get_range(&id, query.from, last) {
-        Ok(chunks) => Json(chunks).into_response(),
+        Ok(chunks) => {
+            let egress_bytes = chunks.iter().fold(0usize, |total, chunk| {
+                total.saturating_add(chunk.payload.len())
+                    .saturating_add(chunk.stream_id.len())
+                    .saturating_add(chunk.codec.len())
+                    .saturating_add(96)
+            });
+            if !state.flood_limiter.allow_egress_bytes(peer.ip(), egress_bytes) {
+                return StatusCode::TOO_MANY_REQUESTS.into_response();
+            }
+            Json(chunks).into_response()
+        },
         Err(MediaError::StreamNotFound(_)) => StatusCode::NOT_FOUND.into_response(),
         Err(_) => StatusCode::RANGE_NOT_SATISFIABLE.into_response(),
     }
@@ -725,7 +785,10 @@ async fn websocket_tune_in(
         .max_frame_size(MAX_WS_FRAME_BYTES)
         .max_message_size(MAX_WS_FRAME_BYTES)
         .on_upgrade(move |socket| {
-            websocket_session(socket, subscription, state.registry, state.relay, id, ws_permit)
+            websocket_session(
+                socket, subscription, state.registry, state.relay, id,
+                state.flood_limiter, peer.ip(), ws_permit
+            )
         })
 }
 
@@ -735,6 +798,8 @@ async fn websocket_session(
     registry: StreamRegistry,
     relay: Option<Arc<StreamRelay>>,
     stream_id: String,
+    flood_limiter: Arc<GatewayFloodLimiter>,
+    peer: IpAddr,
     _permit: WebSocketPermit,
 ) {
     let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
@@ -745,9 +810,21 @@ async fn websocket_session(
     poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut last_activity = Instant::now();
     let mut awaiting_ack = None;
+    let mut control_tokens = WS_CONTROL_BURST;
+    let mut control_refill = Instant::now();
     loop {
         tokio::select! {
             incoming = futures_util::StreamExt::next(&mut receiver) => {
+                let now = Instant::now();
+                let elapsed = now.saturating_duration_since(control_refill).as_secs_f64();
+                control_tokens = (control_tokens + elapsed * WS_CONTROL_RATE_PER_SEC)
+                    .min(WS_CONTROL_BURST);
+                control_refill = now;
+                if control_tokens < 1.0 {
+                    close_policy(&mut sender).await;
+                    break;
+                }
+                control_tokens -= 1.0;
                 match incoming {
                     Some(Ok(Message::Text(text))) if text.len() <= 1024 => {
                         let ack = crate::ingress::from_slice::<ClientAck>(text.as_bytes(), crate::ingress::IngressLimits::CONTROL);
@@ -796,6 +873,10 @@ async fn websocket_session(
                         let Ok(frame) = websocket_chunk_frame(&chunk) else {
                             break;
                         };
+                        if !flood_limiter.allow_egress_bytes(peer, frame.len()) {
+                            close_policy(&mut sender).await;
+                            break;
+                        }
                         match timeout(Duration::from_secs(30), futures_util::SinkExt::send(&mut sender, Message::Binary(frame.into()))).await {
                             Ok(Ok(())) => awaiting_ack = Some(sequence),
                             _ => break,
