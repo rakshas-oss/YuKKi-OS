@@ -2,8 +2,15 @@
 
 ## Release status
 
-The latest published baseline is v6.15.0. The v6.16.0 minor candidate adds lease-based Overhauled broker discovery and BRK2 locality-placement codec helpers; its tag and release archive remain subject to required CI and review. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.17.0 (2026-11-22). The v6.18.0 release candidate adds the authenticated WASM artifact sender API and bounded stream-ingestion controls; its tag and release archive have not been published. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
+## Authenticated artifact handoff
+
+The `yukkios::wasm_handoff` sender is an embedding-library API, not a `yukki_core_node` CLI command or HTTP deployment route. An application must supply deployment and publisher Ed25519 signers, a pinned receiver-receipt verifier and a `HandoffTransport` implementation using mTLS 1.3 or an equivalent authenticated protected channel. The transport identity must be bound to the signed sender; the client must not downgrade to plaintext TCP.
+
+The paired Overhauled `HandoffReceiver` is not connected to the ordinary BRK1/BRK2 listener. Deployment therefore requires a separate receiver-side transport/schema adapter and durable replay/staging services where restart-safe behavior is required. See [WASM_AUTHENTICATED_HANDOFF.md](WASM_AUTHENTICATED_HANDOFF.md) and [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md). Do not treat the broker discovery record or the mesh PSK as authorization to deploy executable artifacts.
+
+Ordinary untrusted media/geospatial streams remain independent of WASM publisher authorization. Keep their own bounded storage, frame, gateway, rate and backpressure controls; use upstream DDoS mitigation for volumetric attacks.
 ## Supported runtime shape
 
 Current CLI supports:
@@ -120,13 +127,13 @@ See [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) for hardened service examples, env fi
 Build image:
 
 ```bash
-docker build -t yukkios:6.16.0 .
+docker build -t yukkios:6.18.0-rc .
 ```
 
 Run bootstrap:
 
 ```bash
-docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.16.0 bootstrap 0.0.0.0:7660
+docker run --rm -e YUKKI_PSK_HEX=<64-hex> -p 7660:7660 yukkios:6.18.0-rc bootstrap 0.0.0.0:7660
 ```
 
 Current limitation: container image does not add TLS/mTLS termination; deploy with external network controls.
@@ -134,3 +141,6 @@ Current limitation: container image does not add TLS/mTLS termination; deploy wi
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+
+The `6.18.0-rc` Docker tag above is a local candidate tag; it is not a registry publication. For a stable baseline, use the published `6.17.0` GitHub Release and its verified assets.
