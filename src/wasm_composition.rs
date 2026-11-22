@@ -1327,6 +1327,43 @@ mod tests {
     }
 
     #[test]
+    fn infers_import_binding_from_matching_module_id() {
+        let consumer = program(
+            "consumer",
+            &[("provider", "1.0.0"), ("consumer", "1.0.0")],
+            "consumer",
+            "run",
+            1,
+        );
+        assert!(consumer.bindings.is_empty());
+        let manifest = manifest("r1", vec![consumer]);
+        let artifacts = vec![
+            artifact(
+                "provider",
+                "1.0.0",
+                r#"(module
+                    (func (export "convert") (param i32) (result i32)
+                        local.get 0
+                        i32.const 2
+                        i32.mul))"#,
+            ),
+            artifact(
+                "consumer",
+                "1.0.0",
+                r#"(module
+                    (import "provider" "convert" (func $convert (param i32) (result i32)))
+                    (func (export "run") (param i32) (result i32)
+                        local.get 0 call $convert))"#,
+            ),
+        ];
+        let runtime = CompositionRuntime::with_defaults();
+        runtime
+            .activate(runtime.prepare(&manifest, &artifacts).unwrap())
+            .unwrap();
+        assert_eq!(runtime.call("risk-engine", "consumer", &[21]).unwrap(), 42);
+    }
+
+    #[test]
     fn rejects_import_signature_mismatch_before_activation() {
         let mut consumer = program(
             "consumer",
