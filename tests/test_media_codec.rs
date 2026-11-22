@@ -2,7 +2,8 @@ use yukkios::{
     ArcGisAvenue, ArcGisError, LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig,
     MediaStreamMetadata, MediaType, Wgs84Coordinate, ARCGIS_AVENUE_KIND,
     ARCGIS_AVENUE_MAX_COORDINATES, MEDIA_CHUNK_HEADER_LEN, MEDIA_CHUNK_MAGIC, MEDIA_CHUNK_VERSION,
-    MEDIA_MAX_CHUNK_BYTES,
+    MEDIA_MAX_CHUNK_BYTES, MEDIA_MAX_RETAINED_BYTES, MEDIA_MAX_STREAMS_HARD,
+    MEDIA_MAX_TOTAL_CHUNKS_HARD,
 };
 
 fn avenue() -> ArcGisAvenue {
@@ -287,3 +288,21 @@ fn media_stream_checks_metadata_limits_and_stream_capacity() {
         MediaError::StreamMetadataMismatch
     );
 }
+
+#[test]
+fn media_stream_configuration_cannot_expand_past_hard_memory_or_index_ceilings() {
+    assert!(LiveMediaStreams::new(MediaStreamConfig {
+        max_streams: MEDIA_MAX_STREAMS_HARD + 1,
+        ..MediaStreamConfig::default()
+    }).is_err());
+    assert!(LiveMediaStreams::new(MediaStreamConfig {
+        max_total_chunks: MEDIA_MAX_TOTAL_CHUNKS_HARD + 1,
+        ..MediaStreamConfig::default()
+    }).is_err());
+    assert!(LiveMediaStreams::new(MediaStreamConfig {
+        max_total_chunks: MEDIA_MAX_RETAINED_BYTES / MEDIA_MAX_CHUNK_BYTES + 1,
+        max_chunk_bytes: MEDIA_MAX_CHUNK_BYTES,
+        ..MediaStreamConfig::default()
+    }).is_err());
+}
+
