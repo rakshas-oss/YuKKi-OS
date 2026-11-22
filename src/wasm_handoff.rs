@@ -6,8 +6,6 @@
 //! or an equivalently authenticated local transport; this module never opens
 //! an unauthenticated socket itself.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest as ShaDigest, Sha256};
@@ -345,8 +343,10 @@ impl HandoffSender {
         validate_uuid(transfer_id, "transfer_id")?;
         validate_signer(&self.identity, deployment_signer)?;
         let descriptors = descriptors(artifacts)?;
+        let mut sorted_artifacts = artifacts.iter().collect::<Vec<_>>();
+        sorted_artifacts.sort_by(|a, b| a.module_id.cmp(&b.module_id));
         let mut messages = Vec::new();
-        for (artifact, descriptor) in artifacts.iter().zip(descriptors.iter()) {
+        for (artifact, descriptor) in sorted_artifacts.into_iter().zip(descriptors.iter()) {
             let bytes = &artifact.bytes;
             let chunks = bytes.chunks(self.chunk_bytes);
             let count = (bytes.len() + self.chunk_bytes - 1) / self.chunk_bytes;
