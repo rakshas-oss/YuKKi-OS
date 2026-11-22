@@ -43,6 +43,19 @@ The outer request `kind` selects the broker handler:
 
 Responses carry a WSM1 TaskResponse (message type 2) or LifecycleResponse (message type 4) in the broker result. YuKKi-OS verifies that the outer task ID matches the inner task ID or request ID. WSM1 layouts, enums, buffer descriptors, and lifecycle sequencing are specified in [Overhauled `WASM_INTEROP.md`](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_INTEROP.md).
 
+## Authenticated WASM artifact handoff (separate from WSM1)
+
+The v1 authenticated handoff protocol is a separate executable-artifact path; it is not a BRK2 frame extension and does not change WSM1 task/lifecycle messages.
+
+- YuKKi-OS provides `yukkios::wasm_handoff::HandoffSender` to validate core-Wasm artifacts, construct canonical manifest/digests, sign deployment and separate publisher provenance, emit sequential signed chunks, and issue an activation request.
+- Overhauled provides the `HandoffReceiver` API to check deployment-sender and publisher trust independently, replay/expiry, module/chunk/aggregate digests, capability/resource policy, bounded admission and signed prepare/activation receipts.
+- When Overhauled is built with both `ENABLE_WASM_HANDOFF=ON` and `ENABLE_WASM_RUNTIME=ON`, `WasmHandoffRuntimeBridge` can validate/compile the full module set in a fresh runtime/store and atomically promote it after success.
+- The YuKKi caller must implement `HandoffTransport` over mTLS 1.3 or an equivalent authenticated protected channel and implement a receiver `HandoffReceiptVerifier`. The transport identity must be bound to the signed deployment sender; do not route this transfer through the ordinary raw broker socket.
+
+The receiver is not wired to the ordinary BRK1/BRK2 listener or a built-in HTTP endpoint. The handoff adapter, durable replay/staging service and restart-safe multi-process semantics are not supplied by these library APIs. The current shared-Store Wasmtime runtime is not a multi-tenant sandbox, so restrict artifacts to operator-authorized trusted code or an independently isolated process.
+
+This trust domain applies only to executable artifacts. Untrusted NXR1/MED1/YKMC and stream-relay data remains accessible without a WASM publisher key and is protected by separate framing, storage, connection, rate and backpressure limits.
+
 ## NPU dispatch and Ethos-U85 execution
 
 YuKKi-OS remains the control plane and requests NPU placement using the existing BRK2 `device_preference=npu` contract; no new wire negotiation is required. The Overhauled broker owns physical Ethos-U85 execution via its opt-in mainline Linux DRM backend. Build it on Linux with:

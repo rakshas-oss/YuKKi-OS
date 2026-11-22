@@ -1,11 +1,11 @@
-# YuKKi-OS v6.16.0 — System Administration How-to
+# YuKKi-OS v6.18.0 — System Administration How-to
 
-> Release candidate: v6.15.0 is the published baseline. The v6.16.0 minor
-> candidate adds lease-based broker endpoint discovery and BRK2 locality-placement
-> intent/result codec helpers. Discovery is not a DHT or authorization; the codec
-> does not apply or verify physical memory placement. Its tag and release
-> archive remain subject to CI and review. This guide describes the v6.16.0
-> candidate branch.
+> Release candidate: v6.17.0 is the latest published baseline (2026-11-22).
+> This guide covers the v6.18.0 candidate, including the explicit authenticated
+> WASM artifact sender API and bounded stream-ingestion controls. The v6.18.0
+> tag and release assets have not been published. Broker discovery remains
+> bootstrap-relayed gossip rather than a DHT, and BRK2 locality intent does not
+> prove physical memory placement.
 
 ## 1. Scope and deployment components
 
@@ -368,6 +368,48 @@ artifact storage, version selection and the Rust code that invokes this API.
 Use one replica by default. Set `replicas` above one only when the policy is
 truly stateless across independent guest memories and mutable globals.
 
+### Authenticated WASM artifact handoff (v6.18.0 candidate)
+
+The `yukkios::wasm_handoff` API sends portable core-Wasm artifact bytes and signed deployment metadata to a compatible receiver. It is separate from guest-worker execution, `CompositionRuntime`, WSM1 task/lifecycle traffic and the ordinary BRK1/BRK2 broker adapter. It is an explicit application API; `yukki_core_node` does not expose a built-in handoff deployment command or HTTP endpoint.
+
+The embedding application must provide:
+
+- A deployment `HandoffSigner` and a separate publisher `HandoffSigner`. Keep keys in an HSM, KMS or OS secret store; the library does not hold private key material.
+- A `HandoffReceiptVerifier` pinned to the receiver's issuer, subject, key ID and audience.
+- A `HandoffTransport` implementation using mTLS 1.3 or an equivalent authenticated protected channel. Bind the transport identity to the deployment signer identity, reject plaintext downgrade and enforce message/frame limits before decoding.
+- An artifact source and release policy that selects core-Wasm modules, module IDs/versions and resource limits.
+
+The native Rust sequence is:
+
+```rust,ignore
+use yukkios::wasm_handoff::{
+    HandoffSender, HandoffTransport, HandoffSigner, HandoffReceiptVerifier,
+    HandoffIdentity, PrepareOptions, WasmArtifact, DEFAULT_CHUNK_BYTES,
+};
+
+let sender = HandoffSender::new(
+    HandoffIdentity { issuer, subject, key_id },
+    PrepareOptions::default(),
+    DEFAULT_CHUNK_BYTES,
+)?;
+
+let receipt = sender.deploy(
+    &artifacts,
+    &deployment_signer,
+    &publisher_signer,
+    &mut authenticated_transport,
+    &receiver_receipt_verifier,
+    unix_time_seconds,
+)?;
+```
+
+This example assumes the application has implemented the signer, verifier and transport traits and has loaded the artifact bytes. `deploy` validates and signs the prepare request, verifies the receiver's signed prepare decision, streams chunks one at a time using the accepted chunk ceiling, sends activation and verifies the signed activation receipt before returning success. Supply a current Unix timestamp in seconds; the receiver enforces message expiry and clock-skew policy.
+
+Sender limits are 1–256 modules, 64 MiB per module, 256 MiB total artifact bytes, and 4 KiB–4 MiB per chunk (1 MiB default). The receiver may impose lower limits and remains authoritative.
+
+On the Overhauled side, the receiver API and optional Wasmtime runtime bridge must be provisioned separately. The receiver is not wired into the ordinary broker listener; a working `HandoffTransport` and server-side adapter are still deployment integration work. See [authenticated handoff contract](WASM_AUTHENTICATED_HANDOFF.md) and [Overhauled receiver implementation](https://github.com/rakshas-oss/overhauled/blob/main/docs/WASM_HANDOFF_RECEIVER_IMPLEMENTATION.md).
+
+Do not require publisher credentials for ordinary stream ingestion or viewing. NXR1/MED1/YKMC streams use independent stream limits; the executable-artifact trust policy does not gate them.
 ## 9. Configure broker integrations deliberately
 
 YuKKi-OS has two separate broker client configurations.

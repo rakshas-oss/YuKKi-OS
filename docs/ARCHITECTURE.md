@@ -1,4 +1,4 @@
-# YuKKi-OS v6.16.0 — Architecture
+# YuKKi-OS v6.18.0 — Architecture (release candidate)
 
 ## System identity and scope
 
@@ -15,9 +15,9 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.16.0 minor-release candidate. v6.15.0 is the latest published baseline (2026-11-21).
+This document describes the v6.18.0 minor-release candidate. The latest published baseline is v6.17.0 (2026-11-22); the 6.18.0 tag and release assets have not been published.
 
-### Broker discovery and BRK2 locality extension (v6.16.0 candidate)
+### Broker discovery and BRK2 locality extension (v6.16.0 published baseline)
 
 YuKKi-OS owns workload policy and the control-plane side of broker endpoint
 discovery. Its bounded lease-based `BrokerServiceRegistry` advertises an
@@ -88,12 +88,22 @@ authorization, dependency policy, release routing or YuKKi replica state.
 Likewise, YuKKi does not silently delegate its existing composition runtime
 to the broker.
 
-There is currently no automatic cross-process handoff of compiled artifacts,
-manifests, module namespaces, or activation transactions. A caller must
-explicitly choose a runtime and deliver the required artifacts through an
-authorized integration. The YuKKi and Overhauled runtimes have independent
-engines, stores, caches, limits and lifecycle boundaries; successful
-preparation or activation in one is not evidence of success in the other.
+YuKKi-OS now exposes an explicit cross-process artifact-transfer client in
+`yukkios::wasm_handoff`. `HandoffSender` builds signed prepare, publisher
+attestation, sequential chunk and activation messages, then drives them over
+a caller-supplied `HandoffTransport`. The paired Overhauled `HandoffReceiver`
+verifies separate sender/publisher trust, stages bounded artifacts and can
+promote a complete release through its optional Wasmtime runtime bridge.
+
+This is an explicit API, not automatic deployment of a YuKKi
+`CompositionRuntime` release: module caches, compiled modules, Store/instance
+graphs, replica pools and routing state are not transferred. The ordinary
+BRK1/BRK2 listener is not a handoff endpoint, and no concrete TLS transport
+adapter or durable replay/staging service is shipped. The caller must supply
+an authenticated protected transport (mTLS 1.3 or equivalent) and bind the
+transport peer identity to the signed sender. YuKKi and Overhauled runtimes
+retain independent engines, stores, caches, limits and lifecycle boundaries;
+successful preparation or activation in one does not prove success in the other.
 See [WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
 
 ## Parallel workload resolution and composition scheduling
@@ -252,11 +262,17 @@ the synchronized, in-process `LiveMediaStreams` collection. Audio/video
 codec bitstreams are pass-through only; no transcoding occurs. Stream
 appenders must supply contiguous sequence numbers beginning at zero. The
 default store limits are 64 streams, 64 chunks per stream, 256 chunks total,
-and 256 KiB per chunk; exhausted capacity reports backpressure instead of
-discarding data. Consumers reclaim storage with `acknowledge_through` or
-`remove_stream`. A chunk can be wrapped in the existing BrokerTask JSON
-envelope, but its JSON byte-array expansion remains subject to the broker
-client's configured frame-size limit.
+256 KiB per chunk and 64 MiB retained payload. Default ingestion token buckets
+allow 1,024 chunks/s globally (burst 256) and 8 MiB/s globally (burst 4 MiB),
+plus 256 chunks/s per stream (burst 64) and 2 MiB/s per stream (burst 1 MiB).
+Stream creation has its own 16/s (burst 32) budget. Hard configuration
+ceilings are 256 streams, 4,096 chunks per stream, 16,384 total chunks,
+256 KiB per chunk, 64 MiB retained bytes, 4,096 chunks/s and 64 MiB/s.
+Exhausted capacity/rate budgets return bounded errors/backpressure instead
+of allowing unbounded retention. Consumers reclaim storage with
+`acknowledge_through` or `remove_stream`. A chunk can be wrapped in the
+existing BrokerTask JSON envelope, but its JSON byte-array expansion remains
+subject to the broker client's configured frame-size limit.
 
 `src/stream_registry.rs` derives local stream descriptors from store snapshots
 and merges remote descriptors. Subscriptions have independent sequence cursors

@@ -34,29 +34,27 @@ modules are instantiated. Its Store, linker, limits, module registration and
 lifecycle are local to Overhauled. A shared broker process/runtime is not a
 shared trust domain with YuKKi's Wasmtime stores.
 
-## No implicit handoff
+## Explicit authenticated artifact handoff (separate from BRK1/BRK2 and WSM1)
 
-The current BRK1/BRK2 and WSM1 contracts do not define a Wasm artifact
-transfer, composition-manifest transfer, module namespace registry, or
-cross-repository activation transaction. A broker task payload must not be
-assumed to contain a deployable Wasm module or trusted manifest.
+The shared `wasm-handoff/1` contract now has client and receiver implementations. This does not change the BRK1/BRK2 frame format or WSM1 task/lifecycle messages.
 
-Until a versioned handoff protocol is implemented:
+**YuKKi-OS sender:** `yukkios::wasm_handoff::HandoffSender` validates portable core-Wasm artifact sets, builds canonical module/manifest/aggregate SHA-256 digests, signs the deployment prepare request, adds a separately signed publisher attestation, emits sequential bounded signed chunks and signs activation. Its `deploy` method drives this sequence through a caller-supplied `HandoffTransport`, verifies the receiver's signed prepare decision and validates the activation receipt with a separately provisioned `HandoffReceiptVerifier`.
 
-1. The deployment application chooses YuKKi composition or Overhauled
-   runtime composition for a given execution path.
-2. The application authenticates and authorizes artifact delivery.
-3. The receiving runtime independently validates, compiles, links and
-   prepares the modules under its own resource limits.
-4. Activation is local to that runtime. Coordinating activation across
-   YuKKi and Overhauled remains the application's responsibility.
-5. Failure, timeout or resource exhaustion in one runtime must not be
-   reported as successful preparation or activation in the other.
+**Overhauled receiver:** `HandoffReceiver` verifies the deployment sender and artifact publisher against separate trust stores, checks issuer/subject/audience/key ID, lifetime and nonce/replay state, bounds concurrent preparations and staged bytes, verifies sequential chunk and complete module digests, and signs prepare decisions and activation receipts. It fails closed when required validation or activation callbacks are absent.
 
-Do not send native compiled-code cache entries between runtimes. Treat
-portable core-Wasm bytes plus an explicit manifest as the interchange
-candidate; do not assume identical Wasmtime versions, host functions,
-resource limits or ABI behavior.
+**Optional runtime bridge:** when both `ENABLE_WASM_HANDOFF=ON` and `ENABLE_WASM_RUNTIME=ON` are enabled, `WasmHandoffRuntimeBridge` installs a Wasmtime compile-only validator and an atomic activation callback. It builds a fresh runtime/store for the staged release and publishes it only after the full module set compiles and registers. Failed validation/activation preserves the previous active runtime.
+
+### Deliberate integration boundaries
+
+- `HandoffTransport` is an interface; YuKKi-OS does not ship a concrete mTLS adapter. The integrating application must supply mTLS 1.3 or an equivalent authenticated protected channel, bind the peer identity to the signed deployment sender, reject plaintext downgrade, enforce frame limits before allocation and decode the shared schema into the receiver's typed messages.
+- The receiver is not wired into Overhauled's ordinary BRK1/BRK2 listener and is not an HTTP endpoint. Do not send artifact handoff through the unauthenticated raw broker socket.
+- Replay guard, prepared artifact staging and active-release state are process-local/in-memory. Durable shared replay/staging and restart-safe multi-process activation require deployment-supplied services.
+- Handoff transfers portable core-Wasm bytes and signed metadata, not compiled module caches, native code, Wasmtime Stores/instances, linear memory, replica pools or either runtime's routing state.
+- Activation is local to the receiving runtime, not a distributed atomic transaction across YuKKi-OS and Overhauled.
+- The current shared-Store Wasmtime embedding is not a multi-tenant sandbox. Restrict it to trusted operator-authorized artifacts or an independent process-isolation boundary.
+- Untrusted NXR1/MED1/YKMC stream ingestion and consumption are outside this executable-artifact trust policy and do not require a WASM publisher key. Stream paths use separate size, retained-memory, request, connection, rate and backpressure limits.
+
+The two composition runtimes remain independent. A successful artifact activation through the handoff receiver is not equivalent to deploying or activating a YuKKi `CompositionRuntime` program graph and does not migrate its module-cache, replica or routing state.
 
 ## Cross-runtime conformance requirements
 
@@ -98,15 +96,6 @@ staging from CPU-thread affinity telemetry.
 
 ## CI integration
 
-The paired CI work should first validate each repository's native runtime
-independently, then run the shared semantic fixture corpus against both
-implementations. A paired green result must identify both tested commit SHAs
-and the Wasmtime versions used. It must not be described as a full repository
-release gate unless all required native CI jobs from both repositories are
-also included in the aggregate check.
+The repositories now have sender/receiver unit tests for canonical message construction, Ed25519 trust, publisher provenance, replay/expiry, digest integrity, bounded sequential transfer, signed decisions/receipts, rate limiting and failed-activation rollback. Paired validation should identify both tested commit SHAs and Wasmtime versions. It must not be described as a full release gate unless all required native CI jobs in both repositories are included.
 
-Overhauled's runtime-composition implementation is present on its main branch
-behind the optional `ENABLE_WASM_RUNTIME` build flag. Its availability in a
-repository checkout is not evidence that the Wasmtime-enabled build or
-cross-runtime conformance suite has passed. Keep the capability described as
-optional until the pinned Wasmtime CI lane passes on the relevant commit.
+Overhauled's runtime-composition implementation is present on its main branch behind `ENABLE_WASM_RUNTIME`. The authenticated handoff receiver is independently gated by `ENABLE_WASM_HANDOFF`; the Wasmtime runtime bridge requires both flags. A source checkout alone is not evidence of a successful Wasmtime-enabled build: qualify the pinned Wasmtime CI lane and receiver/bridge test on the exact commit before relying on that path.

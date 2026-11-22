@@ -1,4 +1,4 @@
-# YuKKi OS v6.9.5 — Security Notes
+# YuKKi-OS v6.18.0 — Security Notes (release candidate)
 
 > Research/demo software. Do not expose directly to untrusted networks.
 
@@ -72,6 +72,26 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 - Restrict listener exposure with host/network policy.
 - Log and monitor repeated auth/timeout failures.
 - Rotate PSK through coordinated restarts when needed.
+
+
+## Authenticated WASM artifact handoff
+
+The v1 handoff protocol is an executable-artifact trust domain separate from peer-mesh authentication and ordinary broker traffic.
+
+- `HandoffSender` signs deployment messages with a deployment identity and carries a separate publisher attestation. The Overhauled receiver checks those identities against separate operator-provisioned Ed25519 trust stores; a deployment signer cannot authorize arbitrary publisher content.
+- Signed messages bind issuer, subject, key ID and audience and include bounded expiry, UUID message IDs/nonces and SHA-256 digests. The receiver applies replay checks, strict sequential chunk offsets, per-chunk/module/aggregate digest validation and bounded session/staging/rate admission.
+- The YuKKi API does not store private keys and does not implement a concrete mTLS transport. The caller must provide `HandoffTransport` over mTLS 1.3 or an equivalent protected authenticated channel, bind transport identity to the signed sender, reject plaintext downgrade and enforce frame limits before decoding.
+- The paired Overhauled `HandoffReceiver` is a library API, not a handler on the ordinary BRK1/BRK2 listener. Replay and staging are process-local unless a deployment supplies durable shared services; no restart-safe or multi-process guarantee is implied.
+- The optional Wasmtime runtime bridge is not a multi-tenant sandbox: the current shared-Store embedding must be restricted to operator-authorized trusted artifacts or an independently isolated process.
+
+## Current stream flood controls
+
+- Untrusted NXR1/MED1/YKMC stream ingestion and consumption do not require a WASM publisher key.
+- Default media ingestion budgets are 1,024 chunks/s globally (burst 256) and 8 MiB/s globally (burst 4 MiB), plus 256 chunks/s per stream (burst 64) and 2 MiB/s per stream (burst 1 MiB). Stream opens are limited to 16/s (burst 32).
+- Hard media-store ceilings are 64 MiB retained payload, 256 streams, 4,096 chunks per stream, 16,384 total chunks and 256 KiB per chunk. The default configured store is smaller.
+- Gateway and WebSocket paths also cap connections, requests, control messages, egress bytes, outstanding acknowledgements and remote-origin pulls. These controls bound in-process resource use; they do not prevent volumetric DDoS saturating the host's network link. Use network-edge mitigation.
+
+The handoff transport and stream gateway are separate surfaces. Do not infer that peer-mesh encryption secures broker TCP or the external handoff transport.
 
 ## Vulnerability reporting
 
