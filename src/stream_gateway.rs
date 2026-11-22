@@ -1046,7 +1046,6 @@ mod flood_control_tests {
     }
 
     #[test]
-    #[test]
     fn global_and_per_peer_egress_byte_buckets_cap_stream_downloads() {
         let limiter = GatewayFloodLimiter::new();
         let peer_a = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20));
@@ -1056,6 +1055,7 @@ mod flood_control_tests {
         assert!(limiter.allow_egress_bytes(peer_b, EGRESS_BURST_PER_CLIENT_BYTES as usize));
     }
 
+    #[test]
     fn global_request_bucket_caps_aggregate_flooding() {
         let limiter = GatewayFloodLimiter::new();
         for value in 1..=(REQUEST_BURST_GLOBAL as u32) {
