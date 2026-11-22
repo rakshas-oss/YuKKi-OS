@@ -1,8 +1,8 @@
-# YuKKi-OS v6.17.0 — Release Candidate
+# YuKKi-OS v6.17.0 — Published Release
 
-**Status:** CI-validated release candidate. PR #164 is merged; no v6.17.0
-tag or GitHub release has been created, and no external package publication
-is claimed.
+**Status:** published 2026-11-22. The `6.17.0` tag points to release commit
+`c07052f2011dc727c4a0cb7a0684a8ca435faa52`. The GitHub Release has 10 attached
+assets. External package publication is not implied.
 
 ## Highlights
 
@@ -49,11 +49,17 @@ All four required workflows passed on PR #164 head commit
 All four workflow conclusions were `success`. The versioned release archive
 job was skipped because no release tag triggered it.
 
-## Remaining release boundary
+## Published assets
 
-CI success validates the tested build and integration paths; it does not turn
-the handoff contract into an implemented network receiver or prove durable
-replay storage, publisher provenance verification or distributed activation.
-Review the release metadata, then create a v6.17.0 tag/release as a separate
-release action. No tag, GitHub release or external package publication is
-created by this documentation update.
+The GitHub Release includes Linux x86_64, ARM64, ARMv7 and x86_64-musl runtime
+archives; macOS x86_64 and ARM64 runtime archives; the WASI guest-worker
+archive; browser-WASM application and benchmark archives; and `SHA256SUMS`.
+The tag points to the merged v6.17.0 release commit.
+
+## Security and distribution boundary
+
+The handoff contract remains a protocol specification, not an implemented
+network receiver. The release does not provide receiver-side cryptographic
+enforcement, durable replay storage, publisher provenance verification or
+distributed activation. GitHub publication also does not imply publication to
+external package registries.

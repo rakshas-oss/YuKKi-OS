@@ -1,6 +1,6 @@
 # Changelog
 
-## v6.17.0 (CI-validated candidate; tag and publication pending)
+## v6.17.0 (published 2026-11-22)
 
 ### WebAssembly composition and authenticated handoff contract
 
@@ -24,8 +24,8 @@ included native Linux/macOS/Windows unit tests, supported Linux/macOS builds,
 WASI and browser-WASM validation, security/dependency audits, formatting and
 Clippy, Docker build, mesh and ABI/FFI tests, paired Overhauled BRK1/BRK2
 conformance and live Rust-to-C++ interoperability, simulated NPU/CPU fallback,
-coverage and Criterion benchmarks. The release archive job was skipped because
-no release-tag event occurred.
+coverage and Criterion benchmarks. The pull-request release-archive job was skipped because no release-tag
+event occurred; the post-merge release event built and attached 10 assets.
 
 ### Compatibility and security boundaries
 
@@ -34,7 +34,10 @@ no release-tag event occurred.
   network receiver or distributed deployment implementation. Receiver-side
   cryptographic enforcement, durable replay state, publisher provenance checks
   and cross-repository activation remain separate implementation work.
-- v6.17.0 remains an untagged candidate; CI success is not publication.
+- The `6.17.0` tag points to `c07052f2011dc727c4a0cb7a0684a8ca435faa52`.
+  The GitHub Release is published with 10 assets, including SHA256SUMS.
+- GitHub Release publication does not imply publication to external package
+  registries.
 
 ## v6.16.0 (published 2026-11-21)
 
