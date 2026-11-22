@@ -1,0 +1,49 @@
+name: Publish yukkios to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable YuKKi-OS release tag to package
+        required: true
+        type: string
+        default: "6.17.0"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish the tagged yukkios crate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Verify crate version matches release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          test "$version" = "$RELEASE_TAG"
+          git describe --tags --exact-match HEAD
+          echo "Publishing yukkios $version from tag $RELEASE_TAG"
+
+      - name: Package and verify
+        run: cargo +1.98.1 package --locked
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Add CRATES_IO_API_TOKEN in repository Actions secrets before publishing."
+            exit 1
+          fi
+          cargo +1.98.1 publish --locked
