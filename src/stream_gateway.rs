@@ -752,13 +752,13 @@ async fn read_chunks(
 
 async fn websocket_tune_in(
     State(state): State<GatewayState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ConnectInfo(peer): ConnectInfo<PeerAddr>,
     Path(id): Path<String>,
     Query(query): Query<StreamQuery>,
     websocket: WebSocketUpgrade,
 ) -> Response {
     let from = query.from.unwrap_or(0);
-    let Some(ws_permit) = state.flood_limiter.acquire_websocket(peer.ip()) else {
+    let Some(ws_permit) = state.flood_limiter.acquire_websocket(peer.0.ip()) else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
     let result = match state.relay.clone() {
@@ -796,7 +796,7 @@ async fn websocket_tune_in(
         .on_upgrade(move |socket| {
             websocket_session(
                 socket, subscription, state.registry, state.relay, id,
-                state.flood_limiter, peer.ip(), ws_permit
+                state.flood_limiter, peer.0.ip(), ws_permit
             )
         })
 }
