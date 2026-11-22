@@ -1,0 +1,52 @@
+name: Cargo Package Validation
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "README.md"
+      - "LICENSE"
+      - "LICENSES.md"
+      - "build.rs"
+      - "src/**"
+      - "kernel/**"
+      - "include/**"
+      - "protocol/**"
+      - ".github/workflows/package-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargo-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crate-package:
+    name: Package yukkios for crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Inspect published package file list
+        run: cargo +1.98.1 package --locked --list
+
+      - name: Build and verify crate package
+        run: cargo +1.98.1 package --locked
+
+      - name: Enforce crates.io archive size limit
+        shell: bash
+        run: |
+          shopt -s nullglob
+          crates=(target/package/yukkios-*.crate)
+          test "${#crates[@]}" -eq 1
+          size=$(stat -c '%s' "${crates[0]}")
+          echo "Generated crate: ${crates[0]} (${size} bytes)"
+          test "$size" -le 10000000
