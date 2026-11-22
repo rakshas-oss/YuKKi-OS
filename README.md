@@ -4,20 +4,20 @@
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.17.0 is a minor-release candidate based on published v6.16.0. It adds conventional WebAssembly module-import binding and the authenticated WASM handoff v1 contract/schema. The tag and release archive remain subject to CI and review.
+> **Release status:** v6.17.0 is a minor-release candidate based on published v6.16.0. It adds conventional WebAssembly module-import binding and the authenticated WASM handoff v1 contract/schema. The v6.17.0 candidate PR is merged and its four required CI workflows passed. The release tag and archive have not yet been created.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Proposed release: v6.17.0 (release candidate; tag pending required validation). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Proposed release: v6.17.0 (CI-validated candidate; tag and publication pending). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
 - **Release line:** v6.17.0 candidate; the last published release is v6.16.0.
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** minor-release candidate — required CI and release checks pending.
+- **Status:** CI-validated minor-release candidate; release tag and publication pending.
 
 ## Security and hardening notes
 

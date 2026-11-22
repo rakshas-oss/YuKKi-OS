@@ -7,7 +7,7 @@
 - **OCI image version:** `6.17.0`
 - **Rust toolchain pin:** `1.98.1`
 - **Runtime binary name:** `yukki_core_node`
-- **Release state:** candidate only; no v6.17.0 tag or release has been created
+- **Release state:** CI-validated candidate; no v6.17.0 tag or release has been created
 
 ## Version assessment
 
@@ -37,17 +37,40 @@ The increment is additive and does not intentionally change YKMC, BRK1/BRK2,
 NXR1 or WSM1 wire formats. The published v6.16.0 baseline remains available
 and independently versioned protocol contracts are unchanged.
 
+## CI validation — v6.17.0 candidate
+
+PR #164 merged the version metadata candidate. All four required workflows
+completed successfully on PR head commit `ced85a24636b35c2506f83a47ffd57cee918e996`
+(2026-11-22):
+
+- Test & Code Quality — security audit, Clippy, Rustfmt, native unit tests on
+  Linux/macOS/Windows, Docker build validation and code coverage.
+- Multi-Platform Build — Linux x86_64/aarch64/ARMv7/musl, macOS x86_64/arm64,
+  WASI Preview 1 build/tests, browser-WASM tests/Clippy/build/export smoke and
+  benchmark run.
+- Integration Tests — mesh/network, ADI calibration, GPU/WASM adapter,
+  sandbox, cryptography, ABI/FFI, browser-WASM-to-broker smoke, simulated NPU
+  and CPU fallback, plus paired Overhauled BRK1/BRK2 conformance and live
+  Rust-to-C++ round trips.
+- Coverage & Metrics — code metrics, license compliance, dependency audit,
+  coverage upload and Criterion performance benchmarks.
+
+All required workflow conclusions were `success`. The versioned release
+archive job was skipped because this was not a release-tag event. These runs
+validate the merged candidate commit; they do not constitute a tag, GitHub
+release or external package publication.
+
 ## Release policy
 
-- v6.16.0 is the latest published YuKKi-OS release.
-- Do not tag or publish v6.17.0 until native platform tests, browser-WASM
-  build/smoke, WASI worker, formatting/Clippy, security, coverage, integration,
-  live C++ BRK interoperability and performance benchmark checks pass and
-  the release commit is reviewed.
-- Validate the newly merged WASM composition import-inference test on the
-  release commit.
-- Validate the handoff JSON Schema and ensure documentation continues to
-  distinguish specified behavior from implemented behavior.
+- v6.16.0 remains the latest published YuKKi-OS release until v6.17.0 is
+  explicitly tagged and published.
+- Before tagging, review the merged release metadata and verify that the
+  candidate documentation still distinguishes the specified handoff protocol
+  from implemented receiver/runtime behavior.
+- Keep the handoff JSON Schema and protocol claims scoped to the actual
+  specification; green CI does not prove the not-yet-implemented network
+  receiver, durable replay storage, publisher provenance checks or distributed
+  activation.
 - Preserve the package/library name `yukkios` and runtime executable name
   `yukki_core_node`.
 - Keep Cargo.toml, the root Cargo.lock package entry, OCI image label,

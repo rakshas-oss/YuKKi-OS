@@ -1,4 +1,42 @@
-## v6.16.0 (release candidate; tag pending)
+# Changelog
+
+## v6.17.0 (CI-validated candidate; tag and publication pending)
+
+### WebAssembly composition and authenticated handoff contract
+
+- Infer conventional core-Wasm module imports when an import namespace exactly
+  matches a module ID in the same composition program. Explicit bindings remain
+  supported for aliases; inferred dependencies continue through dependency
+  ordering, exact function-signature validation and linker registration.
+- Add the authenticated WASM handoff v1 protocol document and shared JSON
+  Schema covering signed capability offers, prepare requests, decisions,
+  receipts, cancellation and bounded digest-verified artifact chunks.
+- Specify Ed25519 signatures over RFC 8785 canonical bytes, sender/audience
+  binding, expiry and replay checks, backend capability negotiation and
+  separate prepare/activate phases.
+
+### CI validation
+
+PR #164 merged after all four required workflows passed on
+`ced85a24636b35c2506f83a47ffd57cee918e996` (2026-11-22): Test & Code Quality,
+Multi-Platform Build, Integration Tests, and Coverage & Metrics. Validation
+included native Linux/macOS/Windows unit tests, supported Linux/macOS builds,
+WASI and browser-WASM validation, security/dependency audits, formatting and
+Clippy, Docker build, mesh and ABI/FFI tests, paired Overhauled BRK1/BRK2
+conformance and live Rust-to-C++ interoperability, simulated NPU/CPU fallback,
+coverage and Criterion benchmarks. The release archive job was skipped because
+no release-tag event occurred.
+
+### Compatibility and security boundaries
+
+- No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format change is intended.
+- The authenticated handoff is a protocol specification, not a completed
+  network receiver or distributed deployment implementation. Receiver-side
+  cryptographic enforcement, durable replay state, publisher provenance checks
+  and cross-repository activation remain separate implementation work.
+- v6.17.0 remains an untagged candidate; CI success is not publication.
+
+## v6.16.0 (published 2026-11-21)
 
 ### Broker discovery and BRK2 locality-placement codec
 
