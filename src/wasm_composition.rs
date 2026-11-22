@@ -659,7 +659,7 @@ impl CompositionRuntime {
             // exactly matches a module_id binds to that module without a manifest
             // declaration. Explicit bindings remain available for namespace aliases.
             let mut resolved_bindings = spec.bindings.clone();
-            for (consumer_id, compiled) in &compiled_by_id {
+            for compiled in compiled_by_id.values() {
                 for import in compiled.module.imports() {
                     let namespace = import.module();
                     if !resolved_bindings.contains_key(namespace)
@@ -669,7 +669,6 @@ impl CompositionRuntime {
                     }
                     // Leave unresolved namespaces to the validator so callers get
                     // the same precise UnboundImport diagnostic as before.
-                    let _ = consumer_id;
                 }
             }
 
