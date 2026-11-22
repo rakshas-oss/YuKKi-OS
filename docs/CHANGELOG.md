@@ -1,3 +1,5 @@
+# Changelog
+
 ## v6.18.0 (release candidate; not published)
 
 ### Authenticated WASM handoff sender
@@ -22,7 +24,6 @@
 - Preserve YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities. No external package registry upload or 6.18.0 GitHub Release is claimed before the release gate passes.
 
 ---
-# Changelog
 
 ## v6.17.0 (published 2026-11-22)
 
