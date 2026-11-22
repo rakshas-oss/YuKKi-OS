@@ -1,23 +1,33 @@
-# YuKKi-OS v6.17.0
+# YuKKi-OS v6.18.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.17.0 was published on 2026-11-22 from the merged release commit. GitHub Release assets include native Linux/macOS binaries, browser-WASM and WASI artifacts, and SHA-256 checksums.
+> **Release status:** v6.18.0 is the next minor release candidate after published v6.17.0 (2026-11-22). No 6.18.0 tag or release assets exist yet.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Published release: v6.17.0 (2026-11-22). YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Release candidate: v6.18.0. The latest published release remains v6.17.0 until the candidate passes its release gate and is tagged. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.17.0 published; previous release v6.16.0 (2026-11-21).
+- **Release line:** v6.18.0 candidate; latest published release v6.17.0 (2026-11-22).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** GitHub Release published with 10 attached assets, including SHA256SUMS.
+- **Status:** v6.17.0 GitHub Release has 10 attached assets, including SHA256SUMS; v6.18.0 release assets are pending a future tag.
+
+## What's new in v6.18.0 (release candidate)
+
+- **Authenticated WASM handoff sender:** add a Rust sender API with pluggable signing and receiver-receipt verification, separate deployment-sender and artifact-publisher identities, canonical manifests/digests, bounded sequential chunk transfer and signed activation requests.
+- **Untrusted stream availability:** stream ingestion and consumption remain independent of executable-artifact publisher authorization. Untrusted NXR1/MED1/media sources do not need a WASM publisher key.
+- **Stream flood controls:** enforce hard media-store ceilings (64 MiB retained media, 256 streams, 16,384 retained chunks and 256 KiB per chunk), global and per-stream chunk/byte token buckets, and stream-open churn limits. The gateway and WebSocket paths also apply global/per-peer request, connection and control-rate limits with backpressure.
+- **Transport boundary:** YuKKi-OS supplies the handoff protocol client and caller-provided transport abstraction; it does not silently fall back to plaintext TCP or provide TLS itself. The integration must use mTLS 1.3 or an equivalent authenticated protected channel and verify the receiver's signed decision/receipt.
+- **Flood boundary:** application-level quotas bound process work and retained memory; they do not stop volumetric DDoS before traffic reaches the host. Keep network-edge firewall/proxy/provider mitigation in place.
+
+PR #168 is merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d. This candidate advances only the native yukkios package and its OCI metadata; the browser-WASM and WASI guest-worker packages retain their independent 0.1.0 versions.
 
 ## Package distribution
 
@@ -264,7 +274,7 @@ Mainline Windows/MSVC is unsupported. The browser application (`wasm32-unknown-u
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.16.0 .
+docker build -t yukkios:6.18.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.

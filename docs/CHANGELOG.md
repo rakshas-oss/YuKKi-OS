@@ -1,5 +1,30 @@
 # Changelog
 
+## v6.18.0 (release candidate; not published)
+
+### Authenticated WASM handoff sender
+
+- Add the native Rust sender API with pluggable signing and receiver-receipt verification.
+- Separate deployment-sender identity from artifact-publisher provenance; construct canonical manifests/digests and sign prepare, sequential bounded artifact chunks and activation requests.
+- Keep key storage and transport security caller-supplied. The client does not silently use plaintext TCP as a substitute for authenticated transport.
+- Pair with the Overhauled receiver in PR #86. This is not yet an authenticated network listener or a durable cross-process deployment transaction; protected transport and durable replay/staging integration remain deployment requirements.
+
+### Streaming flood resistance without publisher gating
+
+- Preserve ingestion and consumption of untrusted streams; stream trust is independent of executable-artifact publisher authorization.
+- Enforce hard media-store ceilings of 64 MiB retained data, 256 streams, 16,384 retained chunks and 256 KiB per chunk.
+- Add global/per-stream chunk and byte token buckets plus stream-open churn rate limiting.
+- Retain gateway and WebSocket global/per-peer request and connection caps, control-rate limits, timeouts, bounded relay work, quotas and acknowledgement backpressure.
+- These controls bound application resource use; upstream edge filtering is still required against volumetric network floods.
+
+### Release metadata and boundaries
+
+- Advance the native yukkios Cargo package, root lockfile, OCI image label, README, versioning guide and version assertion to 6.18.0.
+- Keep browser-WASM and WASI guest-worker workspace package versions independent at 0.1.0.
+- Preserve YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities. No external package registry upload or 6.18.0 GitHub Release is claimed before the release gate passes.
+
+---
+
 ## v6.17.0 (published 2026-11-22)
 
 ### WebAssembly composition and authenticated handoff contract
