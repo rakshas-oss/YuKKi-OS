@@ -170,7 +170,17 @@ impl GatewayFloodLimiter {
     }
 
     fn allow_egress_bytes(&self, peer: IpAddr, byte_cost: usize) -> bool {
-        let now = Instant::now();
+        self.allow_egress_bytes_at(peer, byte_cost, Instant::now())
+    }
+
+    // The explicit timestamp keeps the token-bucket arithmetic deterministic
+    // in tests while the production wrapper always supplies monotonic time.
+    fn allow_egress_bytes_at(
+        &self,
+        peer: IpAddr,
+        byte_cost: usize,
+        now: Instant,
+    ) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
         };
@@ -1048,11 +1058,25 @@ mod flood_control_tests {
     #[test]
     fn global_and_per_peer_egress_byte_buckets_cap_stream_downloads() {
         let limiter = GatewayFloodLimiter::new();
+        let now = Instant::now();
         let peer_a = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20));
         let peer_b = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 21));
-        assert!(limiter.allow_egress_bytes(peer_a, EGRESS_BURST_PER_CLIENT_BYTES as usize));
-        assert!(!limiter.allow_egress_bytes(peer_a, 1));
-        assert!(limiter.allow_egress_bytes(peer_b, EGRESS_BURST_PER_CLIENT_BYTES as usize));
+        let peer_c = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 22));
+        let peer_d = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 23));
+        let peer_e = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 24));
+        let per_peer_burst = EGRESS_BURST_PER_CLIENT_BYTES as usize;
+
+        // All calls use the same monotonic instant: elapsed wall time cannot
+        // nondeterministically refill the one-byte remainder between asserts.
+        assert!(limiter.allow_egress_bytes_at(peer_a, per_peer_burst, now));
+        assert!(!limiter.allow_egress_bytes_at(peer_a, 1, now));
+        assert!(limiter.allow_egress_bytes_at(peer_b, per_peer_burst, now));
+        assert!(limiter.allow_egress_bytes_at(peer_c, per_peer_burst, now));
+        assert!(limiter.allow_egress_bytes_at(peer_d, per_peer_burst, now));
+
+        // Four peers exhaust the 16 MiB aggregate burst; another peer cannot
+        // exceed the process-wide byte budget even though its own bucket is full.
+        assert!(!limiter.allow_egress_bytes_at(peer_e, 1, now));
     }
 
     #[test]
