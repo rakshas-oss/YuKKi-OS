@@ -22,6 +22,9 @@ pub const MEDIA_CHUNK_VERSION: u8 = 1;
 pub const MEDIA_CHUNK_HEADER_LEN: usize = 31;
 /// Hard upper bound on one opaque audio/video payload.
 pub const MEDIA_MAX_CHUNK_BYTES: usize = 256 * 1024;
+/// Hard ceilings for configurable stream ingestion throughput.
+pub const MEDIA_MAX_INGEST_CHUNKS_PER_SECOND: f64 = 4096.0;
+pub const MEDIA_MAX_INGEST_BYTES_PER_SECOND: f64 = 64.0 * 1024.0 * 1024.0;
 /// Absolute retained media payload ceiling, independent of caller configuration.
 pub const MEDIA_MAX_RETAINED_BYTES: usize = 64 * 1024 * 1024;
 /// Hard caps prevent configurations from expanding maps or retention queues without bound.
@@ -102,12 +105,14 @@ pub struct MediaChunk {
 }
 
 /// Limits for an in-memory live media stream collection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MediaStreamConfig {
     pub max_streams: usize,
     pub max_chunks_per_stream: usize,
     pub max_total_chunks: usize,
     pub max_chunk_bytes: usize,
+    /// Caller may choose a lower retained-byte limit, never above the hard cap.
+    pub max_retained_bytes: usize,
     /// Global ingestion limits across all untrusted stream producers.
     pub ingest_chunks_per_second: f64,
     pub ingest_chunk_burst: usize,
@@ -130,6 +135,7 @@ impl Default for MediaStreamConfig {
             max_chunks_per_stream: 64,
             max_total_chunks: 256,
             max_chunk_bytes: MEDIA_MAX_CHUNK_BYTES,
+            max_retained_bytes: MEDIA_MAX_RETAINED_BYTES,
             ingest_chunks_per_second: 1024.0,
             ingest_chunk_burst: 256,
             ingest_bytes_per_second: 8.0 * 1024.0 * 1024.0,
@@ -156,7 +162,9 @@ impl MediaStreamConfig {
             || self.max_total_chunks > MEDIA_MAX_TOTAL_CHUNKS_HARD
             || self.max_chunk_bytes == 0
             || self.max_chunk_bytes > MEDIA_MAX_CHUNK_BYTES
-            || worst_case_retained_bytes.is_none_or(|bytes| bytes > MEDIA_MAX_RETAINED_BYTES)
+            || self.max_retained_bytes == 0
+            || self.max_retained_bytes > MEDIA_MAX_RETAINED_BYTES
+            || worst_case_retained_bytes.is_none_or(|bytes| bytes > self.max_retained_bytes)
             || !rate_valid(self.ingest_chunks_per_second, MEDIA_MAX_INGEST_CHUNKS_PER_SECOND)
             || self.ingest_chunk_burst == 0 || self.ingest_chunk_burst > 65_536
             || !rate_valid(self.ingest_bytes_per_second, MEDIA_MAX_INGEST_BYTES_PER_SECOND)
