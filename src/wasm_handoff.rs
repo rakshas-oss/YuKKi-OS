@@ -629,7 +629,7 @@ fn artifact_set_digest(descriptors: &[Value]) -> Result<String, HandoffError> {
         let bytes = decode_hex(hex)?;
         hasher.update(bytes);
     }
-    Ok(format!("sha256:{:x}", hasher.finalize()))
+    Ok(format!("sha256:{}", lower_hex(&hasher.finalize())))
 }
 
 fn canonical_prepare_decision(decision: &PrepareDecision) -> Result<Vec<u8>, HandoffError> {
@@ -812,7 +812,17 @@ fn canonical_json(value: &Value) -> Result<Vec<u8>, HandoffError> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("sha256:{:x}", Sha256::digest(bytes))
+    format!("sha256:{}", lower_hex(&Sha256::digest(bytes)))
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, HandoffError> {
