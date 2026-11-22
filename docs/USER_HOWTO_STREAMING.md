@@ -31,8 +31,12 @@ Current in-process defaults/hard limits include:
   remote IP to a 40-request burst and 20 requests/second, with an aggregate
   300-request burst and 100 requests/second.
 - WebSockets are limited to 64 active sessions globally and four per remote
-  IP. Only one chunk may be awaiting acknowledgement per session; sessions
-  close after 60 seconds without activity.
+  IP. Each session accepts a 40-message control burst and refills at 20
+  control messages/second. Only one chunk may be awaiting acknowledgement
+  per session; sessions close after 60 seconds without activity.
+- Stream egress is capped at a 16 MiB global burst and 64 MiB/second, with a
+  4 MiB per-peer burst and 8 MiB/second sustained rate. Both HTTP chunk-range
+  responses and WebSocket binary chunks consume this budget.
 - Remote origin socket operations are capped at eight concurrent pulls;
   each relay pull is rate-limited and asks for at most eight chunks.
 
