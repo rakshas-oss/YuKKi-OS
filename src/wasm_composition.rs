@@ -655,8 +655,25 @@ impl CompositionRuntime {
                 }
             }
 
+            // Resolve conventional imports automatically: an import namespace that
+            // exactly matches a module_id binds to that module without a manifest
+            // declaration. Explicit bindings remain available for namespace aliases.
+            let mut resolved_bindings = spec.bindings.clone();
+            for compiled in compiled_by_id.values() {
+                for import in compiled.module.imports() {
+                    let namespace = import.module();
+                    if !resolved_bindings.contains_key(namespace)
+                        && compiled_by_id.contains_key(namespace)
+                    {
+                        resolved_bindings.insert(namespace.to_string(), namespace.to_string());
+                    }
+                    // Leave unresolved namespaces to the validator so callers get
+                    // the same precise UnboundImport diagnostic as before.
+                }
+            }
+
             let order =
-                validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
+                validate_and_order_modules(&spec.program_id, &compiled_by_id, &resolved_bindings)?;
             if spec.entrypoint.params > self.limits.max_entrypoint_arity {
                 return Err(CompositionError::InvalidManifest(format!(
                     "program '{}' entrypoint arity exceeds {}",
@@ -709,7 +726,7 @@ impl CompositionRuntime {
                             })?;
 
                     // Expose a provider instance under each namespace that targets it.
-                    for (namespace, target) in &spec.bindings {
+                    for (namespace, target) in &resolved_bindings {
                         if target == module_id {
                             linker
                                 .instance(&mut store, namespace, instance)
@@ -1306,6 +1323,43 @@ mod tests {
         );
         assert_eq!(runtime.call("risk-engine", "alpha", &[10]).unwrap(), 12);
         assert_eq!(runtime.call("risk-engine", "beta", &[10]).unwrap(), 12);
+    }
+
+    #[test]
+    fn infers_import_binding_from_matching_module_id() {
+        let consumer = program(
+            "consumer",
+            &[("provider", "1.0.0"), ("consumer", "1.0.0")],
+            "consumer",
+            "run",
+            1,
+        );
+        assert!(consumer.bindings.is_empty());
+        let manifest = manifest("r1", vec![consumer]);
+        let artifacts = vec![
+            artifact(
+                "provider",
+                "1.0.0",
+                r#"(module
+                    (func (export "convert") (param i32) (result i32)
+                        local.get 0
+                        i32.const 2
+                        i32.mul))"#,
+            ),
+            artifact(
+                "consumer",
+                "1.0.0",
+                r#"(module
+                    (import "provider" "convert" (func $convert (param i32) (result i32)))
+                    (func (export "run") (param i32) (result i32)
+                        local.get 0 call $convert))"#,
+            ),
+        ];
+        let runtime = CompositionRuntime::with_defaults();
+        runtime
+            .activate(runtime.prepare(&manifest, &artifacts).unwrap())
+            .unwrap();
+        assert_eq!(runtime.call("risk-engine", "consumer", &[21]).unwrap(), 42);
     }
 
     #[test]
