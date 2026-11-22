@@ -26,8 +26,10 @@ the new release. This keeps updates atomic at the YuKKi-OS process boundary.
 ## Composition contract v1
 
 - Modules are core WebAssembly modules compiled by Wasmtime/Cranelift.
-- Module dependencies are explicit. Each import namespace maps to one
-  provider module ID in the same program.
+- Module dependencies are resolved from typed imports. If an import namespace
+  exactly matches a module ID in the same program, YuKKi-OS binds it automatically;
+  no `bindings` entry is needed. The optional `bindings` map remains available
+  for aliases where the import namespace differs from the provider module ID.
 - Cross-module imports must be functions with exact matching signatures.
   Providers are instantiated before consumers using a stable topological
   order.

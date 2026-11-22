@@ -639,7 +639,7 @@ impl CompositionRuntime {
                 compiled_by_id.insert(module_ref.module_id.clone(), compiled);
             }
 
-            for (namespace, target) in &resolved_bindings {
+            for (namespace, target) in &spec.bindings {
                 validate_identifier("binding namespace", namespace).map_err(|_| {
                     CompositionError::InvalidNamespace {
                         program_id: spec.program_id.clone(),
