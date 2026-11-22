@@ -41,7 +41,9 @@ pub struct BrokerServiceRecord {
 impl BrokerServiceRecord {
     pub fn validate(&self, now_unix: u64) -> Result<(), BrokerDiscoveryError> {
         if self.schema != BROKER_SERVICE_SCHEMA {
-            return Err(BrokerDiscoveryError::Invalid("unsupported service-record schema"));
+            return Err(BrokerDiscoveryError::Invalid(
+                "unsupported service-record schema",
+            ));
         }
         if self.service_kind != BROKER_SERVICE_KIND {
             return Err(BrokerDiscoveryError::Invalid("unexpected service kind"));
@@ -63,14 +65,22 @@ impl BrokerServiceRecord {
         if self.protocol_versions.is_empty()
             || self.protocol_versions.len() > BROKER_SERVICE_MAX_PROTOCOLS
             || self.protocol_versions.iter().any(|v| {
-                v.is_empty() || v.len() > 16 || !v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')
+                v.is_empty()
+                    || v.len() > 16
+                    || !v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')
             })
         {
-            return Err(BrokerDiscoveryError::Invalid("invalid protocol-version list"));
+            return Err(BrokerDiscoveryError::Invalid(
+                "invalid protocol-version list",
+            ));
         }
         if self.capabilities.len() > BROKER_SERVICE_MAX_CAPABILITIES
             || self.capabilities.iter().any(|v| {
-                v.is_empty() || v.len() > 32 || !v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                v.is_empty()
+                    || v.len() > 32
+                    || !v
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             })
         {
             return Err(BrokerDiscoveryError::Invalid("invalid capability list"));
@@ -79,14 +89,19 @@ impl BrokerServiceRecord {
             return Err(BrokerDiscoveryError::Invalid("invalid maximum frame size"));
         }
         if self.expires_at_unix <= self.issued_at_unix
-            || self.expires_at_unix.saturating_sub(self.issued_at_unix) > BROKER_SERVICE_MAX_LEASE_SECS
+            || self.expires_at_unix.saturating_sub(self.issued_at_unix)
+                > BROKER_SERVICE_MAX_LEASE_SECS
             || self.issued_at_unix > now_unix.saturating_add(30)
             || self.expires_at_unix <= now_unix
         {
-            return Err(BrokerDiscoveryError::Invalid("expired or out-of-range service lease"));
+            return Err(BrokerDiscoveryError::Invalid(
+                "expired or out-of-range service lease",
+            ));
         }
         if self.remaining_hops > BROKER_SERVICE_MAX_HOPS {
-            return Err(BrokerDiscoveryError::Invalid("remaining hop count exceeds limit"));
+            return Err(BrokerDiscoveryError::Invalid(
+                "remaining hop count exceeds limit",
+            ));
         }
         Ok(())
     }
@@ -119,7 +134,11 @@ impl BrokerServiceRegistry {
         Self::default()
     }
 
-    pub fn upsert(&mut self, record: BrokerServiceRecord, now_unix: u64) -> Result<(), BrokerDiscoveryError> {
+    pub fn upsert(
+        &mut self,
+        record: BrokerServiceRecord,
+        now_unix: u64,
+    ) -> Result<(), BrokerDiscoveryError> {
         record.validate(now_unix)?;
         self.expire(now_unix);
         if !self.records.contains_key(&record.service_id)
@@ -138,7 +157,8 @@ impl BrokerServiceRegistry {
 
     pub fn expire(&mut self, now_unix: u64) -> usize {
         let before = self.records.len();
-        self.records.retain(|_, record| record.expires_at_unix > now_unix);
+        self.records
+            .retain(|_, record| record.expires_at_unix > now_unix);
         before - self.records.len()
     }
 

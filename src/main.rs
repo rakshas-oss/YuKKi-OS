@@ -35,8 +35,7 @@ use yukkios::{
     stream_gateway::{self, GatewayAuth},
     BrokerServiceRecord, BrokerServiceRegistry, LiveMediaStreams, MediaStreamConfig,
     StreamAnnouncement, StreamDigestEntry, StreamRegistry, BROKER_SERVICE_DEFAULT_LEASE_SECS,
-    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_HOPS,
-    BROKER_SERVICE_SCHEMA,
+    BROKER_SERVICE_KIND, BROKER_SERVICE_MAX_HOPS, BROKER_SERVICE_SCHEMA,
 };
 use zeroize::Zeroize;
 
@@ -323,7 +322,10 @@ async fn handle_peer(
     clients.lock().await.insert(id, tx.clone());
     info!(%remote, %id, "peer registered");
     broadcast_fleet(&fleet, &clients).await;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let existing_broker_services = broker_services.lock().await.list(now);
     for record in existing_broker_services {
         if let Some(record) = record.forwarded() {
@@ -486,9 +488,13 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     let broker_endpoint = env::var("YUKKI_BROKER_ENDPOINT").ok();
     let broker_service_id = Uuid::new_v4();
     if let Some(endpoint) = broker_endpoint.as_deref() {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let record = broker_service_record(node_id, broker_service_id, endpoint, now)?;
-        broker_registry.upsert(record.clone(), now)
+        broker_registry
+            .upsert(record.clone(), now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let bytes = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record))
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -604,7 +610,6 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     }
 }
 
-
 fn broker_service_record(
     node_id: Uuid,
     service_id: Uuid,
@@ -632,7 +637,8 @@ fn broker_service_record(
         message_id: Uuid::new_v4(),
         remaining_hops: BROKER_SERVICE_MAX_HOPS,
     };
-    record.validate(now_unix)
+    record
+        .validate(now_unix)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     Ok(record)
 }
