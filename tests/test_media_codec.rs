@@ -291,6 +291,59 @@ fn media_stream_checks_metadata_limits_and_stream_capacity() {
     );
 }
 
+
+#[test]
+fn media_stream_ingestion_is_rate_limited_globally_and_per_stream() {
+    let config = MediaStreamConfig {
+        ingest_chunks_per_second: 0.001,
+        ingest_chunk_burst: 1,
+        ingest_bytes_per_second: 1024.0,
+        ingest_byte_burst: 1024,
+        per_stream_chunks_per_second: 0.001,
+        per_stream_chunk_burst: 1,
+        per_stream_bytes_per_second: 1024.0,
+        per_stream_byte_burst: 1024,
+        ..MediaStreamConfig::default()
+    };
+    let streams = LiveMediaStreams::new(config).unwrap();
+    for id in ["camera-a", "camera-b"] {
+        streams.open_stream(MediaStreamMetadata {
+            stream_id: id.to_string(),
+            media_type: MediaType::Video,
+            codec: "h264".to_string(),
+        }).unwrap();
+    }
+
+    let mut first = chunk(0);
+    first.stream_id = "camera-a".to_string();
+    streams.append_chunk("camera-a", first).unwrap();
+
+    // A different stream ID cannot evade the process-wide chunk budget.
+    let mut second = chunk(0);
+    second.stream_id = "camera-b".to_string();
+    assert_eq!(
+        streams.append_chunk("camera-b", second).unwrap_err(),
+        MediaError::RateLimited
+    );
+}
+
+#[test]
+fn media_stream_open_churn_is_rate_limited() {
+    let streams = LiveMediaStreams::new(MediaStreamConfig {
+        stream_open_per_second: 0.001,
+        stream_open_burst: 1,
+        ..MediaStreamConfig::default()
+    }).unwrap();
+    let metadata = |id: &str| MediaStreamMetadata {
+        stream_id: id.to_string(),
+        media_type: MediaType::Audio,
+        codec: "opus".to_string(),
+    };
+    streams.open_stream(metadata("source-a")).unwrap();
+    assert_eq!(streams.remove_stream("source-a").unwrap(), 0);
+    assert_eq!(streams.open_stream(metadata("source-b")).unwrap_err(), MediaError::RateLimited);
+}
+
 #[test]
 fn media_stream_configuration_cannot_expand_past_hard_memory_or_index_ceilings() {
     assert!(LiveMediaStreams::new(MediaStreamConfig {
