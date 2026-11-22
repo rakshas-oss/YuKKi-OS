@@ -282,9 +282,12 @@ impl AsyncWrite for CappedStream {
     }
 }
 
-impl Connected<IncomingStream<'_, CappedListener>> for SocketAddr {
+#[derive(Debug, Clone, Copy)]
+struct PeerAddr(SocketAddr);
+
+impl Connected<IncomingStream<'_, CappedListener>> for PeerAddr {
     fn connect_info(stream: IncomingStream<'_, CappedListener>) -> Self {
-        *stream.remote_addr()
+        Self(*stream.remote_addr())
     }
 }
 
@@ -423,7 +426,7 @@ pub async fn serve_with_relay(
             listener,
             permits: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
         },
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+        app.into_make_service_with_connect_info::<PeerAddr>(),
     )
     .await
 }
@@ -540,8 +543,8 @@ async fn authenticate_and_limit(
 ) -> Response {
     let peer = request
         .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| address.ip())
+        .get::<ConnectInfo<PeerAddr>>()
+        .map(|ConnectInfo(address)| address.0.ip())
         .unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
     if !state.flood_limiter.allow_request(peer) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -718,7 +721,7 @@ async fn describe_stream(State(state): State<GatewayState>, Path(id): Path<Strin
 
 async fn read_chunks(
     State(state): State<GatewayState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    ConnectInfo(peer): ConnectInfo<PeerAddr>,
     Path(id): Path<String>,
     Query(query): Query<ChunkQuery>,
 ) -> Response {
@@ -737,7 +740,7 @@ async fn read_chunks(
                     .saturating_add(chunk.codec.len())
                     .saturating_add(96)
             });
-            if !state.flood_limiter.allow_egress_bytes(peer.ip(), egress_bytes) {
+            if !state.flood_limiter.allow_egress_bytes(peer.0.ip(), egress_bytes) {
                 return StatusCode::TOO_MANY_REQUESTS.into_response();
             }
             Json(chunks).into_response()
