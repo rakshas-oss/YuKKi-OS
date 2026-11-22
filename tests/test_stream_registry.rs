@@ -14,6 +14,7 @@ fn setup(max_chunks_per_stream: usize) -> (Arc<LiveMediaStreams>, StreamRegistry
             max_chunks_per_stream,
             max_total_chunks: 8,
             max_chunk_bytes: 1024,
+            ..MediaStreamConfig::default()
         })
         .unwrap(),
     );
