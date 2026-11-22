@@ -350,25 +350,30 @@ impl HandoffSender {
 
     /// Build individually signed, bounded, sequential artifact chunks after
     /// the receiver has accepted prepare and returned its transfer UUID.
-    pub fn build_chunks(
+    /// Emit individually signed chunks one at a time. The callback provides
+    /// backpressure so a maximum-sized artifact set is never duplicated into
+    /// a second in-memory vector of base64-encoded chunks.
+    pub fn for_each_chunk<F>(
         &self,
         artifacts: &[WasmArtifact],
         transfer_id: &str,
         deployment_signer: &dyn HandoffSigner,
         issued_at: u64,
-    ) -> Result<Vec<SignedHandoffMessage>, HandoffError> {
+        mut send: F,
+    ) -> Result<(), HandoffError>
+    where
+        F: FnMut(SignedHandoffMessage) -> Result<(), HandoffError>,
+    {
         self.validate_artifacts(artifacts)?;
         validate_uuid(transfer_id, "transfer_id")?;
         validate_signer(&self.identity, deployment_signer)?;
         let descriptors = descriptors(artifacts)?;
         let mut sorted_artifacts = artifacts.iter().collect::<Vec<_>>();
         sorted_artifacts.sort_by(|a, b| a.module_id.cmp(&b.module_id));
-        let mut messages = Vec::new();
         for (artifact, descriptor) in sorted_artifacts.into_iter().zip(descriptors.iter()) {
             let bytes = &artifact.bytes;
-            let chunks = bytes.chunks(self.chunk_bytes);
             let count = (bytes.len() + self.chunk_bytes - 1) / self.chunk_bytes;
-            for (index, chunk) in chunks.enumerate() {
+            for (index, chunk) in bytes.chunks(self.chunk_bytes).enumerate() {
                 let offset = index * self.chunk_bytes;
                 let payload = json!({
                     "artifact_digest": descriptor["digest"],
@@ -380,16 +385,17 @@ impl HandoffSender {
                     "total_length": bytes.len(),
                     "transfer_id": transfer_id
                 });
-                messages.push(signed_envelope(
+                let message = signed_envelope(
                     payload,
                     &self.options.receiver_audience,
                     deployment_signer,
                     issued_at,
                     self.options.message_lifetime_secs,
-                )?);
+                )?;
+                send(message)?;
             }
         }
-        Ok(messages)
+        Ok(())
     }
 
     pub fn build_activation(
@@ -447,7 +453,7 @@ impl HandoffSender {
         let transfer_id = decision.transfer_id.ok_or_else(|| {
             HandoffError::InvalidDecision("accepted decision omitted transfer_id".into())
         })?;
-        if decision.chunk_size_bytes == 0 || decision.chunk_size_bytes > MAX_CHUNK_BYTES {
+        if decision.chunk_size_bytes < 4096 || decision.chunk_size_bytes > MAX_CHUNK_BYTES {
             return Err(HandoffError::InvalidDecision(
                 "receiver returned an invalid chunk size".into(),
             ));
@@ -459,9 +465,13 @@ impl HandoffSender {
             options: self.options.clone(),
             chunk_bytes: self.chunk_bytes.min(decision.chunk_size_bytes),
         };
-        for chunk in sender.build_chunks(artifacts, &transfer_id, deployment_signer, issued_at)? {
-            transport.append_chunk(&chunk.bytes).map_err(HandoffError::Transport)?;
-        }
+        sender.for_each_chunk(
+            artifacts,
+            &transfer_id,
+            deployment_signer,
+            issued_at,
+            |chunk| transport.append_chunk(&chunk.bytes).map_err(HandoffError::Transport),
+        )?;
         let activation =
             self.build_activation(&request_id, &transfer_id, deployment_signer, issued_at)?;
         let receipt = transport
@@ -815,8 +825,13 @@ mod tests {
         ).unwrap();
         let mut artifact = wasm();
         artifact.bytes.extend(std::iter::repeat(0x11).take(8200));
-        let chunks = sender.build_chunks(
-            &[artifact], &Uuid::new_v4().to_string(), &deployment, 1_800_000_000
+        let mut chunks = Vec::new();
+        sender.for_each_chunk(
+            &[artifact], &Uuid::new_v4().to_string(), &deployment, 1_800_000_000,
+            |chunk| {
+                chunks.push(chunk);
+                Ok(())
+            },
         ).unwrap();
         assert_eq!(chunks.len(), 3);
         let first: Value = serde_json::from_slice(&chunks[0].bytes).unwrap();
