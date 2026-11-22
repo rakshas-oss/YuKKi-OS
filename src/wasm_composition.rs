@@ -639,7 +639,7 @@ impl CompositionRuntime {
                 compiled_by_id.insert(module_ref.module_id.clone(), compiled);
             }
 
-            for (namespace, target) in &spec.bindings {
+            for (namespace, target) in &resolved_bindings {
                 validate_identifier("binding namespace", namespace).map_err(|_| {
                     CompositionError::InvalidNamespace {
                         program_id: spec.program_id.clone(),
@@ -655,8 +655,26 @@ impl CompositionRuntime {
                 }
             }
 
+            // Resolve conventional imports automatically: an import namespace that
+            // exactly matches a module_id binds to that module without a manifest
+            // declaration. Explicit bindings remain available for namespace aliases.
+            let mut resolved_bindings = spec.bindings.clone();
+            for (consumer_id, compiled) in &compiled_by_id {
+                for import in compiled.module.imports() {
+                    let namespace = import.module();
+                    if !resolved_bindings.contains_key(namespace)
+                        && compiled_by_id.contains_key(namespace)
+                    {
+                        resolved_bindings.insert(namespace.to_string(), namespace.to_string());
+                    }
+                    // Leave unresolved namespaces to the validator so callers get
+                    // the same precise UnboundImport diagnostic as before.
+                    let _ = consumer_id;
+                }
+            }
+
             let order =
-                validate_and_order_modules(&spec.program_id, &compiled_by_id, &spec.bindings)?;
+                validate_and_order_modules(&spec.program_id, &compiled_by_id, &resolved_bindings)?;
             if spec.entrypoint.params > self.limits.max_entrypoint_arity {
                 return Err(CompositionError::InvalidManifest(format!(
                     "program '{}' entrypoint arity exceeds {}",
@@ -709,7 +727,7 @@ impl CompositionRuntime {
                             })?;
 
                     // Expose a provider instance under each namespace that targets it.
-                    for (namespace, target) in &spec.bindings {
+                    for (namespace, target) in &resolved_bindings {
                         if target == module_id {
                             linker
                                 .instance(&mut store, namespace, instance)
