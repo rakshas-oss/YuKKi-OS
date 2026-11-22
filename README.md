@@ -85,7 +85,7 @@ See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md),
 
 ## What's new in v6.16.0
 
-The v6.16.0 candidate coordinates broker discovery and BRK2 locality intent
+The published v6.16.0 release coordinates broker discovery and BRK2 locality intent
 with Overhauled:
 
 - **Broker service discovery:** bounded lease records advertise an optional
