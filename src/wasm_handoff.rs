@@ -88,6 +88,7 @@ impl Default for HandoffLimits {
 #[derive(Debug, Clone)]
 pub struct PrepareOptions {
     pub receiver_audience: String,
+    pub receipt_audience: String,
     pub publisher_audience: String,
     pub deployment_id: String,
     pub release_id: String,
@@ -102,6 +103,7 @@ impl Default for PrepareOptions {
     fn default() -> Self {
         Self {
             receiver_audience: "overhauled".into(),
+            receipt_audience: "yukki-os".into(),
             publisher_audience: "wasm-artifact-publisher".into(),
             deployment_id: "default".into(),
             release_id: "current".into(),
@@ -166,6 +168,21 @@ pub struct HandoffReceipt {
     pub signature: String,
 }
 
+/// Verifies the receiver's Ed25519 receipt with a separately provisioned
+/// receiver trust key. Implementations should pin issuer, subject, key ID and
+/// audience, not merely accept any key that verifies the signature.
+pub trait HandoffReceiptVerifier {
+    fn verify_receipt(
+        &self,
+        issuer: &str,
+        subject: &str,
+        key_id: &str,
+        audience: &str,
+        canonical_message: &[u8],
+        signature_base64: &str,
+    ) -> bool;
+}
+
 /// This is a protocol adapter boundary, not an unauthenticated TCP client.
 /// Implementations must authenticate both ends of the connection, bind the
 /// authenticated peer identity to these signed messages, bound message sizes,
@@ -190,6 +207,7 @@ impl HandoffSender {
     ) -> Result<Self, HandoffError> {
         identity.validate()?;
         validate_identifier(&options.receiver_audience, 256, "receiver audience")?;
+        validate_identifier(&options.receipt_audience, 256, "receipt audience")?;
         validate_identifier(&options.publisher_audience, 256, "publisher audience")?;
         validate_identifier(&options.deployment_id, 128, "deployment_id")?;
         validate_identifier(&options.release_id, 128, "release_id")?;
@@ -406,6 +424,7 @@ impl HandoffSender {
         deployment_signer: &dyn HandoffSigner,
         publisher_signer: &dyn HandoffSigner,
         transport: &mut dyn HandoffTransport,
+        receipt_verifier: &dyn HandoffReceiptVerifier,
         issued_at: u64,
     ) -> Result<HandoffReceipt, HandoffError> {
         let (request_id, prepare) = self.build_prepare(
@@ -452,9 +471,30 @@ impl HandoffSender {
             || receipt.deployment_id != self.options.deployment_id
             || receipt.release_id != self.options.release_id
             || receipt.state != "activated"
+            || receipt.audience != self.options.receipt_audience
+            || receipt.backend_id.is_empty()
+            || receipt.engine != "wasmtime"
+            || receipt.engine_version.is_empty()
+            || receipt.abi_profile.is_empty()
+            || receipt.expires_at <= receipt.issued_at
         {
             return Err(HandoffError::InvalidDecision(
-                "activation receipt does not match the requested release".into(),
+                "activation receipt does not match the requested release or backend contract".into(),
+            ));
+        }
+        validate_uuid(&receipt.message_id, "receipt message_id")?;
+        validate_uuid(&receipt.nonce, "receipt nonce")?;
+        let receipt_bytes = canonical_receipt(&receipt)?;
+        if !receipt_verifier.verify_receipt(
+            &receipt.issuer,
+            &receipt.subject,
+            &receipt.signer_key_id,
+            &receipt.audience,
+            &receipt_bytes,
+            &receipt.signature,
+        ) {
+            return Err(HandoffError::InvalidDecision(
+                "receiver receipt signature or identity could not be verified".into(),
             ));
         }
         Ok(receipt)
@@ -569,6 +609,35 @@ fn artifact_set_digest(descriptors: &[Value]) -> Result<String, HandoffError> {
         hasher.update(bytes);
     }
     Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn canonical_receipt(receipt: &HandoffReceipt) -> Result<Vec<u8>, HandoffError> {
+    let payload = json!({
+        "abi_profile": receipt.abi_profile,
+        "artifact_set_digest": receipt.artifact_set_digest,
+        "backend_id": receipt.backend_id,
+        "deployment_id": receipt.deployment_id,
+        "engine": receipt.engine,
+        "engine_version": receipt.engine_version,
+        "kind": "execution_receipt",
+        "release_id": receipt.release_id,
+        "request_id": receipt.request_id,
+        "state": receipt.state
+    });
+    let mut envelope = Map::new();
+    envelope.insert("audience".into(), json!(receipt.audience));
+    envelope.insert("contract".into(), json!(HANDOFF_CONTRACT));
+    envelope.insert("expires_at".into(), json!(receipt.expires_at));
+    envelope.insert("issued_at".into(), json!(receipt.issued_at));
+    envelope.insert("message_id".into(), json!(receipt.message_id));
+    envelope.insert("nonce".into(), json!(receipt.nonce));
+    envelope.insert("payload".into(), payload);
+    envelope.insert("sender".into(), json!({
+        "issuer": receipt.issuer,
+        "key_id": receipt.signer_key_id,
+        "subject": receipt.subject
+    }));
+    canonical_json(&Value::Object(envelope))
 }
 
 fn signed_envelope(
