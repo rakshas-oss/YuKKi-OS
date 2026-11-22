@@ -1,8 +1,8 @@
 use std::{fs, path::Path};
 
 #[test]
-fn package_version_is_v6_16_0() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "6.16.0");
+fn package_version_is_v6_17_0() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "6.17.0");
 }
 
 #[test]
