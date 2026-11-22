@@ -22,6 +22,12 @@ pub const MEDIA_CHUNK_VERSION: u8 = 1;
 pub const MEDIA_CHUNK_HEADER_LEN: usize = 31;
 /// Hard upper bound on one opaque audio/video payload.
 pub const MEDIA_MAX_CHUNK_BYTES: usize = 256 * 1024;
+/// Absolute retained media payload ceiling, independent of caller configuration.
+pub const MEDIA_MAX_RETAINED_BYTES: usize = 64 * 1024 * 1024;
+/// Hard caps prevent configurations from expanding maps or retention queues without bound.
+pub const MEDIA_MAX_STREAMS_HARD: usize = 256;
+pub const MEDIA_MAX_CHUNKS_PER_STREAM_HARD: usize = 4096;
+pub const MEDIA_MAX_TOTAL_CHUNKS_HARD: usize = 16 * 1024;
 /// Maximum stream identifier length in UTF-8 bytes.
 pub const MEDIA_MAX_STREAM_ID_BYTES: usize = 128;
 /// Maximum codec label length in UTF-8 bytes.
@@ -117,11 +123,17 @@ impl Default for MediaStreamConfig {
 
 impl MediaStreamConfig {
     pub fn validate(&self) -> Result<(), MediaError> {
+        let worst_case_retained_bytes =
+            self.max_total_chunks.checked_mul(self.max_chunk_bytes);
         if self.max_streams == 0
+            || self.max_streams > MEDIA_MAX_STREAMS_HARD
             || self.max_chunks_per_stream == 0
+            || self.max_chunks_per_stream > MEDIA_MAX_CHUNKS_PER_STREAM_HARD
             || self.max_total_chunks == 0
+            || self.max_total_chunks > MEDIA_MAX_TOTAL_CHUNKS_HARD
             || self.max_chunk_bytes == 0
             || self.max_chunk_bytes > MEDIA_MAX_CHUNK_BYTES
+            || worst_case_retained_bytes.is_none_or(|bytes| bytes > MEDIA_MAX_RETAINED_BYTES)
         {
             return Err(MediaError::InvalidConfig);
         }
@@ -392,6 +404,7 @@ pub struct LiveMediaStreams {
 struct CollectionState {
     streams: HashMap<String, StreamState>,
     retained_chunks: usize,
+    retained_bytes: usize,
 }
 
 struct StreamState {
@@ -411,6 +424,7 @@ impl LiveMediaStreams {
             state: Mutex::new(CollectionState {
                 streams: HashMap::new(),
                 retained_chunks: 0,
+                retained_bytes: 0,
             }),
         })
     }
@@ -456,6 +470,10 @@ impl LiveMediaStreams {
         }
         let mut state = self.state.lock().map_err(|_| MediaError::LockPoisoned)?;
         let global_capacity_reached = state.retained_chunks >= self.config.max_total_chunks;
+        let payload_bytes = chunk.payload.len();
+        let byte_capacity_reached = state.retained_bytes
+            .checked_add(payload_bytes)
+            .is_none_or(|bytes| bytes > MEDIA_MAX_RETAINED_BYTES);
         let sequence_no = {
             let stream = state
                 .streams
@@ -483,7 +501,9 @@ impl LiveMediaStreams {
             if stream.next_sequence == u64::MAX {
                 return Err(MediaError::SequenceExhausted);
             }
-            if stream.chunks.len() >= self.config.max_chunks_per_stream || global_capacity_reached {
+            if stream.chunks.len() >= self.config.max_chunks_per_stream
+                || global_capacity_reached || byte_capacity_reached
+            {
                 return Err(MediaError::Backpressure);
             }
             let sequence_no = chunk.sequence_no;
@@ -493,6 +513,7 @@ impl LiveMediaStreams {
             sequence_no
         };
         state.retained_chunks += 1;
+        state.retained_bytes += payload_bytes;
         Ok(sequence_no)
     }
 
@@ -546,6 +567,8 @@ impl LiveMediaStreams {
             return Err(MediaError::MissingChunk { sequence });
         }
         let removed = stream.chunks.range(..=sequence).count();
+        let removed_bytes: usize = stream.chunks.range(..=sequence)
+            .map(|(_, chunk)| chunk.payload.len()).sum();
         stream
             .chunks
             .retain(|chunk_sequence, _| *chunk_sequence > sequence);
@@ -556,6 +579,7 @@ impl LiveMediaStreams {
         );
         stream.updated_at = unix_timestamp();
         state.retained_chunks -= removed;
+        state.retained_bytes -= removed_bytes;
         Ok(removed)
     }
 
@@ -582,7 +606,10 @@ impl LiveMediaStreams {
             .remove(stream_id)
             .ok_or_else(|| MediaError::StreamNotFound(stream_id.to_string()))?;
         let removed = stream.chunks.len();
+        let removed_bytes: usize = stream.chunks.values()
+            .map(|chunk| chunk.payload.len()).sum();
         state.retained_chunks -= removed;
+        state.retained_bytes -= removed_bytes;
         Ok(removed)
     }
 
