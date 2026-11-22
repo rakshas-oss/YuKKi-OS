@@ -1,0 +1,139 @@
+name: Publish yukkios to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: YuKKi-OS release tag to publish (must match Cargo.toml)
+        required: true
+        type: string
+        default: "6.17.0"
+      auth_method:
+        description: Use the one-time API token for bootstrap, or OIDC after Trusted Publishing is configured
+        required: true
+        type: choice
+        options:
+          - token
+          - trusted
+        default: token
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish the validated yukkios crate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout main with release history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      - name: Verify release ancestry, source stability and package version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" HEAD
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          test "$version" = "$RELEASE_TAG"
+
+          changed=$(git diff --name-only "refs/tags/$RELEASE_TAG..HEAD")
+          if printf '%s\n' "$changed" | grep -E '^(src/|kernel/|include/|protocol/|build\.rs$|Cargo\.lock$)' ; then
+            echo "::error::Runtime source or Cargo.lock changed after the selected release tag."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import subprocess
+          import tomllib
+
+          tag_manifest = subprocess.check_output(
+              ["git", "show", "refs/tags/" + __import__("os").environ["RELEASE_TAG"] + ":Cargo.toml"]
+          )
+          with open("Cargo.toml", "rb") as current_file:
+              current = tomllib.load(current_file)
+          original = tomllib.loads(tag_manifest.decode())
+
+          stable_keys = (
+              "edition", "rust-version", "build", "links", "default-run",
+              "autobins", "autoexamples", "autotests", "autobenches",
+              "required-features", "dependencies", "dev-dependencies",
+              "build-dependencies", "target", "features", "lib", "bin",
+          )
+          for key in stable_keys:
+              before = original.get("package", {}).get(key) if key in original.get("package", {}) else original.get(key)
+              after = current.get("package", {}).get(key) if key in current.get("package", {}) else current.get(key)
+              if before != after:
+                  raise SystemExit(f"Cargo.toml key {key!r} changed after the release tag")
+          PY
+          echo "Verified release tag $RELEASE_TAG and stable runtime/package dependencies."
+
+      - name: Package and verify
+        run: cargo +1.98.1 package --locked
+
+      - name: Verify crates.io package identity and version are unused
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          name = "yukkios"
+          version = os.environ["RELEASE_TAG"]
+          url = f"https://crates.io/api/v1/crates/{name}"
+          request = urllib.request.Request(url, headers={"User-Agent": "rakshas-oss-yukkios-publisher"})
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  data = json.load(response)
+          except urllib.error.HTTPError as exc:
+              if exc.code == 404:
+                  print(f"{name} is not registered; first publication may proceed.")
+                  raise SystemExit(0)
+              raise
+
+          crate = data["crate"]
+          repository = (crate.get("repository") or "").rstrip("/")
+          expected = "https://github.com/rakshas-oss/YuKKi-OS"
+          if repository.lower() != expected.lower():
+              raise SystemExit(f"Crate name {name!r} is owned by a different project: {repository!r}")
+          versions = {item["num"] for item in data.get("versions", [])}
+          if version in versions:
+              raise SystemExit(f"{name} {version} is already published; refusing duplicate upload.")
+          print(f"Existing {name} crate belongs to this repository; {version} is not yet published.")
+          PY
+
+      - name: Obtain short-lived crates.io token with Trusted Publishing
+        id: auth
+        if: ${{ inputs.auth_method == 'trusted' }}
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish with Trusted Publishing
+        if: ${{ inputs.auth_method == 'trusted' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo +1.98.1 publish --locked
+
+      - name: Publish with one-time API token
+        if: ${{ inputs.auth_method == 'token' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Add CRATES_IO_API_TOKEN in repository Actions secrets before first publication."
+            exit 1
+          fi
+          cargo +1.98.1 publish --locked

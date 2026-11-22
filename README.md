@@ -19,6 +19,15 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
 - **Status:** GitHub Release published with 10 attached assets, including SHA256SUMS.
 
+## Package distribution
+
+The Rust package is being prepared for crates.io as `yukkios`; it is not
+advertised as published until the registry accepts the first upload. The
+native and WebAssembly release archives remain available from the
+[GitHub Release](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/6.17.0).
+See [package distribution and publishing](docs/PACKAGING.md) for validation,
+installation and the one-time publisher setup.
+
 ## Security and hardening notes
 
 The project includes defensive validation in native mesh helpers, FHSS synchronization, and the guest-worker shared memory channel. See [docs/SECURITY_HARDENING_NOTES.md](docs/SECURITY_HARDENING_NOTES.md) for details.
