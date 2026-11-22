@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Immutable YuKKi-OS release tag to package
+        description: YuKKi-OS release tag to publish (must match Cargo.toml)
         required: true
         type: string
         default: "6.17.0"
@@ -14,29 +14,70 @@ permissions:
 
 jobs:
   publish:
-    name: Publish the tagged yukkios crate
+    name: Publish the validated yukkios crate
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact release tag
+      - name: Checkout main with release history
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: main
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
 
-      - name: Verify crate version matches release tag
+      - name: Verify release ancestry, source stability and package version
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" HEAD
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           test "$version" = "$RELEASE_TAG"
-          git describe --tags --exact-match HEAD
-          echo "Publishing yukkios $version from tag $RELEASE_TAG"
+          changed=$(git diff --name-only "refs/tags/$RELEASE_TAG..HEAD")
+          if printf '%s\n' "$changed" | grep -E '^(src/|kernel/|include/|protocol/|build\.rs$)' ; then
+            echo "::error::Runtime/source files changed after the selected release tag."
+            exit 1
+          fi
+          echo "Packaging yukkios $version; tag $RELEASE_TAG is an ancestor and runtime source has not changed."
 
       - name: Package and verify
         run: cargo +1.98.1 package --locked
+
+      - name: Verify crates.io package identity and version are unused
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          name = "yukkios"
+          version = os.environ["RELEASE_TAG"]
+          url = f"https://crates.io/api/v1/crates/{name}"
+          request = urllib.request.Request(url, headers={"User-Agent": "rakshas-oss-yukkios-publisher"})
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  data = json.load(response)
+          except urllib.error.HTTPError as exc:
+              if exc.code == 404:
+                  print(f"{name} is not registered; first publication may proceed.")
+                  raise SystemExit(0)
+              raise
+
+          crate = data["crate"]
+          repository = (crate.get("repository") or "").rstrip("/")
+          expected = "https://github.com/rakshas-oss/YuKKi-OS"
+          if repository.lower() != expected.lower():
+              raise SystemExit(f"Crate name {name!r} is owned by a different project: {repository!r}")
+          versions = {item["num"] for item in data.get("versions", [])}
+          if version in versions:
+              raise SystemExit(f"{name} {version} is already published; refusing duplicate upload.")
+          print(f"Existing {name} crate belongs to this repository; {version} is not yet published.")
+          PY
 
       - name: Publish to crates.io
         env:
