@@ -8,6 +8,14 @@ on:
         required: true
         type: string
         default: "6.17.0"
+      auth_method:
+        description: Use the one-time API token for bootstrap, or OIDC after Trusted Publishing is configured
+        required: true
+        type: choice
+        options:
+          - token
+          - trusted
+        default: token
 
 permissions:
   contents: read
@@ -16,6 +24,10 @@ jobs:
   publish:
     name: Publish the validated yukkios crate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout main with release history
         uses: actions/checkout@v4
@@ -35,12 +47,37 @@ jobs:
           git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" HEAD
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           test "$version" = "$RELEASE_TAG"
+
           changed=$(git diff --name-only "refs/tags/$RELEASE_TAG..HEAD")
-          if printf '%s\n' "$changed" | grep -E '^(src/|kernel/|include/|protocol/|build\.rs$)' ; then
-            echo "::error::Runtime/source files changed after the selected release tag."
+          if printf '%s\n' "$changed" | grep -E '^(src/|kernel/|include/|protocol/|build\.rs$|Cargo\.lock$)' ; then
+            echo "::error::Runtime source or Cargo.lock changed after the selected release tag."
             exit 1
           fi
-          echo "Packaging yukkios $version; tag $RELEASE_TAG is an ancestor and runtime source has not changed."
+
+          python3 - <<'PY'
+          import subprocess
+          import tomllib
+
+          tag_manifest = subprocess.check_output(
+              ["git", "show", "refs/tags/" + __import__("os").environ["RELEASE_TAG"] + ":Cargo.toml"]
+          )
+          with open("Cargo.toml", "rb") as current_file:
+              current = tomllib.load(current_file)
+          original = tomllib.loads(tag_manifest.decode())
+
+          stable_keys = (
+              "edition", "rust-version", "build", "links", "default-run",
+              "autobins", "autoexamples", "autotests", "autobenches",
+              "required-features", "dependencies", "dev-dependencies",
+              "build-dependencies", "target", "features", "lib", "bin",
+          )
+          for key in stable_keys:
+              before = original.get("package", {}).get(key) if key in original.get("package", {}) else original.get(key)
+              after = current.get("package", {}).get(key) if key in current.get("package", {}) else current.get(key)
+              if before != after:
+                  raise SystemExit(f"Cargo.toml key {key!r} changed after the release tag")
+          PY
+          echo "Verified release tag $RELEASE_TAG and stable runtime/package dependencies."
 
       - name: Package and verify
         run: cargo +1.98.1 package --locked
@@ -79,12 +116,24 @@ jobs:
           print(f"Existing {name} crate belongs to this repository; {version} is not yet published.")
           PY
 
-      - name: Publish to crates.io
+      - name: Obtain short-lived crates.io token with Trusted Publishing
+        id: auth
+        if: ${{ inputs.auth_method == 'trusted' }}
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish with Trusted Publishing
+        if: ${{ inputs.auth_method == 'trusted' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo +1.98.1 publish --locked
+
+      - name: Publish with one-time API token
+        if: ${{ inputs.auth_method == 'token' }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
         run: |
           if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
-            echo "::error::Add CRATES_IO_API_TOKEN in repository Actions secrets before publishing."
+            echo "::error::Add CRATES_IO_API_TOKEN in repository Actions secrets before first publication."
             exit 1
           fi
           cargo +1.98.1 publish --locked
