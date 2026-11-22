@@ -111,11 +111,11 @@ impl GatewayFloodLimiter {
         }
     }
 
-    fn ensure_client<'a>(
-        state: &'a mut GatewayBudgetState,
+    fn ensure_client(
+        state: &mut GatewayBudgetState,
         peer: IpAddr,
         now: Instant,
-    ) -> Option<&'a mut ClientBudget> {
+    ) -> Option<&mut ClientBudget> {
         state.clients.retain(|_, budget| {
             now.saturating_duration_since(budget.last_seen) <= Duration::from_secs(300)
                 || budget.active_websockets != 0
@@ -140,7 +140,12 @@ impl GatewayFloodLimiter {
     }
 
     fn allow_request(&self, peer: IpAddr) -> bool {
-        let now = Instant::now();
+        self.allow_request_at(peer, Instant::now())
+    }
+
+    // Fixed timestamps let tests exercise global and per-peer accounting
+    // without allowing scheduler time to refill the token buckets.
+    fn allow_request_at(&self, peer: IpAddr, now: Instant) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
         };
@@ -805,22 +810,41 @@ async fn websocket_tune_in(
         .max_message_size(MAX_WS_FRAME_BYTES)
         .on_upgrade(move |socket| {
             websocket_session(
-                socket, subscription, state.registry, state.relay, id,
-                state.flood_limiter, peer.0.ip(), ws_permit
+                socket,
+                subscription,
+                WebSocketSessionContext {
+                    registry: state.registry,
+                    relay: state.relay,
+                    stream_id: id,
+                    flood_limiter: state.flood_limiter,
+                    peer: peer.0.ip(),
+                },
+                ws_permit,
             )
         })
 }
 
-async fn websocket_session(
-    socket: WebSocket,
-    mut subscription: Subscription,
+struct WebSocketSessionContext {
     registry: StreamRegistry,
     relay: Option<Arc<StreamRelay>>,
     stream_id: String,
     flood_limiter: Arc<GatewayFloodLimiter>,
     peer: IpAddr,
+}
+
+async fn websocket_session(
+    socket: WebSocket,
+    mut subscription: Subscription,
+    context: WebSocketSessionContext,
     _permit: WebSocketPermit,
 ) {
+    let WebSocketSessionContext {
+        registry,
+        relay,
+        stream_id,
+        flood_limiter,
+        peer,
+    } = context;
     let (mut sender, mut receiver) = futures_util::StreamExt::split(socket);
     let mut ping = interval(PING_INTERVAL);
     ping.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -1082,12 +1106,13 @@ mod flood_control_tests {
     #[test]
     fn global_request_bucket_caps_aggregate_flooding() {
         let limiter = GatewayFloodLimiter::new();
+        let now = Instant::now();
         for value in 1..=(REQUEST_BURST_GLOBAL as u32) {
             let peer = IpAddr::V4(Ipv4Addr::from(value));
-            assert!(limiter.allow_request(peer));
+            assert!(limiter.allow_request_at(peer, now));
         }
         let extra_peer = IpAddr::V4(Ipv4Addr::from(REQUEST_BURST_GLOBAL as u32 + 1));
-        assert!(!limiter.allow_request(extra_peer));
+        assert!(!limiter.allow_request_at(extra_peer, now));
     }
 
     #[test]
