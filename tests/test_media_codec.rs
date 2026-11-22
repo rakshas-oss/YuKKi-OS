@@ -220,6 +220,7 @@ fn media_stream_backpressure_is_released_by_acknowledgement() {
         max_chunks_per_stream: 1,
         max_total_chunks: 1,
         max_chunk_bytes: 8,
+        ..MediaStreamConfig::default()
     });
     streams.append_chunk("camera-1", chunk(0)).unwrap();
     assert_eq!(
@@ -264,6 +265,7 @@ fn media_stream_checks_metadata_limits_and_stream_capacity() {
         max_chunks_per_stream: 2,
         max_total_chunks: 2,
         max_chunk_bytes: 2,
+        ..MediaStreamConfig::default()
     });
     assert_eq!(
         streams
