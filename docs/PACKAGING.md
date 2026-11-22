@@ -42,14 +42,19 @@ or native source paths changed after the tag. It then runs `cargo package`
 before publishing. This allows the metadata-only packaging commit to be used
 without pretending it was already part of the earlier release tag. Do not add the token to a workflow file or commit it.
 
-After the initial crate exists, configure crates.io Trusted Publishing for:
-- GitHub owner: `rakshas-oss`
+After the initial crate exists, configure a GitHub Actions trusted publisher in
+the crates.io crate settings:
+- Provider: GitHub Actions
+- Owner: `rakshas-oss`
 - Repository: `YuKKi-OS`
-- Workflow: `publish-crates.yml`
+- Workflow file: `publish-crates.yml`
 
-Then replace the one-time API-token step with crates.io OIDC Trusted
-Publishing for subsequent releases. Each crate requires its own trusted
-publisher configuration. Never publish a version that is already present.
+For later releases, dispatch the same workflow with `auth_method=trusted`.
+It uses `rust-lang/crates-io-auth-action@v1` to obtain a short-lived OIDC
+token, which is revoked at job completion. The long-lived API token is then no
+longer needed. Trusted Publishing requires the initial manual publication and
+a one-time publisher configuration; each crate has its own configuration.
+Never publish a version that is already present.
 
 ## Native and WebAssembly release artifacts
 
