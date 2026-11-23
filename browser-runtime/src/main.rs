@@ -9,7 +9,7 @@ use tao::{
 use url::Url;
 use wry::{
     dpi::{LogicalPosition, LogicalSize as WebViewLogicalSize},
-    NewWindowResponse, PageLoadEvent, PermissionResponse, Rect, WebView, WebViewBuilder,
+    NewWindowResponse, PageLoadEvent, PermissionResponse, ProxyConfig, ProxyEndpoint, Rect, WebView, WebViewBuilder,
 };
 
 use yukki_browser_runtime::{
@@ -91,6 +91,35 @@ fn toolbar_rect(size: PhysicalSize<u32>, scale_factor: f64) -> Rect {
     logical_rect(logical.width, TOOLBAR_HEIGHT, 0.0)
 }
 
+fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
+    let Some(raw) = env::var_os("YUKKI_BROWSER_PROXY") else {
+        return Ok(None);
+    };
+    let raw = raw.to_string_lossy();
+    let url = Url::parse(&raw).map_err(|_| {
+        "YUKKI_BROWSER_PROXY must be an explicit http://host:port or socks5://host:port URL".to_owned()
+    })?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("YUKKI_BROWSER_PROXY cannot contain credentials, paths, queries, or fragments".to_owned());
+    }
+    let host = url.host_str().ok_or_else(|| "Proxy URL is missing a host".to_owned())?;
+    let port = url.port().ok_or_else(|| "Proxy URL must include an explicit port".to_owned())?;
+    let endpoint = ProxyEndpoint {
+        host: host.to_owned(),
+        port: port.to_string(),
+    };
+    match url.scheme() {
+        "http" => Ok(Some(ProxyConfig::Http(endpoint))),
+        "socks5" => Ok(Some(ProxyConfig::Socks5(endpoint))),
+        _ => Err("Only HTTP CONNECT and SOCKS5 browser proxies are supported".to_owned()),
+    }
+}
+
 fn build_page(
     window: &Window,
     proxy: &EventLoopProxy<RuntimeEvent>,
@@ -103,11 +132,12 @@ fn build_page(
     let title_proxy = proxy.clone();
     let popup_proxy = proxy.clone();
     let load_proxy = proxy.clone();
+    let proxy_config = configured_proxy().map_err(std::io::Error::other)?;
     let load_started = Arc::new(Mutex::new(None::<(String, Instant)>));
     let started_state = Arc::clone(&load_started);
     let finished_state = Arc::clone(&load_started);
 
-    let view = WebViewBuilder::new()
+    let mut builder = WebViewBuilder::new()
         .with_url(url)
         .with_bounds(bounds)
         .with_visible(visible)
@@ -161,8 +191,11 @@ fn build_page(
                     duration_ms: started_at.elapsed().as_millis(),
                 });
             }
-        })
-        .build_as_child(window)?;
+        });
+    if let Some(proxy) = proxy_config {
+        builder = builder.with_proxy_config(proxy);
+    }
+    let view = builder.build_as_child(window)?;
 
     Ok(WryEngineAdapter { view })
 }
