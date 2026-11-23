@@ -16,6 +16,12 @@ use tao::{
     window::{Window, WindowBuilder},
 };
 use url::Url;
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
+#[cfg(target_os = "linux")]
+use tao::platform::unix::WindowExtUnix;
+#[cfg(target_os = "linux")]
+use wry::WebViewBuilderExtUnix;
 use wry::{
     dpi::{LogicalPosition, LogicalSize as WebViewLogicalSize},
     NewWindowResponse, PageLoadEvent, PermissionResponse, ProxyConfig, ProxyEndpoint, Rect, WebView, WebViewBuilder,
@@ -30,6 +36,79 @@ use yukki_browser_runtime::{
 
 const DEFAULT_URL: &str = "https://example.com";
 const TOOLBAR_HEIGHT: f64 = 122.0;
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinuxDisplayBackend {
+    Auto,
+    Wayland,
+    X11,
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_display_backend(value: Option<&str>) -> Result<LinuxDisplayBackend, String> {
+    match value.unwrap_or("auto").trim().to_ascii_lowercase().as_str() {
+        "" | "auto" => Ok(LinuxDisplayBackend::Auto),
+        "wayland" => Ok(LinuxDisplayBackend::Wayland),
+        "x11" | "xwayland" => Ok(LinuxDisplayBackend::X11),
+        other => Err(format!(
+            "Unsupported YUKKI_BROWSER_DISPLAY_BACKEND '{other}'; use auto, wayland, x11, or xwayland"
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_display_backend() -> Result<(), Box<dyn Error>> {
+    match parse_linux_display_backend(env::var("YUKKI_BROWSER_DISPLAY_BACKEND").ok().as_deref())
+        .map_err(std::io::Error::other)?
+    {
+        LinuxDisplayBackend::Auto => {
+            // Preserve an explicit GDK_BACKEND override. Otherwise GTK selects
+            // Wayland in a Wayland session and X11 on an Xorg/XWayland display.
+        }
+        LinuxDisplayBackend::Wayland => {
+            if env::var_os("WAYLAND_DISPLAY").is_none() {
+                return Err(std::io::Error::other(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=wayland requires WAYLAND_DISPLAY",
+                )
+                .into());
+            }
+            env::set_var("GDK_BACKEND", "wayland");
+        }
+        LinuxDisplayBackend::X11 => {
+            if env::var_os("DISPLAY").is_none() {
+                return Err(std::io::Error::other(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=x11/xwayland requires DISPLAY (Xorg or XWayland)",
+                )
+                .into());
+            }
+            // GTK's X11 backend connects to XWayland when DISPLAY points at
+            // the XWayland server in a Wayland desktop session.
+            env::set_var("GDK_BACKEND", "x11");
+        }
+    }
+    gtk::init()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn create_linux_webview_hosts(window: &Window) -> Result<(gtk::Fixed, gtk::Fixed), Box<dyn Error>> {
+    let root = window.default_vbox().ok_or_else(|| {
+        std::io::Error::other("Tao did not create its default GTK vertical container")
+    })?;
+    let toolbar_host = gtk::Fixed::new();
+    toolbar_host.set_size_request(-1, TOOLBAR_HEIGHT.ceil() as i32);
+    let page_host = gtk::Fixed::new();
+
+    // Wry's GTK-container integration is the supported path for both native
+    // Wayland and X11/XWayland. A shared Fixed host also lets tabs overlap and
+    // switch visibility without creating unsupported Wayland child surfaces.
+    root.pack_start(&toolbar_host, false, false, 0);
+    root.pack_start(&page_host, true, true, 0);
+    toolbar_host.show();
+    page_host.show();
+    Ok((toolbar_host, page_host))
+}
 
 #[derive(Debug, Deserialize)]
 struct UiMessage {
@@ -131,7 +210,8 @@ fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
 }
 
 fn build_page(
-    window: &Window,
+    #[cfg(not(target_os = "linux"))] window: &Window,
+    #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     tab_id: u64,
     url: &str,
@@ -205,19 +285,23 @@ fn build_page(
     if let Some(proxy) = proxy_config {
         builder = builder.with_proxy_config(proxy);
     }
+    #[cfg(target_os = "linux")]
+    let view = builder.build_gtk(page_host)?;
+    #[cfg(not(target_os = "linux"))]
     let view = builder.build_as_child(window)?;
 
     Ok(WryEngineAdapter { view })
 }
 
 fn build_toolbar(
-    window: &Window,
+    #[cfg(not(target_os = "linux"))] window: &Window,
+    #[cfg(target_os = "linux")] toolbar_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     size: PhysicalSize<u32>,
     scale_factor: f64,
 ) -> Result<WebView, Box<dyn Error>> {
     let ipc_proxy = proxy.clone();
-    let toolbar = WebViewBuilder::new()
+    let builder = WebViewBuilder::new()
         .with_html(include_str!("../assets/shell.html"))
         .with_bounds(toolbar_rect(size, scale_factor))
         .with_ipc_handler(move |request| {
@@ -237,8 +321,11 @@ fn build_toolbar(
                     let _ = ipc_proxy.send_event(RuntimeEvent::Ui(message));
                 }
             }
-        })
-        .build_as_child(window)?;
+        });
+    #[cfg(target_os = "linux")]
+    let toolbar = builder.build_gtk(toolbar_host)?;
+    #[cfg(not(target_os = "linux"))]
+    let toolbar = builder.build_as_child(window)?;
     Ok(toolbar)
 }
 
@@ -313,7 +400,8 @@ fn set_active_tab(tabs: &mut [Tab], selected_tab_id: u64) {
 }
 
 fn add_tab(
-    window: &Window,
+    #[cfg(not(target_os = "linux"))] window: &Window,
+    #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     tabs: &mut Vec<Tab>,
     next_tab_id: &mut u64,
@@ -328,6 +416,10 @@ fn add_tab(
     let id = *next_tab_id;
     *next_tab_id += 1;
     let bounds = page_rect(size, window.scale_factor());
+    #[cfg(target_os = "linux")]
+    let engine = build_page(page_host, proxy, id, url.as_str(), bounds, true)
+        .map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "linux"))]
     let engine = build_page(window, proxy, id, url.as_str(), bounds, true)
         .map_err(|error| error.to_string())?;
 
@@ -353,21 +445,7 @@ fn persist_state(path: &PathBuf, state: &BrowserState) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "linux")]
-    {
-        // Wry's child WebView path uses X11. Select it explicitly so Tao and
-        // GTK do not choose different display backends in mixed Wayland/XWayland sessions.
-        env::set_var("WINIT_UNIX_BACKEND", "x11");
-        if env::var_os("WAYLAND_DISPLAY").is_some() {
-            if env::var_os("DISPLAY").is_none() {
-                return Err("This first browser adapter supports Linux/X11 only; start an XWayland display or use the later GTK-container adapter for native Wayland.".into());
-            }
-            // Wry's child-window path is X11-only on Linux. Prefer XWayland when
-            // a Wayland session also exposes an X11 display.
-            env::remove_var("WAYLAND_DISPLAY");
-            env::set_var("GDK_BACKEND", "x11");
-        }
-        gtk::init()?;
-    }
+    configure_linux_display_backend()?;
 
     let requested = env::args().skip(1).next().unwrap_or_else(|| DEFAULT_URL.to_owned());
     let initial_url = resolve_address(&requested)?;
@@ -382,13 +460,30 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let initial_size = window.inner_size();
     let scale_factor = window.scale_factor();
+    #[cfg(target_os = "linux")]
+    let (toolbar_host, page_host) = create_linux_webview_hosts(&window)?;
+    #[cfg(target_os = "linux")]
+    let toolbar = build_toolbar(&toolbar_host, &proxy, initial_size, scale_factor)?;
+    #[cfg(not(target_os = "linux"))]
     let toolbar = build_toolbar(&window, &proxy, initial_size, scale_factor)?;
     let state_path = store::default_state_path();
     let mut browser_state = store::load(&state_path);
     let mut tabs = Vec::new();
     let mut next_tab_id = 1_u64;
     let mut selected_tab_id = 0_u64;
-    add_tab(
+    #[cfg(target_os = "linux")]
+    let initial_tab_result = add_tab(
+        &window,
+        &page_host,
+        &proxy,
+        &mut tabs,
+        &mut next_tab_id,
+        &mut selected_tab_id,
+        initial_url.as_str(),
+        initial_size,
+    );
+    #[cfg(not(target_os = "linux"))]
+    let initial_tab_result = add_tab(
         &window,
         &proxy,
         &mut tabs,
@@ -396,8 +491,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         &mut selected_tab_id,
         initial_url.as_str(),
         initial_size,
-    )
-    .map_err(std::io::Error::other)?;
+    );
+    initial_tab_result.map_err(std::io::Error::other)?;
 
     sync_chrome(
         &toolbar,
@@ -493,7 +588,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                     "new_tab" => {
                         let destination = message.url.as_deref().unwrap_or(DEFAULT_URL);
-                        status = add_tab(
+                        #[cfg(target_os = "linux")]
+                        let result = add_tab(
+                            &window,
+                            &page_host,
+                            &proxy,
+                            &mut tabs,
+                            &mut next_tab_id,
+                            &mut selected_tab_id,
+                            destination,
+                            window.inner_size(),
+                        );
+                        #[cfg(not(target_os = "linux"))]
+                        let result = add_tab(
                             &window,
                             &proxy,
                             &mut tabs,
@@ -501,9 +608,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                             &mut selected_tab_id,
                             destination,
                             window.inner_size(),
-                        )
-                        .map(|_| "New tab".to_owned())
-                        .unwrap_or_else(|error| error);
+                        );
+                        status = result
+                            .map(|_| "New tab".to_owned())
+                            .unwrap_or_else(|error| error);
                     }
                     "close_tab" => {
                         if tabs.len() > 1 {
@@ -601,4 +709,39 @@ fn main() -> Result<(), Box<dyn Error>> {
             gtk::main_iteration_do(false);
         }
     });
+}
+
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_display_backend_tests {
+    use super::{parse_linux_display_backend, LinuxDisplayBackend};
+
+    #[test]
+    fn display_backend_defaults_to_gtk_auto_selection() {
+        assert_eq!(
+            parse_linux_display_backend(None).unwrap(),
+            LinuxDisplayBackend::Auto
+        );
+    }
+
+    #[test]
+    fn display_backend_accepts_native_wayland_and_xwayland() {
+        assert_eq!(
+            parse_linux_display_backend(Some("wayland")).unwrap(),
+            LinuxDisplayBackend::Wayland
+        );
+        assert_eq!(
+            parse_linux_display_backend(Some("xwayland")).unwrap(),
+            LinuxDisplayBackend::X11
+        );
+        assert_eq!(
+            parse_linux_display_backend(Some("x11")).unwrap(),
+            LinuxDisplayBackend::X11
+        );
+    }
+
+    #[test]
+    fn display_backend_rejects_unknown_values() {
+        assert!(parse_linux_display_backend(Some("nested")).is_err());
+    }
 }
