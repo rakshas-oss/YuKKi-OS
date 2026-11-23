@@ -57,6 +57,10 @@ fn local_chrome_exposes_navigation_and_graphics_capability_probe() {
     let native_host = include_str!("../src/main.rs");
     assert!(native_host.contains("graphics_test"));
     assert!(native_host.contains("run_rgba_gain"));
+    assert!(native_host.contains("build_gtk"));
+    assert!(native_host.contains("YUKKI_BROWSER_DISPLAY_BACKEND"));
+    assert!(native_host.contains("xwayland"));
+    assert!(!native_host.contains("WINIT_UNIX_BACKEND"));
     assert!(shell.contains("navigator.gpu"));
     assert!(shell.contains("getContext(\"webgl2\")"));
 }
