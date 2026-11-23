@@ -10,7 +10,7 @@ use std::{
 use serde::Serialize;
 use tokio::task::JoinSet;
 use yukki_browser_runtime::accelerator::{
-    rgba_invert_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport,
+    rgba_gain_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport,
     MAX_GRAPHICS_PAYLOAD_BYTES,
 };
 use yukkios::exec_policy::ExecutionBackend;
@@ -122,9 +122,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if !metadata.is_file()
             || metadata.len() == 0
             || metadata.len() > MAX_GRAPHICS_PAYLOAD_BYTES as u64
+            || metadata.len() % 8 != 0
         {
             return Err(format!(
-                "NPU input file must be a regular file containing 1..={MAX_GRAPHICS_PAYLOAD_BYTES} bytes"
+                "NPU input file must be a regular file containing 8-byte-aligned f64 values and 1..={MAX_GRAPHICS_PAYLOAD_BYTES} bytes"
             )
             .into());
         }
@@ -150,11 +151,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         npu_result,
         notes: vec![
             "WebKit remains responsible for browser page rasterization and WebGL/WebGPU rendering.",
-            "RGBA results measure a bounded auxiliary tile-transform module, not full-page rendering.",
+            "RGBA results measure a bounded auxiliary RGB channel-gain transform using the broker's deterministic multiply-by-two kernel, not full-page rendering.",
             "Accelerator execution is counted only when the broker response attests the backend.",
             "Peer capability labels are discovery hints; they are not hardware attestations.",
             "The benchmark uses bounded concurrency and never opens more than --concurrency tasks at once.",
-            "NPU measurements require --npu-input containing a tensor compatible with the active Ethos-U85 bundle.",
+            "NPU measurements require --npu-input containing network-order f64 values compatible with the active NPU executor/model bundle.",
         ],
     };
 
@@ -184,7 +185,7 @@ async fn benchmark_frame(
 
     for _ in 0..iterations {
         let cpu_start = Instant::now();
-        let cpu_output = rgba_invert_cpu(&frame);
+        let cpu_output = rgba_gain_cpu(&frame);
         cpu_samples.push(cpu_start.elapsed());
         if cpu_output.len() != frame.len() {
             return Err("CPU reference returned an invalid output length".into());
@@ -202,7 +203,7 @@ async fn benchmark_frame(
         delegated_samples.push(scheduled_start.elapsed());
 
         for (index, report) in reports {
-            let expected = rgba_invert_cpu(&tiles[index]);
+            let expected = rgba_gain_cpu(&tiles[index]);
             if report.output != expected {
                 output_verified = false;
                 return Err(format!(
@@ -271,7 +272,7 @@ async fn run_tiles_bounded(
             let index = next;
             let task_id = format!("gfx-{width}x{height}-{index}");
             tasks.spawn(async move {
-                let report = scheduler.run_rgba_invert(&task_id, &tile).await?;
+                let report = scheduler.run_rgba_gain(&task_id, &tile).await?;
                 Ok::<_, String>((index, report))
             });
             next += 1;
