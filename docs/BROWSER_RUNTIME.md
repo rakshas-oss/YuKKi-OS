@@ -94,7 +94,7 @@ The default private WebView mode avoids intentionally persisting website cookies
 | Downloads | Disabled pending bounded download storage and quota enforcement |
 | Whole-request egress mediation / mesh isolation | Not complete; requires OS proxy/firewall integration |
 | Hard CPU/memory quotas and robust site/process isolation | Not complete |
-| Native Wayland and X11/XWayland GTK container integration | Implemented through Wry `build_gtk` and shared GTK `Fixed` hosts |
+| Native Wayland, standalone X11, and XWayland GTK container integration | Implemented through Wry `build_gtk` and shared GTK `Fixed` hosts; CI smoke-tests Weston Wayland, Xvfb X11, and Weston XWayland |
 | Page-load timing baseline | Implemented per tab; measures Wry page-load event duration only |
 | Browser graphics acceleration benchmarking | Not complete; platform engine defaults apply |
 
