@@ -147,8 +147,14 @@ mod tests {
 
     #[test]
     fn accepts_public_http_and_https_addresses() {
-        assert_eq!(resolve_address("example.com").unwrap().as_str(), "https://example.com/");
-        assert_eq!(resolve_address("http://example.com").unwrap().scheme(), "http");
+        assert_eq!(
+            resolve_address("example.com").unwrap().as_str(),
+            "https://example.com/"
+        );
+        assert_eq!(
+            resolve_address("http://example.com").unwrap().scheme(),
+            "http"
+        );
         assert!(validate_navigation("https://www.rust-lang.org/").is_ok());
     }
 
@@ -161,9 +167,18 @@ mod tests {
 
     #[test]
     fn rejects_non_web_schemes_and_credentials() {
-        assert_eq!(validate_navigation("javascript:alert(1)"), Err(NavigationError::UnsupportedScheme));
-        assert_eq!(validate_navigation("file:///etc/passwd"), Err(NavigationError::UnsupportedScheme));
-        assert_eq!(validate_navigation("https://user:pass@example.com"), Err(NavigationError::EmbeddedCredentials));
+        assert_eq!(
+            validate_navigation("javascript:alert(1)"),
+            Err(NavigationError::UnsupportedScheme)
+        );
+        assert_eq!(
+            validate_navigation("file:///etc/passwd"),
+            Err(NavigationError::UnsupportedScheme)
+        );
+        assert_eq!(
+            validate_navigation("https://user:pass@example.com"),
+            Err(NavigationError::EmbeddedCredentials)
+        );
     }
 
     #[test]
@@ -180,14 +195,23 @@ mod tests {
             "http://[2001:db8::1]/",
             "http://[fd00::1]/",
         ] {
-            assert!(validate_navigation(url).is_err(), "expected {url} to be blocked");
+            assert!(
+                validate_navigation(url).is_err(),
+                "expected {url} to be blocked"
+            );
         }
     }
 
     #[test]
     fn rejects_empty_and_malformed_inputs() {
         assert_eq!(resolve_address("  "), Err(NavigationError::EmptyAddress));
-        assert_eq!(resolve_address("x".repeat(2049).as_str()), Err(NavigationError::AddressTooLong));
-        assert_eq!(resolve_address("https://"), Err(NavigationError::InvalidAddress));
+        assert_eq!(
+            resolve_address("x".repeat(2049).as_str()),
+            Err(NavigationError::AddressTooLong)
+        );
+        assert_eq!(
+            resolve_address("https://"),
+            Err(NavigationError::InvalidAddress)
+        );
     }
 }
