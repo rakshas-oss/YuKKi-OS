@@ -45,13 +45,15 @@ fn local_chrome_exposes_navigation_and_graphics_capability_probe() {
     let shell = include_str!("../assets/shell.html");
     for action in [
         "back", "forward", "reload", "navigate", "bookmark",
-        "new_tab", "close_tab", "switch_tab",
+        "new_tab", "close_tab", "switch_tab", "graphics_test",
     ] {
         assert!(shell.contains(&format!("\"action\": \"{action}\"")) ||
                 shell.contains(&format!("action: \"{action}\"")),
                 "missing browser action {action}");
     }
     assert!(shell.contains("id=\"graphics\""));
+    assert!(shell.contains("id=\"graphics-test\""));
+    assert!(shell.contains("never sends webpage pixels"));
     assert!(shell.contains("navigator.gpu"));
     assert!(shell.contains("getContext(\"webgl2\")"));
 }
