@@ -141,7 +141,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         os: env::consts::OS,
         architecture: env::consts::ARCH,
         remote_delegation_enabled: env_flag("YUKKI_BROWSER_REMOTE_ACCELERATION"),
-        remote_cpu_enabled: env_flag("YUKKI_BROWSER_REMOTE_CPU"),
+        remote_cpu_enabled: env_flag("YUKKI_BROWSER_REMOTE_ACCELERATION")
+            && env_flag("YUKKI_BROWSER_REMOTE_CPU"),
         discovered_peers: status.discovered_peer_count,
         discovered_gpu_peers: status.discovered_gpu_peer_count,
         discovered_cpu_peers: status.discovered_cpu_peer_count,
@@ -299,8 +300,12 @@ async fn benchmark_npu(
 
     for index in 0..iterations {
         let task_id = format!("gfx-npu-{index}");
-        let report = scheduler.run_npu_inference(&task_id, payload).await.map_err(std::io::Error::other)?;
-        samples.push(Duration::from_millis(report.elapsed_ms.min(u64::MAX as u128) as u64));
+        let started = Instant::now();
+        let report = scheduler
+            .run_npu_inference(&task_id, payload)
+            .await
+            .map_err(std::io::Error::other)?;
+        samples.push(started.elapsed());
         if let Some(worker) = report.broker_worker_id {
             worker_ids.insert(worker);
         }
