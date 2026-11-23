@@ -90,7 +90,10 @@ Keep `browser-wasm` as the portable stream/spatiotemporal client and preserve it
 
 The browser runtime can delegate bounded auxiliary compute to other YuKKi
 servers using the broker records learned by the local node over its
-PSK-authenticated peer mesh. This is a separate execution plane: WebKit still
+PSK-authenticated peer mesh. Make the capability and broker endpoint
+environment variables available to both the YuKKi node and browser process
+when both run on the same server; the browser does not infer a local GPU from
+the mere presence of a broker connection. This is a separate execution plane: WebKit still
 renders web pages locally and owns the WebGL/WebGPU context. The broker path
 does not remote-render or move a page's compositor.
 
@@ -134,6 +137,11 @@ payload ceiling remains 512 KiB.
 ```sh
 export YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json"
 export YUKKI_BROWSER_REMOTE_ACCELERATION=true
+# Keep the local broker's declared capabilities in the browser process too:
+export YUKKI_BROKER_CAPABILITIES=cpu,gpu
+# Optional local broker connection:
+export YUKKI_GPU_ADAPTER_ENABLED=true
+export YUKKI_GPU_BROKER_ENDPOINT=127.0.0.1:9090
 # Optional; off by default because LAN latency can exceed local CPU cost:
 export YUKKI_BROWSER_REMOTE_CPU=true
 # For a local GPU broker, configure the regular adapter variables:
