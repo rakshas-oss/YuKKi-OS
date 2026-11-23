@@ -84,3 +84,88 @@ Keep `browser-wasm` as the portable stream/spatiotemporal client and preserve it
 - [Wry crate documentation](https://docs.rs/wry/latest/wry/)
 - [Tao crate documentation](https://docs.rs/tao/latest/tao/)
 - [Wry platform and Linux dependency notes](https://docs.rs/crate/wry/latest)
+
+
+## Delegation across YuKKi servers
+
+The browser runtime can use the node's local broker-directory snapshot to
+delegate bounded browser-adjacent compute to other YuKKi servers. This is
+separate from page rendering: the user's WebKit instance still renders pages
+locally and owns its WebGL/WebGPU context. The broker path is for compute
+modules and model inference, not a remote display server.
+
+Configure the YuKKi node and browser process to use the same private
+`YUKKI_BROKER_DIRECTORY_FILE`. The node populates it from broker records
+received over its authenticated peer mesh. Then enable delegation in the
+browser:
+
+```sh
+export YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json"
+export YUKKI_BROWSER_REMOTE_ACCELERATION=true
+export YUKKI_BROWSER_GRAPHICS_MODULE_ID=browser.graphics.rgba-invert
+export YUKKI_BROWSER_GRAPHICS_MODULE_VERSION=1
+```
+
+The graphics module ID/version must refer to a WSM1 compute module already
+prepared and active on the target broker nodes. That module must accept the
+bounded RGBA8 tile payload and return an output of the same byte length. The
+runtime tries a local GPU broker first, then discovered peers advertising
+`gpu`. It accepts a GPU result only when the broker's BRK2 response field 7
+reports `gpu`, the WSM1 task status is successful, and the output length is
+correct. An advertised GPU that reports CPU or omits backend attestation is
+not counted as GPU work.
+
+CPU-only servers remain useful. They advertise `cpu` and can receive the
+same already-deployed RGBA tile module only when the operator explicitly sets
+`YUKKI_BROWSER_REMOTE_CPU=true`. This is disabled by default because network
+latency can cost more than local CPU execution. If a peer is unavailable,
+unattested, or returns invalid output, the browser falls back to the identical
+local CPU reference transform.
+
+A peer advertising `npu` can receive model inference requests. Physical
+Ethos-U85 execution is still provided by Overhauled's opt-in DRM executor and
+requires a Vela-generated `YU85BND1` bundle. The browser runtime accepts NPU
+execution only when BRK2 field 7 says `npu`; a GPU/CPU fallback is not
+silently reported as NPU. The NPU input must be a tensor compatible with the
+operator's active model bundle. NPU is not used to rasterize arbitrary web
+pages.
+
+### Graphics delegation benchmark
+
+Build and run the bounded tile benchmark:
+
+```sh
+cargo build --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench
+
+YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json" \
+YUKKI_BROWSER_REMOTE_ACCELERATION=true \
+YUKKI_BROWSER_GRAPHICS_MODULE_ID=browser.graphics.rgba-invert \
+YUKKI_BROWSER_GRAPHICS_MODULE_VERSION=1 \
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- \
+  --iterations 3 --concurrency 4 --output browser-graphics.json
+```
+
+The full run covers 320×240, 1280×720, 1920×1080, and 3840×2160 frames.
+Frames are divided into 128×128 RGBA8 tiles, each no larger than 64 KiB.
+Concurrency is bounded (default four, maximum eight). Every output tile is
+compared with the CPU reference. Reports include CPU-reference median time,
+scheduled median/p95 time, actual backend counts, and remote node IDs.
+
+Use `--quick --cpu-only` for a hardware-free smoke run. Use
+`YUKKI_BROWSER_REMOTE_CPU=true` to include CPU-only peers in the remote
+fallback chain. To benchmark NPU inference, supply a real model-compatible
+input tensor with `--npu-input <file>`; the runner rejects arbitrary oversized
+or empty inputs and only accepts a BRK2-attested NPU response.
+
+**Benchmark boundary:** these measurements cover the auxiliary RGBA tile
+transform and broker delegation overhead. They are not page-render FPS,
+WebGL/WebGPU throughput, full-screen compositor measurements, or a benchmark
+of WebKit's own graphics driver. Those require instrumentation inside the
+platform WebView renderer. The current NPU benchmark is model inference, not
+graphics rasterization.
+
+The BRK2 broker transport remains unauthenticated. Directory discovery over
+the PSK-authenticated mesh does not protect the later browser-to-broker TCP
+connection. Keep endpoints on a trusted private network; do not expose them
+to untrusted peers.
