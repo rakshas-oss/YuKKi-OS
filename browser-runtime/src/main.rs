@@ -172,7 +172,11 @@ fn logical_rect(width: f64, height: f64, y: f64) -> Rect {
 
 fn page_rect(size: PhysicalSize<u32>, scale_factor: f64) -> Rect {
     let logical = size.to_logical::<f64>(scale_factor);
-    logical_rect(logical.width, logical.height - TOOLBAR_HEIGHT, TOOLBAR_HEIGHT)
+    #[cfg(target_os = "linux")]
+    let y = 0.0;
+    #[cfg(not(target_os = "linux"))]
+    let y = TOOLBAR_HEIGHT;
+    logical_rect(logical.width, logical.height - TOOLBAR_HEIGHT, y)
 }
 
 fn toolbar_rect(size: PhysicalSize<u32>, scale_factor: f64) -> Rect {
