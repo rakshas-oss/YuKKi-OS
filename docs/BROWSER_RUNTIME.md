@@ -39,11 +39,15 @@ YUKKI_BROWSER_DISPLAY_BACKEND=auto cargo run --manifest-path browser-runtime/Car
 # Force native Wayland (requires WAYLAND_DISPLAY)
 YUKKI_BROWSER_DISPLAY_BACKEND=wayland cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
 
-# Force the X11 client path. In a Wayland session, DISPLAY should refer to XWayland.
+# Force a conventional X11 server (requires DISPLAY)
+YUKKI_BROWSER_DISPLAY_BACKEND=x11 cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
+
+# Force XWayland inside a Wayland session (requires DISPLAY and WAYLAND_DISPLAY,
+# or DISPLAY plus XDG_SESSION_TYPE=wayland)
 YUKKI_BROWSER_DISPLAY_BACKEND=xwayland cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
 ```
 
-`x11` is an accepted alias for `xwayland` and also works on a native Xorg session. The runtime checks that the selected display variable exists and sets `GDK_BACKEND` before GTK initialization. The Linux host no longer forces X11 or removes `WAYLAND_DISPLAY`; Tao owns the GTK window and Wry embeds the toolbar and page views into GTK `Fixed` containers. This avoids relying on Wayland-incompatible child-window embedding while retaining the same container path for X11/XWayland.
+`x11` and `xwayland` are deliberately distinct modes. Both select GTK's X11 client backend; `x11` requires a non-empty `DISPLAY`, while `xwayland` additionally verifies a Wayland session through `WAYLAND_DISPLAY` or `XDG_SESSION_TYPE=wayland`. Native `wayland` requires a non-empty `WAYLAND_DISPLAY`. Auto mode leaves `GDK_BACKEND` untouched so GTK can honor the desktop session. Explicit modes set `GDK_BACKEND` before GTK initialization. The Linux host uses a shared GTK container path for Wayland, X11, and XWayland rather than child-window embedding.
 
 The address bar accepts HTTP(S) URLs, hostnames (upgraded to HTTPS), and search terms. The shell includes navigation, reload, tabs, bounded history, and bookmarks. The runtime caps the number of resident tabs at eight. Per-tab top-level page-load timings are exposed in the tab tooltip and status line as an initial performance baseline; they do not measure GPU work or whole-page resource costs. The toolbar probes whether WebGL 2 and a WebGPU adapter are available in the platform WebView and reports the APIs detected. This is capability detection only: it does not prove hardware acceleration, driver stability, or YuKKi GPU/NPU scheduling.
 
