@@ -19,7 +19,7 @@ use yukki_browser_runtime::{
 };
 
 const DEFAULT_URL: &str = "https://example.com";
-const TOOLBAR_HEIGHT: f64 = 86.0;
+const TOOLBAR_HEIGHT: f64 = 122.0;
 
 #[derive(Debug, Deserialize)]
 struct UiMessage {
@@ -308,7 +308,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         &mut selected_tab_id,
         initial_url.as_str(),
         initial_size,
-    )?;
+    )
+    .map_err(std::io::Error::other)?;
 
     sync_chrome(
         &toolbar,
