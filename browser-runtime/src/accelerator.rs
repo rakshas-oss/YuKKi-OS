@@ -859,12 +859,13 @@ mod tests {
     fn remote_delegation_requires_explicit_operator_opt_in() {
         let now = 1_700_000_000;
         let records = vec![sample_record(now, "gpu-peer.internal:9090", &["gpu"])];
-        let mut scheduler = scheduler_for_test(false);
-        scheduler.remote_enabled = false;
-        let result = scheduler.with_authenticated_peer_records(records, now);
-        assert!(result.is_err());
-        scheduler.remote_enabled = true;
-        assert!(scheduler.with_authenticated_peer_records(Vec::new(), now).is_ok());
+
+        let mut disabled = scheduler_for_test(false);
+        disabled.remote_enabled = false;
+        assert!(disabled.with_authenticated_peer_records(records, now).is_err());
+
+        let enabled = scheduler_for_test(false);
+        assert!(enabled.with_authenticated_peer_records(Vec::new(), now).is_ok());
     }
 
     #[test]
