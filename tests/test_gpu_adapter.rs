@@ -23,9 +23,10 @@ use yukkios::{
         WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
         WasmTaskRequest, WasmTaskResponse, WasmTaskStatus, Wsm1Message, BRK1_MAGIC,
         BRK1_MSG_REQUEST, BRK1_MSG_RESPONSE, CURRENT_PROTOCOL_VERSION, MAX_CONFIG_TIMEOUT,
-        MAX_TASK_TIMEOUT_MS, WSM1_MAGIC, WorkerDirective,
+        MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
+    WorkerDirective,
 };
 
 // ============================================================================
