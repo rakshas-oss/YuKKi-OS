@@ -210,7 +210,7 @@ fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
 }
 
 fn build_page(
-    #[cfg(not(target_os = "linux"))] window: &Window,
+    window: &Window,
     #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     tab_id: u64,
@@ -400,7 +400,7 @@ fn set_active_tab(tabs: &mut [Tab], selected_tab_id: u64) {
 }
 
 fn add_tab(
-    #[cfg(not(target_os = "linux"))] window: &Window,
+    window: &Window,
     #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     tabs: &mut Vec<Tab>,
@@ -417,7 +417,7 @@ fn add_tab(
     *next_tab_id += 1;
     let bounds = page_rect(size, window.scale_factor());
     #[cfg(target_os = "linux")]
-    let engine = build_page(page_host, proxy, id, url.as_str(), bounds, true)
+    let engine = build_page(window, page_host, proxy, id, url.as_str(), bounds, true)
         .map_err(|error| error.to_string())?;
     #[cfg(not(target_os = "linux"))]
     let engine = build_page(window, proxy, id, url.as_str(), bounds, true)
