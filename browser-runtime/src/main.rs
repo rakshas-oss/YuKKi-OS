@@ -46,6 +46,7 @@ enum LinuxDisplayBackend {
     Auto,
     Wayland,
     X11,
+    XWayland,
 }
 
 #[cfg(target_os = "linux")]
@@ -53,7 +54,8 @@ fn parse_linux_display_backend(value: Option<&str>) -> Result<LinuxDisplayBacken
     match value.unwrap_or("auto").trim().to_ascii_lowercase().as_str() {
         "" | "auto" => Ok(LinuxDisplayBackend::Auto),
         "wayland" => Ok(LinuxDisplayBackend::Wayland),
-        "x11" | "xwayland" => Ok(LinuxDisplayBackend::X11),
+        "x11" => Ok(LinuxDisplayBackend::X11),
+        "xwayland" => Ok(LinuxDisplayBackend::XWayland),
         other => Err(format!(
             "Unsupported YUKKI_BROWSER_DISPLAY_BACKEND '{other}'; use auto, wayland, x11, or xwayland"
         )),
@@ -61,34 +63,74 @@ fn parse_linux_display_backend(value: Option<&str>) -> Result<LinuxDisplayBacken
 }
 
 #[cfg(target_os = "linux")]
-fn configure_linux_display_backend() -> Result<(), Box<dyn Error>> {
-    match parse_linux_display_backend(env::var("YUKKI_BROWSER_DISPLAY_BACKEND").ok().as_deref())
-        .map_err(std::io::Error::other)?
-    {
+fn has_display_value(value: Option<&str>) -> bool {
+    value.is_some_and(|value| !value.trim().is_empty())
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_linux_gdk_backend(
+    requested: Option<&str>,
+    wayland_display: Option<&str>,
+    x_display: Option<&str>,
+    session_type: Option<&str>,
+) -> Result<Option<&'static str>, String> {
+    match parse_linux_display_backend(requested)? {
         LinuxDisplayBackend::Auto => {
-            // Preserve an explicit GDK_BACKEND override. Otherwise GTK selects
-            // Wayland in a Wayland session and X11 on an Xorg/XWayland display.
+            // Keep GDK_BACKEND untouched so GTK can honor desktop/session policy.
+            Ok(None)
         }
         LinuxDisplayBackend::Wayland => {
-            if env::var_os("WAYLAND_DISPLAY").is_none() {
-                return Err(std::io::Error::other(
-                    "YUKKI_BROWSER_DISPLAY_BACKEND=wayland requires WAYLAND_DISPLAY",
-                )
-                .into());
+            if !has_display_value(wayland_display) {
+                return Err(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=wayland requires a non-empty WAYLAND_DISPLAY"
+                        .to_owned(),
+                );
             }
-            env::set_var("GDK_BACKEND", "wayland");
+            Ok(Some("wayland"))
         }
         LinuxDisplayBackend::X11 => {
-            if env::var_os("DISPLAY").is_none() {
-                return Err(std::io::Error::other(
-                    "YUKKI_BROWSER_DISPLAY_BACKEND=x11/xwayland requires DISPLAY (Xorg or XWayland)",
-                )
-                .into());
+            if !has_display_value(x_display) {
+                return Err(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=x11 requires a non-empty DISPLAY (Xorg or XWayland)"
+                        .to_owned(),
+                );
             }
-            // GTK's X11 backend connects to XWayland when DISPLAY points at
-            // the XWayland server in a Wayland desktop session.
-            env::set_var("GDK_BACKEND", "x11");
+            Ok(Some("x11"))
         }
+        LinuxDisplayBackend::XWayland => {
+            if !has_display_value(x_display) {
+                return Err(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=xwayland requires a non-empty DISPLAY supplied by XWayland"
+                        .to_owned(),
+                );
+            }
+            let wayland_session = has_display_value(wayland_display)
+                || session_type.is_some_and(|value| value.trim().eq_ignore_ascii_case("wayland"));
+            if !wayland_session {
+                return Err(
+                    "YUKKI_BROWSER_DISPLAY_BACKEND=xwayland requires a Wayland session (WAYLAND_DISPLAY or XDG_SESSION_TYPE=wayland)"
+                        .to_owned(),
+                );
+            }
+            Ok(Some("x11"))
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_display_backend() -> Result<(), Box<dyn Error>> {
+    let backend = resolve_linux_gdk_backend(
+        env::var("YUKKI_BROWSER_DISPLAY_BACKEND").ok().as_deref(),
+        env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        env::var("DISPLAY").ok().as_deref(),
+        env::var("XDG_SESSION_TYPE").ok().as_deref(),
+    )
+    .map_err(std::io::Error::other)?;
+
+    if let Some(backend) = backend {
+        // GDK reads this during initialization. Set it before GTK/Tao creates
+        // any display objects so the requested transport is selected reliably.
+        env::set_var("GDK_BACKEND", backend);
     }
     gtk::init()?;
     Ok(())
@@ -793,18 +835,57 @@ mod linux_display_backend_tests {
     }
 
     #[test]
-    fn display_backend_accepts_native_wayland_and_xwayland() {
+    fn display_backend_distinguishes_x11_from_xwayland() {
         assert_eq!(
             parse_linux_display_backend(Some("wayland")).unwrap(),
             LinuxDisplayBackend::Wayland
         );
         assert_eq!(
             parse_linux_display_backend(Some("xwayland")).unwrap(),
-            LinuxDisplayBackend::X11
+            LinuxDisplayBackend::XWayland
         );
         assert_eq!(
             parse_linux_display_backend(Some("x11")).unwrap(),
             LinuxDisplayBackend::X11
+        );
+    }
+
+    #[test]
+    fn display_backend_resolves_native_wayland_x11_and_xwayland() {
+        assert_eq!(
+            super::resolve_linux_gdk_backend(Some("wayland"), Some("wayland-1"), None, None)
+                .unwrap(),
+            Some("wayland")
+        );
+        assert_eq!(
+            super::resolve_linux_gdk_backend(Some("x11"), None, Some(":0"), Some("x11")).unwrap(),
+            Some("x11")
+        );
+        assert_eq!(
+            super::resolve_linux_gdk_backend(
+                Some("xwayland"),
+                Some("wayland-1"),
+                Some(":1"),
+                Some("wayland")
+            )
+            .unwrap(),
+            Some("x11")
+        );
+    }
+
+    #[test]
+    fn display_backend_rejects_missing_or_empty_session_displays() {
+        assert!(super::resolve_linux_gdk_backend(Some("wayland"), Some(" "), None, None).is_err());
+        assert!(super::resolve_linux_gdk_backend(Some("x11"), None, Some(""), None).is_err());
+        assert!(super::resolve_linux_gdk_backend(Some("xwayland"), None, Some(":1"), Some("x11")).is_err());
+        assert!(super::resolve_linux_gdk_backend(Some("xwayland"), None, Some(":1"), None).is_err());
+    }
+
+    #[test]
+    fn auto_backend_leaves_gtk_session_selection_untouched() {
+        assert_eq!(
+            super::resolve_linux_gdk_backend(None, None, None, None).unwrap(),
+            None
         );
     }
 
