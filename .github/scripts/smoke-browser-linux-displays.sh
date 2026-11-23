@@ -13,6 +13,10 @@ rm -rf "$runtime_dir"
 mkdir -p "$runtime_dir"
 chmod 700 "$runtime_dir"
 export XDG_RUNTIME_DIR="$runtime_dir"
+# XWayland also needs the conventional Unix-socket directory in minimal CI
+# containers; it may not exist on a headless runner image.
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
 export LIBGL_ALWAYS_SOFTWARE=1
 
 weston \
