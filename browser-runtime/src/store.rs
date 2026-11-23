@@ -5,11 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     env, fs,
     fs::OpenOptions,
     io,
     path::{Path, PathBuf},
-    collections::HashSet,
 };
 
 const MAX_HISTORY: usize = 200;
@@ -99,7 +99,10 @@ fn dedupe_preserving_order(values: &mut Vec<String>) {
 
 pub fn save(path: &Path, state: &BrowserState) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "state path has no parent directory")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "state path has no parent directory",
+        )
     })?;
     fs::create_dir_all(parent)?;
 
