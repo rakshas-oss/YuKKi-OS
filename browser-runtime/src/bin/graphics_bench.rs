@@ -203,7 +203,7 @@ async fn benchmark_frame(
                     remote_execution_count += 1;
                     remote_nodes.insert(node.to_string());
                 }
-                (yukki_browser_runtime::accelerator::ExecutionBackend::Gpu, None) => {
+                (ExecutionBackend::Gpu, None) => {
                     counts.local_gpu += 1;
                 }
                 (ExecutionBackend::Cpu, Some(node)) => {
@@ -211,7 +211,7 @@ async fn benchmark_frame(
                     remote_execution_count += 1;
                     remote_nodes.insert(node.to_string());
                 }
-                (yukki_browser_runtime::accelerator::ExecutionBackend::Cpu, None) => {
+                (ExecutionBackend::Cpu, None) => {
                     counts.local_cpu += 1;
                 }
                 _ => {}
