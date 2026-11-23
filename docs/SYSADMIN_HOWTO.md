@@ -626,3 +626,60 @@ class names, BRK2 fields, legacy compatibility, and limitations.
 ## Advertise an Overhauled broker
 
 To publish a broker endpoint from a YuKKi-OS node, configure `YUKKI_BROKER_ENDPOINT=host:port` before starting the node. Optionally set `YUKKI_BROKER_CAPABILITIES=cpu,gpu,npu`; these are descriptive labels, not health or hardware attestations. The node refreshes a 90-second service lease every 30 seconds and gossips it over the authenticated peer mesh. Do not advertise a public unauthenticated broker listener: use a private network or independently authenticated mTLS proxy. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
+
+
+## Browser graphics delegation across YuKKi servers
+
+The native browser runtime can delegate a bounded auxiliary compute benchmark
+to Overhauled brokers advertised by YuKKi nodes. Page rendering remains local
+to WebKit; this is not remote page compositing.
+
+On every node that runs an Overhauled broker, configure its reachable endpoint,
+the capabilities actually enabled on that broker, and the local directory
+snapshot path:
+
+```sh
+export YUKKI_BROKER_ENDPOINT=10.0.0.22:9090
+export YUKKI_BROKER_CAPABILITIES=cpu,gpu
+export YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json"
+```
+
+For a CPU-only worker use `YUKKI_BROKER_CAPABILITIES=cpu`. Advertise
+`npu` only when a concrete executor is configured; physical Ethos-U85 work
+requires the Overhauled DRM backend and a compatible Vela bundle. The labels
+are descriptive, not hardware proofs. The peer record is learned over the
+authenticated mesh, but the broker TCP connection is not protected by that
+mesh; keep it on a trusted private network.
+
+The browser process must use the same `YUKKI_BROKER_DIRECTORY_FILE` path as
+the local node and explicitly opt in:
+
+```sh
+export YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json"
+export YUKKI_BROWSER_REMOTE_ACCELERATION=true
+# Optional remote CPU fallback; off by default:
+export YUKKI_BROWSER_REMOTE_CPU=true
+cargo run --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser
+```
+
+To use a broker on the same host, also configure
+`YUKKI_GPU_ADAPTER_ENABLED=true` and `YUKKI_GPU_BROKER_ENDPOINT=host:port`.
+Remote-only operation can create per-peer BRK2 clients from the directory
+without enabling a local broker. Peer records advertise a 1 MiB frame cap,
+matching the browser client's default. The existing BRK2 payload limit remains
+512 KiB; browser RGBA tiles are 64 KiB and encode to 384 KiB of RGB f64 data.
+
+Run the bounded graphics delegation benchmark with:
+
+```sh
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- --quick --iterations 1 --concurrency 4
+```
+
+Use a full run for local comparisons. The benchmark reports actual BRK2
+backend attestations, per-node delegation counts, median/p95 time, and checks
+each result against the deterministic CPU reference. It does not measure
+WebKit page rendering. Explicit GPU preference dispatch below the broker's
+automatic 1 MiB offload heuristic requires Overhauled PR #89. Until that
+dependency passes and is integrated, a bounded tile may legitimately be
+answered by CPU and will not be counted as GPU execution.
