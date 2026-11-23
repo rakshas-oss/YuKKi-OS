@@ -234,7 +234,7 @@ jobs:
           if-no-files-found: error
 
   build-browser-runtime:
-    name: Native Browser Runtime (${{ matrix.platform }})
+    name: Native Browser Runtime — Wayland and X11/XWayland (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -256,6 +256,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev
       - name: Check browser runtime formatting
         run: cargo fmt --manifest-path browser-runtime/Cargo.toml -- --check
+      - name: Test Linux display backend selection
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --manifest-path browser-runtime/Cargo.toml --bin yukki-browser linux_display_backend
       - name: Test browser runtime contracts
         run: cargo test --manifest-path browser-runtime/Cargo.toml
       - name: Build native browser runtime and graphics benchmark
