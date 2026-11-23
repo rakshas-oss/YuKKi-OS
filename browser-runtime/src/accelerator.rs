@@ -30,7 +30,7 @@ const DEFAULT_PRIORITY: u8 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcceleratorStatus {
     pub broker_configured: bool,
-    pub gpu_module_configured: bool,
+    pub gpu_acceleration_available: bool,
     /// Operator opt-in plus a local broker, not a hardware attestation.
     pub npu_opted_in: bool,
     pub cpu_forced: bool,
@@ -70,8 +70,6 @@ pub struct BrowserAcceleratorScheduler {
     peer_directory_file: Option<PathBuf>,
     last_peer_refresh: Mutex<Option<Instant>>,
     policy: BackendPolicy,
-    graphics_module_id: Option<String>,
-    graphics_module_version: Option<String>,
     npu_opted_in: bool,
     remote_enabled: bool,
     remote_cpu_enabled: bool,
@@ -90,8 +88,6 @@ impl BrowserAcceleratorScheduler {
             None
         };
 
-        let graphics_module_id = bounded_env("YUKKI_BROWSER_GRAPHICS_MODULE_ID", 128)?;
-        let graphics_module_version = bounded_env("YUKKI_BROWSER_GRAPHICS_MODULE_VERSION", 64)?;
         let remote_enabled = env_flag("YUKKI_BROWSER_REMOTE_ACCELERATION");
         let remote_cpu_enabled = remote_enabled && env_flag("YUKKI_BROWSER_REMOTE_CPU");
         let npu_opted_in = env_flag("YUKKI_NPU_AVAILABLE") && local_client.is_some();
@@ -107,8 +103,6 @@ impl BrowserAcceleratorScheduler {
             },
             last_peer_refresh: Mutex::new(None),
             policy: BackendPolicy::from_env(),
-            graphics_module_id,
-            graphics_module_version,
             npu_opted_in,
             remote_enabled,
             remote_cpu_enabled,
@@ -234,15 +228,12 @@ impl BrowserAcceleratorScheduler {
 
     pub fn status(&self) -> AcceleratorStatus {
         let has_local_broker = self.local_client.is_some();
-        let gpu_module_configured =
-            self.graphics_module_id.is_some() && self.graphics_module_version.is_some();
         let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
         let has_remote_gpu = self.remote_enabled
             && peers.iter().any(|peer| has_capability(peer, "gpu"));
         AcceleratorStatus {
             broker_configured: has_local_broker || !peers.is_empty(),
-            gpu_module_configured: gpu_module_configured
-                && (has_local_broker || has_remote_gpu),
+            gpu_acceleration_available: has_local_broker || has_remote_gpu,
             npu_opted_in: self.npu_opted_in,
             cpu_forced: !self.policy.accelerators_allowed,
             gpu_offload_threshold_bytes: self.policy.offload_threshold_bytes,
@@ -265,7 +256,7 @@ impl BrowserAcceleratorScheduler {
     fn availability(&self) -> BackendAvailability {
         let status = self.status();
         BackendAvailability {
-            gpu: status.gpu_module_configured,
+            gpu: status.gpu_acceleration_available,
             npu: self.npu_opted_in || status.discovered_npu_peer_count > 0,
             remote: status.discovered_peer_count > 0,
         }
@@ -299,7 +290,7 @@ impl BrowserAcceleratorScheduler {
     /// enabled remote CPU peers, then the local CPU reference implementation.
     /// A broker result is accepted only when BRK2 attests the requested backend
     /// and the output size matches the input.
-    pub async fn run_rgba_invert(
+    pub async fn run_rgba_gain(
         &self,
         task_id: &str,
         rgba8: &[u8],
@@ -314,23 +305,18 @@ impl BrowserAcceleratorScheduler {
             return Ok(cpu_report(requested_backend, rgba8, started, None));
         }
 
-        let module_id = self.graphics_module_id.as_deref().ok_or_else(|| {
-            "YUKKI_BROWSER_GRAPHICS_MODULE_ID is required for broker graphics compute".to_owned()
-        })?;
-        let module_version = self.graphics_module_version.as_deref().ok_or_else(|| {
-            "YUKKI_BROWSER_GRAPHICS_MODULE_VERSION is required for broker graphics compute".to_owned()
-        })?;
+        let broker_payload = rgba_channels_to_f64_payload(rgba8)?;
         let mut failures = Vec::new();
 
         if requested_backend == ExecutionBackend::Gpu {
             if let Some(client) = self.local_client.as_ref() {
-                match submit_rgba(client, task_id, module_id, module_version, rgba8, "gpu").await {
+                match submit_rgba(client, task_id, &broker_payload, "gpu").await {
                     Ok(execution) => {
                         if let Some(report) = report_for_execution(
                             requested_backend,
                             ExecutionBackend::Gpu,
                             execution,
-                            rgba8.len(),
+                            rgba8,
                             started,
                             None,
                             None,
@@ -348,9 +334,7 @@ impl BrowserAcceleratorScheduler {
                 match submit_rgba(
                     &peer.client,
                     &peer_task_id,
-                    module_id,
-                    module_version,
-                    rgba8,
+                    &broker_payload,
                     "gpu",
                 )
                 .await
@@ -360,7 +344,7 @@ impl BrowserAcceleratorScheduler {
                             requested_backend,
                             ExecutionBackend::Gpu,
                             execution,
-                            rgba8.len(),
+                            rgba8,
                             started,
                             Some(peer.record.node_id),
                             Some(peer.record.service_id),
@@ -386,9 +370,7 @@ impl BrowserAcceleratorScheduler {
                 match submit_rgba(
                     &peer.client,
                     &peer_task_id,
-                    module_id,
-                    module_version,
-                    rgba8,
+                    &broker_payload,
                     "cpu",
                 )
                 .await
@@ -398,7 +380,7 @@ impl BrowserAcceleratorScheduler {
                             requested_backend,
                             ExecutionBackend::Cpu,
                             execution,
-                            rgba8.len(),
+                            rgba8,
                             started,
                             Some(peer.record.node_id),
                             Some(peer.record.service_id),
@@ -557,32 +539,15 @@ fn load_peer_directory(path: &std::path::Path) -> Result<Vec<BrokerServiceRecord
 async fn submit_rgba(
     client: &LifecycleClient,
     task_id: &str,
-    module_id: &str,
-    module_version: &str,
-    rgba8: &[u8],
+    broker_payload: &[u8],
     device_preference: &str,
-) -> Result<yukkios::gpu_adapter::WasmTaskExecution, String> {
-    let task = WasmTaskRequest {
-        task_id: bounded_task_id(task_id)?,
-        sandbox_id: "yukki-browser".to_owned(),
-        module_id: module_id.to_owned(),
-        module_version: module_version.to_owned(),
-        task_kind: "compute".to_owned(),
-        priority: DEFAULT_PRIORITY,
-        deadline_ms: 0,
-        buffers: vec![WasmBufferDescriptor {
-            buffer_id: 1,
-            flags: 1,
-            offset: 0,
-            length: rgba8.len() as u64,
-            name: "rgba8_input".to_owned(),
-        }],
-        payload: rgba8.to_vec(),
-    };
+) -> Result<yukkios::gpu_adapter::BrokerTaskExecution, String> {
     client
-        .submit_wsm1_task_with_device_preference(
-            &task,
-            &WorkerDirective::throughput(),
+        .submit_inference_task_with_preference(
+            &bounded_task_id(task_id)?,
+            broker_payload,
+            DEFAULT_PRIORITY,
+            30_000,
             device_preference,
         )
         .await
@@ -592,8 +557,8 @@ async fn submit_rgba(
 fn report_for_execution(
     requested_backend: ExecutionBackend,
     actual_backend: ExecutionBackend,
-    execution: yukkios::gpu_adapter::WasmTaskExecution,
-    expected_output_bytes: usize,
+    execution: yukkios::gpu_adapter::BrokerTaskExecution,
+    original_rgba8: &[u8],
     started: Instant,
     execution_node_id: Option<uuid::Uuid>,
     execution_service_id: Option<uuid::Uuid>,
@@ -603,18 +568,16 @@ fn report_for_execution(
         ExecutionBackend::Cpu => "cpu",
         _ => return None,
     };
-    if execution.response.status != WasmTaskStatus::Ok
-        || execution.backend.as_deref() != Some(expected)
-        || execution.response.result.len() != expected_output_bytes
-    {
+    if execution.backend.as_deref() != Some(expected) {
         return None;
     }
+    let output = rgba_gain_from_f64_payload(original_rgba8, &execution.result)?;
     let telemetry = execution.worker_telemetry;
     Some(GraphicsComputeReport {
         requested_backend,
         actual_backend,
         elapsed_ms: started.elapsed().as_millis(),
-        output: execution.response.result,
+        output,
         fallback_reason: None,
         broker_queue_wait_us: telemetry.as_ref().map(|value| value.queue_wait_us),
         broker_service_time_us: telemetry.as_ref().map(|value| value.service_time_us),
@@ -655,7 +618,7 @@ fn cpu_report(
         requested_backend,
         actual_backend: ExecutionBackend::Cpu,
         elapsed_ms: started.elapsed().as_millis(),
-        output: rgba_invert_cpu(rgba8),
+        output: rgba_gain_cpu(rgba8),
         fallback_reason,
         broker_queue_wait_us: None,
         broker_service_time_us: None,
@@ -665,15 +628,56 @@ fn cpu_report(
     }
 }
 
-pub fn rgba_invert_cpu(rgba8: &[u8]) -> Vec<u8> {
+/// CPU reference for the broker's deterministic scalar multiply-by-two
+/// kernel, applied to RGB channels and clamped back to RGBA8. Alpha is preserved.
+pub fn rgba_gain_cpu(rgba8: &[u8]) -> Vec<u8> {
     let mut output = rgba8.to_vec();
     for pixel in output.chunks_exact_mut(4) {
-        pixel[0] = 255 - pixel[0];
-        pixel[1] = 255 - pixel[1];
-        pixel[2] = 255 - pixel[2];
+        pixel[0] = pixel[0].saturating_mul(2);
+        pixel[1] = pixel[1].saturating_mul(2);
+        pixel[2] = pixel[2].saturating_mul(2);
         // Alpha is intentionally preserved.
     }
     output
+}
+
+/// Encode RGB channels as network-order IEEE-754 binary64 values for the
+/// Overhauled generic BRK2 compute path. Alpha remains local and unchanged.
+fn rgba_channels_to_f64_payload(rgba8: &[u8]) -> Result<Vec<u8>, String> {
+    validate_rgba_payload(rgba8)?;
+    let rgb_values = rgba8.len() / 4 * 3;
+    let mut payload = Vec::with_capacity(rgb_values * 8);
+    for pixel in rgba8.chunks_exact(4) {
+        for channel in &pixel[..3] {
+            payload.extend_from_slice(&f64::from(*channel).to_be_bytes());
+        }
+    }
+    if payload.len() > yukkios::gpu_adapter::OVERHAULED_MAX_PAYLOAD_BYTES {
+        return Err("encoded RGB compute payload exceeds the broker's 512 KiB limit".to_owned());
+    }
+    Ok(payload)
+}
+
+/// Decode broker f64 results to RGBA8. Reject non-finite or malformed output.
+fn rgba_gain_from_f64_payload(rgba8: &[u8], payload: &[u8]) -> Option<Vec<u8>> {
+    let expected = rgba8.len() / 4 * 3 * 8;
+    if payload.len() != expected {
+        return None;
+    }
+    let mut output = rgba8.to_vec();
+    let mut cursor = 0usize;
+    for pixel in output.chunks_exact_mut(4) {
+        for channel in &mut pixel[..3] {
+            let value = f64::from_be_bytes(payload[cursor..cursor + 8].try_into().ok()?);
+            if !value.is_finite() {
+                return None;
+            }
+            *channel = value.round().clamp(0.0, 255.0) as u8;
+            cursor += 8;
+        }
+        // The local alpha byte is left unchanged.
+    }
+    Some(output)
 }
 
 fn validate_rgba_payload(rgba8: &[u8]) -> Result<(), String> {
@@ -745,8 +749,8 @@ mod tests {
     #[test]
     fn rgba_cpu_reference_preserves_alpha_and_inverts_rgb() {
         assert_eq!(
-            rgba_invert_cpu(&[0, 16, 255, 7, 255, 128, 1, 255]),
-            vec![255, 239, 0, 7, 0, 127, 254, 255]
+            rgba_gain_cpu(&[0, 16, 255, 7, 255, 128, 1, 255]),
+            vec![0, 32, 255, 7, 255, 255, 2, 255]
         );
     }
 
@@ -774,8 +778,6 @@ mod tests {
             peer_directory_file: None,
             last_peer_refresh: Mutex::new(None),
             policy: BackendPolicy::default(),
-            graphics_module_id: Some("browser.graphics.rgba-invert".to_owned()),
-            graphics_module_version: Some("1".to_owned()),
             npu_opted_in: false,
             remote_enabled: true,
             remote_cpu_enabled,
