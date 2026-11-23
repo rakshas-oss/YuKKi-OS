@@ -275,8 +275,14 @@ fn persist_state(path: &PathBuf, state: &BrowserState) {
 fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
-        if env::var_os("WAYLAND_DISPLAY").is_some() && env::var_os("DISPLAY").is_none() {
-            return Err("This first browser adapter supports Linux/X11 only; Wayland GTK-container support is a follow-up.".into());
+        if env::var_os("WAYLAND_DISPLAY").is_some() {
+            if env::var_os("DISPLAY").is_none() {
+                return Err("This first browser adapter supports Linux/X11 only; start an XWayland display or use the later GTK-container adapter for native Wayland.".into());
+            }
+            // Wry's child-window path is X11-only on Linux. Prefer XWayland when
+            // a Wayland session also exposes an X11 display.
+            env::remove_var("WAYLAND_DISPLAY");
+            env::set_var("GDK_BACKEND", "x11");
         }
         gtk::init()?;
     }
