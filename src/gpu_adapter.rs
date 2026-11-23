@@ -625,6 +625,18 @@ pub struct WasmTaskResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WasmTaskExecution {
     pub response: WasmTaskResponse,
+    /// Backend reported by BRK2 field 7. None means the broker did not attest
+    /// a backend; callers must not infer GPU/NPU execution from the request.
+    pub backend: Option<String>,
+    pub worker_telemetry: Option<WorkerTelemetry>,
+}
+
+/// Result of a direct BRK2 inference request, including authoritative backend
+/// information when the broker returns response field 7.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrokerTaskExecution {
+    pub result: Vec<u8>,
+    pub backend: Option<String>,
     pub worker_telemetry: Option<WorkerTelemetry>,
 }
 
@@ -2623,7 +2635,7 @@ impl LifecycleClient {
         &self,
         task: &WasmTaskRequest,
     ) -> Result<WasmTaskResponse, GpuAdapterError> {
-        self.submit_wsm1_task_using_directive(task, None)
+        self.submit_wsm1_task_using_options(task, None, None)
             .await
             .map(|execution| execution.response)
     }
@@ -2635,28 +2647,56 @@ impl LifecycleClient {
         task: &WasmTaskRequest,
         directive: &WorkerDirective,
     ) -> Result<WasmTaskExecution, GpuAdapterError> {
-        self.submit_wsm1_task_using_directive(task, Some(directive)).await
+        self.submit_wsm1_task_using_options(task, Some(directive), None).await
     }
 
-    async fn submit_wsm1_task_using_directive(
+    /// Submit a WSM1 task with an explicit broker device preference.
+    ///
+    /// This is the supported route for accelerator-aware browser compute:
+    /// use `gpu` only with a broker-activated compatible Wasm module. NPU
+    /// inference uses `submit_inference_task_with_preference` because it is a
+    /// distinct BRK2 task kind. The response backend is returned as evidence;
+    /// the caller must not claim the requested device if it is absent/different.
+    pub async fn submit_wsm1_task_with_device_preference(
+        &self,
+        task: &WasmTaskRequest,
+        directive: &WorkerDirective,
+        device_preference: &str,
+    ) -> Result<WasmTaskExecution, GpuAdapterError> {
+        if !matches!(device_preference, "cpu" | "gpu" | "npu") {
+            return Err(GpuAdapterError::InvalidRequest(
+                "device_preference must be cpu, gpu, or npu".into(),
+            ));
+        }
+        self.submit_wsm1_task_using_options(
+            task,
+            Some(directive),
+            Some(device_preference),
+        ).await
+    }
+
+    async fn submit_wsm1_task_using_options(
         &self,
         task: &WasmTaskRequest,
         directive: Option<&WorkerDirective>,
+        device_preference: Option<&str>,
     ) -> Result<WasmTaskExecution, GpuAdapterError> {
         let config = self.broker_client.config();
         if !config.enabled {
             return Err(GpuAdapterError::Disabled);
         }
-        if directive.is_some() && self.wire_mode != LifecycleWireMode::Brk2 {
+        if (directive.is_some() || device_preference.is_some())
+            && self.wire_mode != LifecycleWireMode::Brk2
+        {
             return Err(GpuAdapterError::InvalidRequest(
-                "explicit worker directives require LifecycleWireMode::Brk2".into(),
+                "explicit worker directives and device preferences require LifecycleWireMode::Brk2".into(),
             ));
         }
 
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match self.submit_wsm1_task_single(task, directive).await {
+            match self.submit_wsm1_task_single(task, directive, device_preference).await {
                 Ok(resp) => return Ok(resp),
                 Err(err) => {
                     let is_retryable = matches!(
@@ -2685,6 +2725,7 @@ impl LifecycleClient {
         &self,
         task: &WasmTaskRequest,
         directive: Option<&WorkerDirective>,
+        device_preference: Option<&str>,
     ) -> Result<WasmTaskExecution, GpuAdapterError> {
         let config = self.broker_client.config();
         let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
@@ -2701,7 +2742,7 @@ impl LifecycleClient {
                 let selected_directive = directive.unwrap_or(&default_directive);
                 let (id, frame) = encode_brk2_broker_request_with_worker_directive(
                     &task.task_id, "wasm.task.v1", task.priority,
-                    broker_deadline_ms(config.request_timeout), wsm1_bytes, None,
+                    broker_deadline_ms(config.request_timeout), wsm1_bytes, device_preference,
                     Some(selected_directive),
                 )?;
                 brk2_id = Some(id);
@@ -2774,7 +2815,7 @@ impl LifecycleClient {
         };
 
         if let Some(id) = brk2_id {
-            let DecodedBrk2Response { status, result, error, worker_telemetry, .. } =
+            let DecodedBrk2Response { status, result, error, backend, worker_telemetry } =
                 decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
             if result.is_empty() {
                 return Err(GpuAdapterError::MalformedResponse(format!("BRK2 broker status {status}: {error}")));
@@ -2790,10 +2831,15 @@ impl LifecycleClient {
             if !status_matches {
                 return Err(GpuAdapterError::MalformedResponse("BRK2 outer status conflicts with WSM1 task status".into()));
             }
-            Ok(WasmTaskExecution { response: decoded, worker_telemetry })
+            Ok(WasmTaskExecution {
+                response: decoded,
+                backend,
+                worker_telemetry,
+            })
         } else {
             Ok(WasmTaskExecution {
                 response: parse_task_response(&response_bytes)?,
+                backend: None,
                 worker_telemetry: None,
             })
         }
