@@ -445,6 +445,7 @@ impl BrowserAcceleratorScheduler {
 
         let started = Instant::now();
         let bounded_id = bounded_task_id(task_id)?;
+        let mut failures = Vec::new();
         if self.npu_opted_in {
             if let Some(client) = self.local_client.as_ref() {
                 match client
@@ -460,18 +461,15 @@ impl BrowserAcceleratorScheduler {
                     Ok(execution) if execution.backend.as_deref() == Some("npu") => {
                         return Ok(inference_report(execution, started, None, None));
                     }
-                    Ok(execution) => {
-                        return Err(format!(
-                            "local NPU was requested but the broker reported backend {}",
-                            execution.backend.as_deref().unwrap_or("unknown")
-                        ));
-                    }
-                    Err(error) => return Err(format!("local NPU request failed: {error}")),
+                    Ok(execution) => failures.push(format!(
+                        "local NPU was not attested (reported {})",
+                        execution.backend.as_deref().unwrap_or("unknown")
+                    )),
+                    Err(error) => failures.push(format!("local NPU: {error}")),
                 }
             }
         }
 
-        let mut failures = Vec::new();
         for peer in peers.iter().filter(|peer| has_capability(peer, "npu")) {
             let peer_task_id = format!("{bounded_id}.{}", peer.record.service_id.simple());
             match peer
@@ -694,22 +692,6 @@ fn validate_rgba_payload(rgba8: &[u8]) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn bounded_env(name: &str, max_bytes: usize) -> Result<Option<String>, String> {
-    let Some(value) = env::var_os(name) else {
-        return Ok(None);
-    };
-    let value = value
-        .into_string()
-        .map_err(|_| format!("{name} must be valid UTF-8"))?;
-    if value.trim().is_empty() {
-        return Ok(None);
-    }
-    if value.len() > max_bytes {
-        return Err(format!("{name} exceeds {max_bytes} bytes"));
-    }
-    Ok(Some(value))
 }
 
 fn bounded_task_id(value: &str) -> Result<String, String> {
