@@ -763,7 +763,7 @@ mod tests {
             capabilities: capabilities
                 .iter()
                 .map(|value| (*value).to_owned())
-                .collect()
+                .collect(),
             max_frame_bytes: 1024 * 1024,
             issued_at_unix: now,
             expires_at_unix: now + yukkios::broker_discovery::BROKER_SERVICE_DEFAULT_LEASE_SECS,
