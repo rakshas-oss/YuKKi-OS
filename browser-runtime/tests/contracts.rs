@@ -54,6 +54,9 @@ fn local_chrome_exposes_navigation_and_graphics_capability_probe() {
     assert!(shell.contains("id=\"graphics\""));
     assert!(shell.contains("id=\"graphics-test\""));
     assert!(shell.contains("never sends webpage pixels"));
+    let native_host = include_str!("../src/main.rs");
+    assert!(native_host.contains("graphics_test"));
+    assert!(native_host.contains("run_rgba_gain"));
     assert!(shell.contains("navigator.gpu"));
     assert!(shell.contains("getContext(\"webgl2\")"));
 }
