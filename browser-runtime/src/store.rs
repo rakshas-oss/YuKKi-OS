@@ -9,6 +9,7 @@ use std::{
     fs::OpenOptions,
     io,
     path::{Path, PathBuf},
+    collections::HashSet,
 };
 
 const MAX_HISTORY: usize = 200;
@@ -83,13 +84,17 @@ pub fn load(path: &Path) -> BrowserState {
     };
 
     state.history.retain(|url| valid_stored_url(url));
-    state.history.dedup();
+    dedupe_preserving_order(&mut state.history);
     state.history.truncate(MAX_HISTORY);
     state.bookmarks.retain(|url| valid_stored_url(url));
-    state.bookmarks.sort();
-    state.bookmarks.dedup();
+    dedupe_preserving_order(&mut state.bookmarks);
     state.bookmarks.truncate(MAX_BOOKMARKS);
     state
+}
+
+fn dedupe_preserving_order(values: &mut Vec<String>) {
+    let mut seen = HashSet::with_capacity(values.len());
+    values.retain(|value| seen.insert(value.clone()));
 }
 
 pub fn save(path: &Path, state: &BrowserState) -> io::Result<()> {
@@ -106,8 +111,10 @@ pub fn save(path: &Path, state: &BrowserState) -> io::Result<()> {
 
     let mut bounded = state.clone();
     bounded.history.retain(|url| valid_stored_url(url));
+    dedupe_preserving_order(&mut bounded.history);
     bounded.history.truncate(MAX_HISTORY);
     bounded.bookmarks.retain(|url| valid_stored_url(url));
+    dedupe_preserving_order(&mut bounded.bookmarks);
     bounded.bookmarks.truncate(MAX_BOOKMARKS);
 
     let bytes = serde_json::to_vec_pretty(&bounded)
