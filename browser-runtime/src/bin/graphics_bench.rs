@@ -10,8 +10,7 @@ use std::{
 use serde::Serialize;
 use tokio::task::JoinSet;
 use yukki_browser_runtime::accelerator::{
-    rgba_gain_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport,
-    MAX_GRAPHICS_PAYLOAD_BYTES,
+    rgba_gain_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport, MAX_GRAPHICS_PAYLOAD_BYTES,
 };
 use yukkios::exec_policy::ExecutionBackend;
 
@@ -78,10 +77,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
     let quick = args.iter().any(|arg| arg == "--quick");
     let cpu_only = args.iter().any(|arg| arg == "--cpu-only");
-    let iterations = parse_value(&args, "--iterations")
-        .unwrap_or(if quick { 1 } else { 3 });
-    let concurrency = parse_value(&args, "--concurrency")
-        .unwrap_or(DEFAULT_CONCURRENCY);
+    let iterations = parse_value(&args, "--iterations").unwrap_or(if quick { 1 } else { 3 });
+    let concurrency = parse_value(&args, "--concurrency").unwrap_or(DEFAULT_CONCURRENCY);
     let output_path = parse_path(&args, "--output");
     let npu_input = parse_path(&args, "--npu-input");
 
@@ -95,7 +92,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env::set_var("YUKKI_FORCE_CPU_FALLBACK", "true");
     }
 
-    let scheduler = Arc::new(BrowserAcceleratorScheduler::from_env().map_err(std::io::Error::other)?);
+    let scheduler =
+        Arc::new(BrowserAcceleratorScheduler::from_env().map_err(std::io::Error::other)?);
     let status = scheduler.status();
     let dimensions: &[(usize, usize)] = if quick {
         &[(128, 128), (320, 240)]
@@ -106,14 +104,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut frame_results = Vec::with_capacity(dimensions.len());
     for &(width, height) in dimensions {
         frame_results.push(
-            benchmark_frame(
-                scheduler.clone(),
-                width,
-                height,
-                iterations,
-                concurrency,
-            )
-            .await?,
+            benchmark_frame(scheduler.clone(), width, height, iterations, concurrency).await?,
         );
     }
 
@@ -193,14 +184,8 @@ async fn benchmark_frame(
         }
 
         let scheduled_start = Instant::now();
-        let reports = run_tiles_bounded(
-            scheduler.clone(),
-            &tiles,
-            width,
-            height,
-            concurrency,
-        )
-        .await?;
+        let reports =
+            run_tiles_bounded(scheduler.clone(), &tiles, width, height, concurrency).await?;
         delegated_samples.push(scheduled_start.elapsed());
 
         for (index, report) in reports {
@@ -384,6 +369,11 @@ fn parse_path(args: &[String], name: &str) -> Option<PathBuf> {
 
 fn env_flag(name: &str) -> bool {
     env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
