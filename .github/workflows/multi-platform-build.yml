@@ -258,8 +258,22 @@ jobs:
         run: cargo fmt --manifest-path browser-runtime/Cargo.toml -- --check
       - name: Test browser runtime contracts
         run: cargo test --manifest-path browser-runtime/Cargo.toml
-      - name: Build native browser runtime
-        run: cargo build --manifest-path browser-runtime/Cargo.toml --release
+      - name: Build native browser runtime and graphics benchmark
+        run: |
+          cargo build --manifest-path browser-runtime/Cargo.toml --release
+          cargo build --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench
+      - name: Run bounded CPU graphics benchmark smoke test
+        env:
+          YUKKI_FORCE_CPU_FALLBACK: "true"
+        run: |
+          cargo run --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench -- \
+            --quick --cpu-only --iterations 1 --output browser-runtime-graphics-benchmark.json
+      - name: Upload graphics benchmark report
+        uses: actions/upload-artifact@v7
+        with:
+          name: yukki-browser-graphics-benchmark-${{ matrix.platform }}
+          path: browser-runtime-graphics-benchmark.json
+          if-no-files-found: error
       - name: Upload native browser runtime
         uses: actions/upload-artifact@v7
         with:
