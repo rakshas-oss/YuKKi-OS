@@ -54,7 +54,7 @@ YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS=3000 \
 
 x_display=""
 for _ in $(seq 1 100); do
-  x_display="$(sed -nE 's/.*xserver listening on display (:?[0-9]+).*/\\1/p' "$weston_log" | tail -n 1)"
+  x_display="$(sed -nE 's/.*xserver listening on display (:[0-9]+).*/\1/p' "$weston_log" | tail -n 1)"
   [[ -n "$x_display" ]] && break
   if ! kill -0 "$weston_pid" 2>/dev/null; then
     cat "$weston_log" >&2 || true
