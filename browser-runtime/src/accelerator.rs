@@ -27,7 +27,8 @@ const DEFAULT_PRIORITY: u8 = 32;
 pub struct AcceleratorStatus {
     pub broker_configured: bool,
     pub gpu_acceleration_available: bool,
-    /// Operator opt-in plus a local broker, not a hardware attestation.
+    /// Explicit operator opt-in plus local NPU capability advertisement;
+    /// this is still not a hardware attestation.
     pub npu_opted_in: bool,
     pub cpu_forced: bool,
     pub gpu_offload_threshold_bytes: usize,
@@ -230,6 +231,7 @@ impl BrowserAcceleratorScheduler {
     }
 
     pub fn status(&self) -> AcceleratorStatus {
+        let has_local_broker = self.local_client.is_some();
         let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
         let has_remote_gpu = self.remote_enabled
             && peers.iter().any(|peer| has_capability(peer, "gpu"));
