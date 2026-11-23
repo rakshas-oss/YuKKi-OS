@@ -96,7 +96,7 @@ impl BrowserAcceleratorScheduler {
         let remote_cpu_enabled = remote_enabled && env_flag("YUKKI_BROWSER_REMOTE_CPU");
         let npu_opted_in = env_flag("YUKKI_NPU_AVAILABLE") && local_client.is_some();
 
-        let mut scheduler = Self {
+        let scheduler = Self {
             local_client,
             base_config,
             peer_brokers: RwLock::new(Vec::new()),
@@ -125,7 +125,7 @@ impl BrowserAcceleratorScheduler {
     /// network response or user-controlled source. Each record is revalidated
     /// for schema, lease, protocol and bounds before a broker client is built.
     pub fn with_authenticated_peer_records(
-        mut self,
+        self,
         records: Vec<BrokerServiceRecord>,
         now_unix: u64,
     ) -> Result<Self, String> {
@@ -239,10 +239,6 @@ impl BrowserAcceleratorScheduler {
         let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
         let has_remote_gpu = self.remote_enabled
             && peers.iter().any(|peer| has_capability(peer, "gpu"));
-        let has_remote_npu = self.remote_enabled
-            && peers.iter().any(|peer| has_capability(peer, "npu"));
-        let has_remote_cpu = self.remote_enabled
-            && peers.iter().any(|peer| has_capability(peer, "cpu"));
         AcceleratorStatus {
             broker_configured: has_local_broker || !peers.is_empty(),
             gpu_module_configured: gpu_module_configured
@@ -844,6 +840,7 @@ mod tests {
         let now = 1_700_000_000;
         let records = vec![sample_record(now, "gpu-peer.internal:9090", &["gpu"])];
         let mut scheduler = scheduler_for_test(false);
+        scheduler.remote_enabled = false;
         let result = scheduler.with_authenticated_peer_records(records, now);
         assert!(result.is_err());
         scheduler.remote_enabled = true;
