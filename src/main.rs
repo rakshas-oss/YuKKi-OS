@@ -623,6 +623,16 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                         last_broker_lease = Instant::now();
                     }
                 }
+                if let Some(path) = broker_directory_file.as_ref() {
+                    if last_broker_directory_write.elapsed() >= Duration::from_secs(15) {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        persist_broker_directory(&mut broker_registry, path, now)?;
+                        last_broker_directory_write = Instant::now();
+                    }
+                }
             }
             #[allow(unreachable_code)]
             Ok::<(), io::Error>(())
@@ -633,6 +643,53 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
             Ok(())
         }
     }
+}
+
+const BROKER_DIRECTORY_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+fn persist_broker_directory(
+    registry: &mut BrokerServiceRegistry,
+    path: &std::path::Path,
+    now_unix: u64,
+) -> io::Result<()> {
+    let records = registry.list(now_unix);
+    let bytes = serde_json::to_vec(&records)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if bytes.len() as u64 > BROKER_DIRECTORY_MAX_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "broker directory snapshot exceeds 4 MiB",
+        ));
+    }
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "broker directory path has no parent")
+    })?;
+    fs::create_dir_all(parent)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    }
+
+    let temporary = path.with_extension("json.tmp");
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temporary, path)
 }
 
 fn broker_service_record(
