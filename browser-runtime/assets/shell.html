@@ -83,7 +83,7 @@
           button.className = "tab";
           button.type = "button";
           button.textContent = tab.title || tab.url || "New tab";
-          button.title = tab.url;
+          button.title = tab.load_ms == null ? tab.url : `${tab.url}\nPage load: ${tab.load_ms} ms`;
           button.setAttribute("role", "tab");
           if (tab.id === state.active_tab_id) button.setAttribute("aria-current", "page");
           button.addEventListener("click", () => send({action: "switch_tab", tab_id: tab.id}));
