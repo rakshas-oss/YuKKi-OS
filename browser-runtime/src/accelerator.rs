@@ -88,9 +88,14 @@ impl BrowserAcceleratorScheduler {
 
         let remote_enabled = env_flag("YUKKI_BROWSER_REMOTE_ACCELERATION");
         let remote_cpu_enabled = remote_enabled && env_flag("YUKKI_BROWSER_REMOTE_CPU");
-        let local_capabilities = env::var("YUKKI_BROKER_CAPABILITIES").unwrap_or_else(|_| "cpu".to_owned());
-        let advertises_gpu = local_capabilities.split(',').any(|value| value.trim() == "gpu");
-        let advertises_npu = local_capabilities.split(',').any(|value| value.trim() == "npu");
+        let local_capabilities =
+            env::var("YUKKI_BROKER_CAPABILITIES").unwrap_or_else(|_| "cpu".to_owned());
+        let advertises_gpu = local_capabilities
+            .split(',')
+            .any(|value| value.trim() == "gpu");
+        let advertises_npu = local_capabilities
+            .split(',')
+            .any(|value| value.trim() == "npu");
         let local_gpu_enabled = advertises_gpu && local_client.is_some();
         let npu_opted_in =
             advertises_npu && env_flag("YUKKI_NPU_AVAILABLE") && local_client.is_some();
@@ -140,8 +145,10 @@ impl BrowserAcceleratorScheduler {
         }
 
         self.replace_authenticated_peer_records(records, now_unix)?;
-        *self.last_peer_refresh.lock().map_err(|_| "peer refresh lock poisoned")? =
-            Some(Instant::now());
+        *self
+            .last_peer_refresh
+            .lock()
+            .map_err(|_| "peer refresh lock poisoned")? = Some(Instant::now());
         Ok(self)
     }
 
@@ -164,10 +171,14 @@ impl BrowserAcceleratorScheduler {
 
         let mut records = registry.list(now_unix);
         records.retain(|record| {
-            record.protocol_versions.iter().any(|version| version == "BRK2")
-                && record.capabilities.iter().any(|capability| {
-                    matches!(capability.as_str(), "cpu" | "gpu" | "npu")
-                })
+            record
+                .protocol_versions
+                .iter()
+                .any(|version| version == "BRK2")
+                && record
+                    .capabilities
+                    .iter()
+                    .any(|capability| matches!(capability.as_str(), "cpu" | "gpu" | "npu"))
                 && record.endpoint != self.base_config.endpoint
         });
         records.sort_by_key(|record| {
@@ -188,9 +199,7 @@ impl BrowserAcceleratorScheduler {
             let mut config = self.base_config.clone();
             config.enabled = true;
             config.endpoint = record.endpoint.clone();
-            config.max_frame_size = config
-                .max_frame_size
-                .min(record.max_frame_bytes as usize);
+            config.max_frame_size = config.max_frame_size.min(record.max_frame_bytes as usize);
             let client = Arc::new(
                 LifecycleClient::new(config)
                     .map_err(|error| error.to_string())?
@@ -198,7 +207,10 @@ impl BrowserAcceleratorScheduler {
             );
             clients.push(PeerBroker { record, client });
         }
-        *self.peer_brokers.write().map_err(|_| "peer directory lock poisoned")? = clients;
+        *self
+            .peer_brokers
+            .write()
+            .map_err(|_| "peer directory lock poisoned")? = clients;
         Ok(())
     }
 
@@ -210,14 +222,22 @@ impl BrowserAcceleratorScheduler {
             return Ok(0);
         }
         let Some(path) = self.peer_directory_file.as_ref() else {
-            return Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len());
+            return Ok(self
+                .peer_brokers
+                .read()
+                .map_err(|_| "peer directory lock poisoned")?
+                .len());
         };
         let mut last_refresh = self
             .last_peer_refresh
             .lock()
             .map_err(|_| "peer refresh lock poisoned")?;
         if last_refresh.is_some_and(|last| last.elapsed() < Duration::from_secs(5)) {
-            return Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len());
+            return Ok(self
+                .peer_brokers
+                .read()
+                .map_err(|_| "peer directory lock poisoned")?
+                .len());
         }
 
         let records = load_peer_directory(path)?;
@@ -227,14 +247,21 @@ impl BrowserAcceleratorScheduler {
             .as_secs();
         self.replace_authenticated_peer_records(records, now_unix)?;
         *last_refresh = Some(Instant::now());
-        Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len())
+        Ok(self
+            .peer_brokers
+            .read()
+            .map_err(|_| "peer directory lock poisoned")?
+            .len())
     }
 
     pub fn status(&self) -> AcceleratorStatus {
         let has_local_broker = self.local_client.is_some();
-        let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
-        let has_remote_gpu = self.remote_enabled
-            && peers.iter().any(|peer| has_capability(peer, "gpu"));
+        let peers = self
+            .peer_brokers
+            .read()
+            .expect("peer directory lock poisoned");
+        let has_remote_gpu =
+            self.remote_enabled && peers.iter().any(|peer| has_capability(peer, "gpu"));
         AcceleratorStatus {
             broker_configured: has_local_broker || !peers.is_empty(),
             gpu_acceleration_available: self.local_gpu_enabled || has_remote_gpu,
@@ -302,7 +329,11 @@ impl BrowserAcceleratorScheduler {
         validate_rgba_payload(rgba8)?;
         let started = Instant::now();
         self.refresh_peer_directory()?;
-        let peers = self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.clone();
+        let peers = self
+            .peer_brokers
+            .read()
+            .map_err(|_| "peer directory lock poisoned")?
+            .clone();
         let requested_backend = self.select_graphics_backend(rgba8.len());
 
         if requested_backend == ExecutionBackend::Cpu {
@@ -316,20 +347,20 @@ impl BrowserAcceleratorScheduler {
             if self.local_gpu_enabled {
                 if let Some(client) = self.local_client.as_ref() {
                     match submit_rgba(client, task_id, &broker_payload, "gpu").await {
-                    Ok(execution) => {
-                        if let Some(report) = report_for_execution(
-                            requested_backend,
-                            ExecutionBackend::Gpu,
-                            execution,
-                            rgba8,
-                            started,
-                            None,
-                            None,
-                        ) {
-                            return Ok(report);
+                        Ok(execution) => {
+                            if let Some(report) = report_for_execution(
+                                requested_backend,
+                                ExecutionBackend::Gpu,
+                                execution,
+                                rgba8,
+                                started,
+                                None,
+                                None,
+                            ) {
+                                return Ok(report);
+                            }
+                            failures.push("local broker did not attest GPU execution or returned an invalid output".to_owned());
                         }
-                        failures.push("local broker did not attest GPU execution or returned an invalid output".to_owned());
-                    }
                         Err(error) => failures.push(format!("local broker: {error}")),
                     }
                 }
@@ -337,14 +368,7 @@ impl BrowserAcceleratorScheduler {
 
             for peer in peers.iter().filter(|peer| has_capability(peer, "gpu")) {
                 let peer_task_id = format!("{task_id}.{}", peer.record.service_id.simple());
-                match submit_rgba(
-                    &peer.client,
-                    &peer_task_id,
-                    &broker_payload,
-                    "gpu",
-                )
-                .await
-                {
+                match submit_rgba(&peer.client, &peer_task_id, &broker_payload, "gpu").await {
                     Ok(execution) => {
                         if let Some(report) = report_for_execution(
                             requested_backend,
@@ -373,14 +397,7 @@ impl BrowserAcceleratorScheduler {
         if self.remote_cpu_enabled {
             for peer in peers.iter().filter(|peer| has_capability(peer, "cpu")) {
                 let peer_task_id = format!("{task_id}.{}", peer.record.service_id.simple());
-                match submit_rgba(
-                    &peer.client,
-                    &peer_task_id,
-                    &broker_payload,
-                    "cpu",
-                )
-                .await
-                {
+                match submit_rgba(&peer.client, &peer_task_id, &broker_payload, "cpu").await {
                     Ok(execution) => {
                         if let Some(report) = report_for_execution(
                             requested_backend,
@@ -398,7 +415,9 @@ impl BrowserAcceleratorScheduler {
                             peer.record.node_id
                         ));
                     }
-                    Err(error) => failures.push(format!("CPU peer {}: {error}", peer.record.node_id)),
+                    Err(error) => {
+                        failures.push(format!("CPU peer {}: {error}", peer.record.node_id))
+                    },
                 }
             }
         }
@@ -439,7 +458,11 @@ impl BrowserAcceleratorScheduler {
             ..TaskProfile::default()
         };
         self.refresh_peer_directory()?;
-        let peers = self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.clone();
+        let peers = self
+            .peer_brokers
+            .read()
+            .map_err(|_| "peer directory lock poisoned")?
+            .clone();
         let requested_backend = self.policy.select(&profile, self.availability());
         if requested_backend != ExecutionBackend::Npu {
             return Err("NPU is not selected: opt in to NPU execution, configure a compatible NPU peer, and do not force CPU".to_owned());
@@ -529,10 +552,14 @@ fn load_peer_directory(path: &std::path::Path) -> Result<Vec<BrokerServiceRecord
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o077 != 0 {
-            return Err("broker peer directory file must not be group/world accessible (mode 0600)".to_owned());
+            return Err(
+                "broker peer directory file must not be group/world accessible (mode 0600)"
+                    .to_owned(),
+            );
         }
     }
-    let bytes = fs::read(path).map_err(|error| format!("cannot read broker peer directory: {error}"))?;
+    let bytes =
+        fs::read(path).map_err(|error| format!("cannot read broker peer directory: {error}"))?;
     let records: Vec<BrokerServiceRecord> = serde_json::from_slice(&bytes)
         .map_err(|error| format!("invalid broker peer directory JSON: {error}"))?;
     if records.len() > MAX_DISCOVERED_PEERS {
@@ -712,7 +739,12 @@ fn bounded_task_id(value: &str) -> Result<String, String> {
 
 fn env_flag(name: &str) -> bool {
     env::var(name)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -728,7 +760,10 @@ mod tests {
             service_kind: yukkios::broker_discovery::BROKER_SERVICE_KIND.to_owned(),
             endpoint: endpoint.to_owned(),
             protocol_versions: vec!["BRK2".to_owned()],
-            capabilities: capabilities.iter().map(|value| (*value).to_owned()).collect(),
+            capabilities: capabilities
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect()
             max_frame_bytes: 1024 * 1024,
             issued_at_unix: now,
             expires_at_unix: now + yukkios::broker_discovery::BROKER_SERVICE_DEFAULT_LEASE_SECS,
@@ -850,8 +885,7 @@ mod tests {
         let now = 1_700_000_000;
         let mut expired = sample_record(now - 1000, "expired.internal:9090", &["gpu"]);
         expired.expires_at_unix = now - 1;
-        let result = scheduler_for_test(false)
-            .with_authenticated_peer_records(vec![expired], now);
+        let result = scheduler_for_test(false).with_authenticated_peer_records(vec![expired], now);
         assert!(result.is_err());
     }
 
@@ -862,10 +896,14 @@ mod tests {
 
         let mut disabled = scheduler_for_test(false);
         disabled.remote_enabled = false;
-        assert!(disabled.with_authenticated_peer_records(records, now).is_err());
+        assert!(disabled
+            .with_authenticated_peer_records(records, now)
+            .is_err());
 
         let enabled = scheduler_for_test(false);
-        assert!(enabled.with_authenticated_peer_records(Vec::new(), now).is_ok());
+        assert!(enabled
+            .with_authenticated_peer_records(Vec::new(), now)
+            .is_ok());
     }
 
     #[test]
@@ -877,13 +915,16 @@ mod tests {
         assert!(cpu.validate(now).is_ok());
         assert!(gpu.validate(now).is_ok());
         assert!(npu.validate(now).is_ok());
-        assert!(has_capability(&PeerBroker {
-            record: cpu,
-            client: Arc::new(
-                LifecycleClient::new(GpuAdapterConfig::new("127.0.0.1:1"))
-                    .unwrap()
-                    .with_wire_mode(LifecycleWireMode::Brk2),
-            )
-        }, "cpu"));
+        assert!(has_capability(
+            &PeerBroker {
+                record: cpu,
+                client: Arc::new(
+                    LifecycleClient::new(GpuAdapterConfig::new("127.0.0.1:1"))
+                        .unwrap()
+                        .with_wire_mode(LifecycleWireMode::Brk2),
+                )
+            },
+            "cpu"
+        ));
     }
 }
