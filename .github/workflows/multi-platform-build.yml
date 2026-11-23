@@ -317,7 +317,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, test-library]
+    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, build-browser-runtime, test-library]
     if: always()
     steps:
       - name: Report build results
