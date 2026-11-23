@@ -15,11 +15,7 @@ use std::{
 use yukkios::{
     broker_discovery::{BrokerServiceRecord, BrokerServiceRegistry},
     exec_policy::{BackendAvailability, BackendPolicy, ExecutionBackend, TaskProfile},
-    gpu_adapter::{
-        GpuAdapterConfig, LifecycleClient, LifecycleWireMode, WasmBufferDescriptor,
-        WasmTaskRequest, WasmTaskStatus,
-    },
-    WorkerDirective,
+    gpu_adapter::{GpuAdapterConfig, LifecycleClient, LifecycleWireMode},
 };
 
 pub const MAX_GRAPHICS_PAYLOAD_BYTES: usize = 64 * 1024;
@@ -73,6 +69,7 @@ pub struct BrowserAcceleratorScheduler {
     npu_opted_in: bool,
     remote_enabled: bool,
     remote_cpu_enabled: bool,
+    local_gpu_enabled: bool,
 }
 
 impl BrowserAcceleratorScheduler {
@@ -90,7 +87,12 @@ impl BrowserAcceleratorScheduler {
 
         let remote_enabled = env_flag("YUKKI_BROWSER_REMOTE_ACCELERATION");
         let remote_cpu_enabled = remote_enabled && env_flag("YUKKI_BROWSER_REMOTE_CPU");
-        let npu_opted_in = env_flag("YUKKI_NPU_AVAILABLE") && local_client.is_some();
+        let local_capabilities = env::var("YUKKI_BROKER_CAPABILITIES").unwrap_or_else(|_| "cpu".to_owned());
+        let advertises_gpu = local_capabilities.split(',').any(|value| value.trim() == "gpu");
+        let advertises_npu = local_capabilities.split(',').any(|value| value.trim() == "npu");
+        let local_gpu_enabled = advertises_gpu && local_client.is_some();
+        let npu_opted_in =
+            advertises_npu && env_flag("YUKKI_NPU_AVAILABLE") && local_client.is_some();
 
         let scheduler = Self {
             local_client,
@@ -106,6 +108,7 @@ impl BrowserAcceleratorScheduler {
             npu_opted_in,
             remote_enabled,
             remote_cpu_enabled,
+            local_gpu_enabled,
         };
 
         if remote_enabled {
@@ -227,13 +230,12 @@ impl BrowserAcceleratorScheduler {
     }
 
     pub fn status(&self) -> AcceleratorStatus {
-        let has_local_broker = self.local_client.is_some();
         let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
         let has_remote_gpu = self.remote_enabled
             && peers.iter().any(|peer| has_capability(peer, "gpu"));
         AcceleratorStatus {
             broker_configured: has_local_broker || !peers.is_empty(),
-            gpu_acceleration_available: has_local_broker || has_remote_gpu,
+            gpu_acceleration_available: self.local_gpu_enabled || has_remote_gpu,
             npu_opted_in: self.npu_opted_in,
             cpu_forced: !self.policy.accelerators_allowed,
             gpu_offload_threshold_bytes: self.policy.offload_threshold_bytes,
@@ -309,8 +311,9 @@ impl BrowserAcceleratorScheduler {
         let mut failures = Vec::new();
 
         if requested_backend == ExecutionBackend::Gpu {
-            if let Some(client) = self.local_client.as_ref() {
-                match submit_rgba(client, task_id, &broker_payload, "gpu").await {
+            if self.local_gpu_enabled {
+                if let Some(client) = self.local_client.as_ref() {
+                    match submit_rgba(client, task_id, &broker_payload, "gpu").await {
                     Ok(execution) => {
                         if let Some(report) = report_for_execution(
                             requested_backend,
@@ -325,7 +328,8 @@ impl BrowserAcceleratorScheduler {
                         }
                         failures.push("local broker did not attest GPU execution or returned an invalid output".to_owned());
                     }
-                    Err(error) => failures.push(format!("local broker: {error}")),
+                        Err(error) => failures.push(format!("local broker: {error}")),
+                    }
                 }
             }
 
@@ -418,9 +422,12 @@ impl BrowserAcceleratorScheduler {
         task_id: &str,
         tensor_payload: &[u8],
     ) -> Result<GraphicsComputeReport, String> {
-        if tensor_payload.is_empty() || tensor_payload.len() > MAX_GRAPHICS_PAYLOAD_BYTES {
+        if tensor_payload.is_empty()
+            || tensor_payload.len() > MAX_GRAPHICS_PAYLOAD_BYTES
+            || tensor_payload.len() % std::mem::size_of::<f64>() != 0
+        {
             return Err(format!(
-                "NPU inference payload must be 1..={MAX_GRAPHICS_PAYLOAD_BYTES} bytes"
+                "NPU inference payload must be 1..={MAX_GRAPHICS_PAYLOAD_BYTES} bytes and aligned to an 8-byte f64 vector"
             ));
         }
         let profile = TaskProfile {
@@ -738,7 +745,7 @@ mod tests {
             endpoint: endpoint.to_owned(),
             protocol_versions: vec!["BRK2".to_owned()],
             capabilities: capabilities.iter().map(|value| (*value).to_owned()).collect(),
-            max_frame_bytes: 64 * 1024,
+            max_frame_bytes: 1024 * 1024,
             issued_at_unix: now,
             expires_at_unix: now + yukkios::broker_discovery::BROKER_SERVICE_DEFAULT_LEASE_SECS,
             message_id: uuid::Uuid::new_v4(),
@@ -747,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn rgba_cpu_reference_preserves_alpha_and_inverts_rgb() {
+    fn rgba_cpu_reference_preserves_alpha_and_applies_broker_gain() {
         assert_eq!(
             rgba_gain_cpu(&[0, 16, 255, 7, 255, 128, 1, 255]),
             vec![0, 32, 255, 7, 255, 255, 2, 255]
@@ -760,6 +767,32 @@ mod tests {
         assert!(validate_rgba_payload(&[]).is_err());
         assert!(validate_rgba_payload(&[1, 2, 3]).is_err());
         assert!(validate_rgba_payload(&vec![0; MAX_GRAPHICS_PAYLOAD_BYTES + 4]).is_err());
+    }
+
+    #[test]
+    fn rgba_f64_wire_payload_roundtrips_the_broker_gain() {
+        let input = [10, 20, 30, 7, 200, 120, 40, 255];
+        let encoded = rgba_channels_to_f64_payload(&input).unwrap();
+        assert_eq!(encoded.len(), 6 * 8);
+        let doubled: Vec<u8> = encoded
+            .chunks_exact(8)
+            .flat_map(|chunk| {
+                let value = f64::from_be_bytes(chunk.try_into().unwrap()) * 2.0;
+                value.to_be_bytes()
+            })
+            .collect();
+        assert_eq!(
+            rgba_gain_from_f64_payload(&input, &doubled).unwrap(),
+            vec![20, 40, 60, 7, 255, 240, 80, 255]
+        );
+        assert!(rgba_gain_from_f64_payload(&input, &[0; 7]).is_none());
+    }
+
+    #[test]
+    fn encoded_graphics_payload_stays_inside_default_brk2_payload_limit() {
+        let input = vec![127; MAX_GRAPHICS_PAYLOAD_BYTES];
+        let encoded = rgba_channels_to_f64_payload(&input).unwrap();
+        assert!(encoded.len() <= yukkios::brk2::DEFAULT_MAX_PAYLOAD);
     }
 
     #[test]
@@ -781,6 +814,7 @@ mod tests {
             npu_opted_in: false,
             remote_enabled: true,
             remote_cpu_enabled,
+            local_gpu_enabled: false,
         }
     }
 
