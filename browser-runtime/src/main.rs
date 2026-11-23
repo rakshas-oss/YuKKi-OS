@@ -210,7 +210,7 @@ fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
 }
 
 fn build_page(
-    window: &Window,
+    _window: &Window,
     #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
     proxy: &EventLoopProxy<RuntimeEvent>,
     tab_id: u64,
@@ -288,7 +288,7 @@ fn build_page(
     #[cfg(target_os = "linux")]
     let view = builder.build_gtk(page_host)?;
     #[cfg(not(target_os = "linux"))]
-    let view = builder.build_as_child(window)?;
+    let view = builder.build_as_child(_window)?;
 
     Ok(WryEngineAdapter { view })
 }
