@@ -241,6 +241,7 @@ impl BrowserAcceleratorScheduler {
         };
         let selected = self.policy.select(&profile, self.availability());
         if selected == ExecutionBackend::Cpu
+            && self.policy.accelerators_allowed
             && self.remote_cpu_enabled
             && self.status().discovered_cpu_peer_count > 0
             && estimated_bytes >= self.policy.offload_threshold_bytes
