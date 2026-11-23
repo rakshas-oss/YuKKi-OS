@@ -402,3 +402,42 @@ execution. Compare before/after results on the same host, dataset, profile,
 toolchain and worker budget. Do not infer universal scaling, latency, power
 or OPEX improvements from these instrumentation changes.
 
+
+
+## 6. Native browser graphics delegation benchmark
+
+The native browser runtime includes a separate bounded tile benchmark:
+
+```sh
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- --quick --cpu-only
+
+# With the local YuKKi node's authenticated broker directory:
+YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json" \
+YUKKI_BROWSER_REMOTE_ACCELERATION=true \
+YUKKI_BROWSER_GRAPHICS_MODULE_ID=browser.graphics.rgba-invert \
+YUKKI_BROWSER_GRAPHICS_MODULE_VERSION=1 \
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- \
+  --iterations 3 --concurrency 4 --output browser-graphics.json
+```
+
+The runner measures a deterministic RGBA8 invert operation split into
+128×128 tiles. Full runs cover 320×240 through 3840×2160. Per-tile payloads
+are capped at 64 KiB and concurrent remote requests are capped at eight
+(default four). It reports CPU reference median, delegated median/p95,
+backend counts, remote execution nodes, and verifies every output tile against
+the CPU reference. GPU is counted only when the Overhauled BRK2 response
+attests `backend=gpu`; CPU-only peer work is opt-in with
+`YUKKI_BROWSER_REMOTE_CPU=true`.
+
+An optional `--npu-input <file>` mode submits a model-compatible tensor to
+the discovered NPU path and accepts the result only when BRK2 attests
+`backend=npu`. The tensor must match the deployed model and Ethos-U85 bundle;
+there is no generic NPU graphics kernel.
+
+This is an auxiliary compute/delegation benchmark, not a browser page-render
+benchmark. WebKit performs page compositing and WebGL/WebGPU execution. The
+runner does not measure WebKit frame rate, GPU driver throughput, display
+latency, or full-page site performance. Keep same-host before/after comparisons
+separate from shared CI. CI runs only a short CPU-only benchmark smoke test.
