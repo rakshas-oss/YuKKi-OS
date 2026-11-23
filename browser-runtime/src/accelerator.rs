@@ -821,7 +821,6 @@ mod tests {
         assert!(bounded_task_id(&"x".repeat(129)).is_err());
     }
 
-
     fn scheduler_for_test(remote_cpu_enabled: bool) -> BrowserAcceleratorScheduler {
         BrowserAcceleratorScheduler {
             local_client: None,
