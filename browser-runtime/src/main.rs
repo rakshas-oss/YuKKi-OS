@@ -9,6 +9,8 @@ use std::{
     },
     time::Instant,
 };
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 use tao::{
     dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
@@ -123,6 +125,7 @@ enum RuntimeEvent {
     TitleChanged { tab_id: u64, title: String },
     LoadFinished { tab_id: u64, url: String, duration_ms: u128 },
     Notice(String),
+    Exit,
 }
 
 struct Tab {
@@ -517,6 +520,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         .enable_all()
         .build()?;
 
+    // CI can exercise the real GTK/WebKit host under headless Wayland and
+    // XWayland without leaving a GUI process running after the smoke check.
+    #[cfg(target_os = "linux")]
+    if let Some(raw_delay) = env::var_os("YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS") {
+        let delay_ms = raw_delay
+            .to_string_lossy()
+            .parse::<u64>()
+            .map_err(|_| "YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS must be an integer")?;
+        if !(100..=60_000).contains(&delay_ms) {
+            return Err("YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS must be between 100 and 60000".into());
+        }
+        let exit_proxy = proxy.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            let _ = exit_proxy.send_event(RuntimeEvent::Exit);
+        });
+    }
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -556,6 +577,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Event::UserEvent(RuntimeEvent::Notice(message)) => {
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
+            }
+            Event::UserEvent(RuntimeEvent::Exit) => {
+                *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(RuntimeEvent::Ui(message)) => {
                 let mut status = "Ready".to_owned();
