@@ -713,7 +713,7 @@ fn broker_service_record(
         endpoint: endpoint.to_string(),
         protocol_versions: vec!["BRK1".to_string(), "BRK2".to_string()],
         capabilities,
-        max_frame_bytes: 64 * 1024,
+        max_frame_bytes: 1024 * 1024,
         issued_at_unix: now_unix,
         expires_at_unix: now_unix.saturating_add(BROKER_SERVICE_DEFAULT_LEASE_SECS),
         message_id: Uuid::new_v4(),
