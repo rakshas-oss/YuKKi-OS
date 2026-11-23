@@ -1,4 +1,8 @@
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
 use serde::Deserialize;
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 use std::{
     env,
     error::Error,
@@ -10,7 +14,7 @@ use std::{
     time::Instant,
 };
 #[cfg(target_os = "linux")]
-use std::time::Duration;
+use tao::platform::unix::WindowExtUnix;
 use tao::{
     dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
@@ -19,14 +23,11 @@ use tao::{
 };
 use url::Url;
 #[cfg(target_os = "linux")]
-use gtk::prelude::*;
-#[cfg(target_os = "linux")]
-use tao::platform::unix::WindowExtUnix;
-#[cfg(target_os = "linux")]
 use wry::WebViewBuilderExtUnix;
 use wry::{
     dpi::{LogicalPosition, LogicalSize as WebViewLogicalSize},
-    NewWindowResponse, PageLoadEvent, PermissionResponse, ProxyConfig, ProxyEndpoint, Rect, WebView, WebViewBuilder,
+    NewWindowResponse, PageLoadEvent, PermissionResponse, ProxyConfig, ProxyEndpoint, Rect,
+    WebView, WebViewBuilder,
 };
 
 use yukki_browser_runtime::{
@@ -121,9 +122,19 @@ struct UiMessage {
 
 enum RuntimeEvent {
     Ui(UiMessage),
-    Visited { tab_id: u64, url: String },
-    TitleChanged { tab_id: u64, title: String },
-    LoadFinished { tab_id: u64, url: String, duration_ms: u128 },
+    Visited {
+        tab_id: u64,
+        url: String,
+    },
+    TitleChanged {
+        tab_id: u64,
+        title: String,
+    },
+    LoadFinished {
+        tab_id: u64,
+        url: String,
+        duration_ms: u128,
+    },
     Notice(String),
     #[cfg(target_os = "linux")]
     Exit,
@@ -143,7 +154,9 @@ struct WryEngineAdapter {
 
 impl EngineAdapter for WryEngineAdapter {
     fn navigate(&self, url: &Url) -> Result<(), String> {
-        self.view.load_url(url.as_str()).map_err(|error| error.to_string())
+        self.view
+            .load_url(url.as_str())
+            .map_err(|error| error.to_string())
     }
 
     fn back(&self) -> Result<(), String> {
@@ -163,7 +176,9 @@ impl EngineAdapter for WryEngineAdapter {
     }
 
     fn can_go_forward(&self) -> Result<bool, String> {
-        self.view.can_go_forward().map_err(|error| error.to_string())
+        self.view
+            .can_go_forward()
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -194,7 +209,8 @@ fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
     };
     let raw = raw.to_string_lossy();
     let url = Url::parse(&raw).map_err(|_| {
-        "YUKKI_BROWSER_PROXY must be an explicit http://host:port or socks5://host:port URL".to_owned()
+        "YUKKI_BROWSER_PROXY must be an explicit http://host:port or socks5://host:port URL"
+            .to_owned()
     })?;
     if !url.username().is_empty()
         || url.password().is_some()
@@ -202,10 +218,17 @@ fn configured_proxy() -> Result<Option<ProxyConfig>, String> {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err("YUKKI_BROWSER_PROXY cannot contain credentials, paths, queries, or fragments".to_owned());
+        return Err(
+            "YUKKI_BROWSER_PROXY cannot contain credentials, paths, queries, or fragments"
+                .to_owned(),
+        );
     }
-    let host = url.host_str().ok_or_else(|| "Proxy URL is missing a host".to_owned())?;
-    let port = url.port().ok_or_else(|| "Proxy URL must include an explicit port".to_owned())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Proxy URL is missing a host".to_owned())?;
+    let port = url
+        .port()
+        .ok_or_else(|| "Proxy URL must include an explicit port".to_owned())?;
     let endpoint = ProxyEndpoint {
         host: host.to_owned(),
         port: port.to_string(),
@@ -280,12 +303,18 @@ fn build_page(
                 if let Ok(mut started) = started_state.lock() {
                     *started = Some((url, Instant::now()));
                 }
-            } else if let Some((started_url, started_at)) =
-                finished_state.lock().ok().and_then(|mut started| started.take())
+            } else if let Some((started_url, started_at)) = finished_state
+                .lock()
+                .ok()
+                .and_then(|mut started| started.take())
             {
                 let _ = load_proxy.send_event(RuntimeEvent::LoadFinished {
                     tab_id,
-                    url: if started_url.is_empty() { url } else { started_url },
+                    url: if started_url.is_empty() {
+                        url
+                    } else {
+                        started_url
+                    },
                     duration_ms: started_at.elapsed().as_millis(),
                 });
             }
@@ -321,8 +350,16 @@ fn build_toolbar(
             if let Ok(message) = serde_json::from_str::<UiMessage>(request.body()) {
                 let known_action = matches!(
                     message.action.as_str(),
-                    "ready" | "navigate" | "back" | "forward" | "reload"
-                        | "bookmark" | "new_tab" | "close_tab" | "switch_tab" | "graphics_test"
+                    "ready"
+                        | "navigate"
+                        | "back"
+                        | "forward"
+                        | "reload"
+                        | "bookmark"
+                        | "new_tab"
+                        | "close_tab"
+                        | "switch_tab"
+                        | "graphics_test"
                 );
                 let valid_url = message.url.as_ref().is_none_or(|url| url.len() <= 2048);
                 if known_action && message.action.len() <= 32 && valid_url {
@@ -376,24 +413,21 @@ fn sync_chrome(
     });
 
     if let Ok(json) = serde_json::to_string(&payload) {
-        let script = format!(
-            "window.yukkiBrowser && window.yukkiBrowser.render({json});"
-        );
+        let script = format!("window.yukkiBrowser && window.yukkiBrowser.render({json});");
         let _ = toolbar.evaluate_script(&script);
     }
 
     if let Some(tab) = active {
-        let title = if tab.title.is_empty() { &tab.url } else { &tab.title };
+        let title = if tab.title.is_empty() {
+            &tab.url
+        } else {
+            &tab.title
+        };
         window.set_title(&format!("YuKKi Browser — {title}"));
     }
 }
 
-fn resize_views(
-    toolbar: &WebView,
-    tabs: &[Tab],
-    size: PhysicalSize<u32>,
-    scale_factor: f64,
-) {
+fn resize_views(toolbar: &WebView, tabs: &[Tab], size: PhysicalSize<u32>, scale_factor: f64) {
     let _ = toolbar.set_bounds(toolbar_rect(size, scale_factor));
     let bounds = page_rect(size, scale_factor);
     for tab in tabs {
@@ -418,7 +452,9 @@ fn add_tab(
     size: PhysicalSize<u32>,
 ) -> Result<(), String> {
     if tabs.len() >= MAX_TABS {
-        return Err(format!("The browser tab limit is {MAX_TABS}. Close a tab before opening another."));
+        return Err(format!(
+            "The browser tab limit is {MAX_TABS}. Close a tab before opening another."
+        ));
     }
     let url = resolve_address(url).map_err(|error| error.to_string())?;
     let id = *next_tab_id;
@@ -455,7 +491,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     configure_linux_display_backend()?;
 
-    let requested = env::args().skip(1).next().unwrap_or_else(|| DEFAULT_URL.to_owned());
+    let requested = env::args()
+        .skip(1)
+        .next()
+        .unwrap_or_else(|| DEFAULT_URL.to_owned());
     let initial_url = resolve_address(&requested)?;
 
     let event_loop = EventLoopBuilder::<RuntimeEvent>::with_user_event().build();
@@ -740,7 +779,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 }
-
 
 #[cfg(all(test, target_os = "linux"))]
 mod linux_display_backend_tests {
