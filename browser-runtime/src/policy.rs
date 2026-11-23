@@ -9,6 +9,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NavigationError {
     EmptyAddress,
+    AddressTooLong,
     InvalidAddress,
     UnsupportedScheme,
     EmbeddedCredentials,
@@ -20,6 +21,7 @@ impl std::fmt::Display for NavigationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let message = match self {
             Self::EmptyAddress => "Enter an address or search query.",
+            Self::AddressTooLong => "Addresses are limited to 2,048 bytes.",
             Self::InvalidAddress => "The address is not a valid URL.",
             Self::UnsupportedScheme => "Only HTTP and HTTPS pages can be opened.",
             Self::EmbeddedCredentials => "Credentials are not allowed in page URLs.",
@@ -37,6 +39,9 @@ pub fn resolve_address(input: &str) -> Result<Url, NavigationError> {
     let input = input.trim();
     if input.is_empty() {
         return Err(NavigationError::EmptyAddress);
+    }
+    if input.len() > 2048 {
+        return Err(NavigationError::AddressTooLong);
     }
 
     let candidate = if input.chars().any(char::is_whitespace) {
@@ -58,6 +63,9 @@ pub fn resolve_address(input: &str) -> Result<Url, NavigationError> {
 /// Validate a top-level navigation request originating from the address bar,
 /// a link, redirect, or window-open request.
 pub fn validate_navigation(raw: &str) -> Result<Url, NavigationError> {
+    if raw.len() > 2048 {
+        return Err(NavigationError::AddressTooLong);
+    }
     let url = Url::parse(raw).map_err(|_| NavigationError::InvalidAddress)?;
     validate_url(&url)?;
     Ok(url)
@@ -108,6 +116,7 @@ fn is_blocked_ip(address: IpAddr) -> bool {
                 || address.is_unique_local()
                 || address.is_unicast_link_local()
                 || address.is_multicast()
+                || address.segments()[0] == 0x2001 && address.segments()[1] == 0x0db8
                 || address.to_ipv4_mapped().is_some_and(is_blocked_ipv4)
         }
     }
@@ -123,8 +132,13 @@ fn is_blocked_ipv4(address: Ipv4Addr) -> bool {
         || address.is_multicast()
         || octets[0] == 0
         || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-        || (octets[0] == 192 && octets[1] == 0)
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+        || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99)
         || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        || octets[0] >= 240
 }
 
 #[cfg(test)]
@@ -160,7 +174,10 @@ mod tests {
             "http://10.0.0.7/",
             "http://127.0.0.1/",
             "http://169.254.169.254/",
+            "http://192.0.2.1/",
+            "http://203.0.113.1/",
             "http://[::1]/",
+            "http://[2001:db8::1]/",
             "http://[fd00::1]/",
         ] {
             assert!(validate_navigation(url).is_err(), "expected {url} to be blocked");
@@ -170,6 +187,7 @@ mod tests {
     #[test]
     fn rejects_empty_and_malformed_inputs() {
         assert_eq!(resolve_address("  "), Err(NavigationError::EmptyAddress));
+        assert_eq!(resolve_address("x".repeat(2049).as_str()), Err(NavigationError::AddressTooLong));
         assert_eq!(resolve_address("https://"), Err(NavigationError::InvalidAddress));
     }
 }
