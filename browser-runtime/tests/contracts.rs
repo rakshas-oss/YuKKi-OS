@@ -39,3 +39,19 @@ fn browser_state_has_separate_history_and_bookmarks() {
     assert_eq!(state.history.len(), 1);
     assert_eq!(state.bookmarks.len(), 1);
 }
+
+#[test]
+fn local_chrome_exposes_navigation_and_graphics_capability_probe() {
+    let shell = include_str!("../assets/shell.html");
+    for action in [
+        "back", "forward", "reload", "navigate", "bookmark",
+        "new_tab", "close_tab", "switch_tab",
+    ] {
+        assert!(shell.contains(&format!("\"action\": \"{action}\"")) ||
+                shell.contains(&format!("action: \"{action}\"")),
+                "missing browser action {action}");
+    }
+    assert!(shell.contains("id=\"graphics\""));
+    assert!(shell.contains("navigator.gpu"));
+    assert!(shell.contains("getContext(\"webgl2\")"));
+}
