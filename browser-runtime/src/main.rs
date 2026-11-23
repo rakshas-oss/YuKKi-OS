@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::{env, error::Error, path::PathBuf};
+use std::{env, error::Error, path::PathBuf, sync::{Arc, Mutex}, time::Instant};
 use tao::{
     dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
@@ -9,7 +9,7 @@ use tao::{
 use url::Url;
 use wry::{
     dpi::{LogicalPosition, LogicalSize as WebViewLogicalSize},
-    NewWindowResponse, PermissionResponse, Rect, WebView, WebViewBuilder,
+    NewWindowResponse, PageLoadEvent, PermissionResponse, Rect, WebView, WebViewBuilder,
 };
 
 use yukki_browser_runtime::{
@@ -32,6 +32,7 @@ enum RuntimeEvent {
     Ui(UiMessage),
     Visited { tab_id: u64, url: String },
     TitleChanged { tab_id: u64, title: String },
+    LoadFinished { tab_id: u64, url: String, duration_ms: u128 },
     Notice(String),
 }
 
@@ -40,6 +41,7 @@ struct Tab {
     engine: WryEngineAdapter,
     url: String,
     title: String,
+    last_load_ms: Option<u128>,
 }
 
 struct WryEngineAdapter {
@@ -100,6 +102,10 @@ fn build_page(
     let navigation_proxy = proxy.clone();
     let title_proxy = proxy.clone();
     let popup_proxy = proxy.clone();
+    let load_proxy = proxy.clone();
+    let load_started = Arc::new(Mutex::new(None::<(String, Instant)>));
+    let started_state = Arc::clone(&load_started);
+    let finished_state = Arc::clone(&load_started);
 
     let view = WebViewBuilder::new()
         .with_url(url)
@@ -141,6 +147,21 @@ fn build_page(
         .with_document_title_changed_handler(move |title| {
             let _ = title_proxy.send_event(RuntimeEvent::TitleChanged { tab_id, title });
         })
+        .with_on_page_load_handler(move |event, url| {
+            if matches!(event, PageLoadEvent::Started) {
+                if let Ok(mut started) = started_state.lock() {
+                    *started = Some((url, Instant::now()));
+                }
+            } else if let Some((started_url, started_at)) =
+                finished_state.lock().ok().and_then(|mut started| started.take())
+            {
+                let _ = load_proxy.send_event(RuntimeEvent::LoadFinished {
+                    tab_id,
+                    url: if started_url.is_empty() { url } else { started_url },
+                    duration_ms: started_at.elapsed().as_millis(),
+                });
+            }
+        })
         .build_as_child(window)?;
 
     Ok(WryEngineAdapter { view })
@@ -179,7 +200,8 @@ fn sync_chrome(
             serde_json::json!({
                 "id": tab.id,
                 "url": tab.url,
-                "title": if tab.title.is_empty() { tab.url.as_str() } else { tab.title.as_str() }
+                "title": if tab.title.is_empty() { tab.url.as_str() } else { tab.title.as_str() },
+                "load_ms": tab.last_load_ms
             })
         })
         .collect();
@@ -261,6 +283,7 @@ fn add_tab(
         engine,
         url: url.to_string(),
         title: String::new(),
+        last_load_ms: None,
     });
     *selected_tab_id = id;
     Ok(())
@@ -343,6 +366,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(RuntimeEvent::Visited { tab_id, url }) => {
                 if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
                     tab.url = url.clone();
+                    tab.last_load_ms = None;
                     browser_state.record_visit(&url);
                     persist_state(&state_path, &browser_state);
                 }
@@ -353,6 +377,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     tab.title = title;
                 }
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, "Page title updated");
+            }
+            Event::UserEvent(RuntimeEvent::LoadFinished { tab_id, url, duration_ms }) => {
+                if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                    tab.url = url;
+                    tab.last_load_ms = Some(duration_ms);
+                }
+                let message = format!("Page load completed in {duration_ms} ms");
+                sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
             }
             Event::UserEvent(RuntimeEvent::Notice(message)) => {
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
