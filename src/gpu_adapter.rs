@@ -2845,31 +2845,38 @@ impl LifecycleClient {
         }
     }
 
-    /// Submit a generic inference task to the overhauled broker over BRK2,
-    /// requesting the NPU backend explicitly (BRK2 field 10).
+    /// Submit a BRK2 inference request with an explicit accelerator preference.
     ///
-    /// Unlike `submit_wsm1_task`, this does not go through the WASM manager:
-    /// kind "inference" reaches BrokerService's backend dispatch, which
-    /// maps device_preference "npu" to an inference profile. The broker's
-    /// BRK2 response backend field (field 7) is verified when present:
-    /// a CPU fallback is returned as an error here instead of silently
-    /// being reported as an NPU result. Callers that allow CPU fallback
-    /// should handle that error via their policy chain.
-    pub async fn submit_npu_task(
+    /// The returned `backend` is the broker's response field 7. A missing
+    /// backend is unknown, not proof of accelerator execution. This method is
+    /// useful for measured GPU/NPU offload; callers decide whether and how a
+    /// semantically equivalent CPU fallback is safe.
+    pub async fn submit_inference_task_with_preference(
         &self,
         task_id: &str,
         payload: &[u8],
         priority: u8,
         timeout_ms: u32,
-    ) -> Result<Vec<u8>, GpuAdapterError> {
+        device_preference: &str,
+    ) -> Result<BrokerTaskExecution, GpuAdapterError> {
+        if !matches!(device_preference, "cpu" | "gpu" | "npu") {
+            return Err(GpuAdapterError::InvalidRequest(
+                "device_preference must be cpu, gpu, or npu".into(),
+            ));
+        }
         let config = self.broker_client.config();
         if !config.enabled {
             return Err(GpuAdapterError::Disabled);
         }
         let directive = WorkerDirective::inference();
         let (request_id, frame) = encode_brk2_broker_request_with_worker_directive(
-            task_id, "inference", priority, timeout_ms, payload.to_vec(),
-            Some("npu"), Some(&directive),
+            task_id,
+            "inference",
+            priority,
+            timeout_ms,
+            payload.to_vec(),
+            Some(device_preference),
+            Some(&directive),
         )?;
         if frame.len() > config.max_frame_size {
             return Err(GpuAdapterError::FrameTooLarge {
@@ -2891,19 +2898,19 @@ impl LifecycleClient {
         )
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
-        let DecodedBrk2Response { status, result, error, backend, .. } =
-            decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
+        let DecodedBrk2Response {
+            status,
+            result,
+            error,
+            backend,
+            worker_telemetry,
+        } = decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
         match status {
-            0 => {
-                if let Some(backend) = backend {
-                    if backend != "npu" {
-                        return Err(GpuAdapterError::MalformedResponse(format!(
-                            "broker ran task on backend '{backend}', not 'npu'"
-                        )));
-                    }
-                }
-                Ok(result)
-            }
+            0 => Ok(BrokerTaskExecution {
+                result,
+                backend,
+                worker_telemetry,
+            }),
             1 => Err(GpuAdapterError::BrokerRejected {
                 task_id: task_id.to_owned(),
                 code: "REJECTED".to_string(),
@@ -2916,6 +2923,36 @@ impl LifecycleClient {
                 message: error,
             }),
         }
+    }
+
+    /// Submit an inference task requesting NPU execution. A broker-reported
+    /// non-NPU backend is returned as an error. A missing backend remains
+    /// unknown for compatibility with older brokers; use
+    /// `submit_inference_task_with_preference` when explicit attestation is required.
+    pub async fn submit_npu_task(
+        &self,
+        task_id: &str,
+        payload: &[u8],
+        priority: u8,
+        timeout_ms: u32,
+    ) -> Result<Vec<u8>, GpuAdapterError> {
+        let execution = self
+            .submit_inference_task_with_preference(
+                task_id,
+                payload,
+                priority,
+                timeout_ms,
+                "npu",
+            )
+            .await?;
+        if let Some(backend) = execution.backend.as_deref() {
+            if backend != "npu" {
+                return Err(GpuAdapterError::MalformedResponse(format!(
+                    "broker ran task on backend '{backend}', not 'npu'"
+                )));
+            }
+        }
+        Ok(execution.result)
     }
 }
 
