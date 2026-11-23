@@ -313,7 +313,7 @@ impl BrowserAcceleratorScheduler {
                 .await
                 {
                     Ok(execution) => {
-                        if let Some(mut report) = report_for_execution(
+                        if let Some(report) = report_for_execution(
                             requested_backend,
                             ExecutionBackend::Gpu,
                             execution,
@@ -484,8 +484,11 @@ fn has_capability(peer: &PeerBroker, capability: &str) -> bool {
 
 fn load_peer_directory(path: &std::ffi::OsStr) -> Result<Vec<BrokerServiceRecord>, String> {
     let path = std::path::Path::new(path);
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("cannot read broker peer directory: {error}"))?;
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot read broker peer directory: {error}")),
+    };
     if !metadata.file_type().is_file() || metadata.len() > MAX_DIRECTORY_FILE_BYTES {
         return Err("broker peer directory must be a regular file no larger than 4 MiB".to_owned());
     }
@@ -716,6 +719,85 @@ mod tests {
         assert!(bounded_task_id("browser.gfx.1").is_ok());
         assert!(bounded_task_id("../bad").is_err());
         assert!(bounded_task_id(&"x".repeat(129)).is_err());
+    }
+
+
+    fn scheduler_for_test(remote_cpu_enabled: bool) -> BrowserAcceleratorScheduler {
+        BrowserAcceleratorScheduler {
+            local_client: None,
+            base_config: GpuAdapterConfig::default(),
+            peer_brokers: Vec::new(),
+            policy: BackendPolicy::default(),
+            graphics_module_id: Some("browser.graphics.rgba-invert".to_owned()),
+            graphics_module_version: Some("1".to_owned()),
+            npu_opted_in: false,
+            remote_enabled: true,
+            remote_cpu_enabled,
+        }
+    }
+
+    #[test]
+    fn directory_selection_distinguishes_gpu_npu_and_cpu_only_servers() {
+        let now = 1_700_000_000;
+        let records = vec![
+            sample_record(now, "cpu-peer.internal:9090", &["cpu"]),
+            sample_record(now, "gpu-peer.internal:9090", &["cpu", "gpu"]),
+            sample_record(now, "npu-peer.internal:9090", &["cpu", "npu"]),
+        ];
+        let scheduler = scheduler_for_test(true)
+            .with_authenticated_peer_records(records, now)
+            .expect("accept authenticated peer snapshot");
+        let status = scheduler.status();
+        assert_eq!(status.discovered_peer_count, 3);
+        assert_eq!(status.discovered_gpu_peer_count, 1);
+        assert_eq!(status.discovered_npu_peer_count, 1);
+        assert_eq!(status.discovered_cpu_peer_count, 3);
+        assert_eq!(
+            scheduler.select_graphics_backend(64 * 1024),
+            ExecutionBackend::Gpu
+        );
+    }
+
+    #[test]
+    fn cpu_only_mesh_uses_remote_cpu_only_when_operator_enables_it() {
+        let now = 1_700_000_000;
+        let records = vec![sample_record(now, "cpu-peer.internal:9090", &["cpu"])];
+        let enabled = scheduler_for_test(true)
+            .with_authenticated_peer_records(records.clone(), now)
+            .unwrap();
+        assert_eq!(
+            enabled.select_graphics_backend(64 * 1024),
+            ExecutionBackend::Remote
+        );
+
+        let disabled = scheduler_for_test(false)
+            .with_authenticated_peer_records(records, now)
+            .unwrap();
+        assert_eq!(
+            disabled.select_graphics_backend(64 * 1024),
+            ExecutionBackend::Cpu
+        );
+    }
+
+    #[test]
+    fn invalid_or_expired_peer_records_are_rejected() {
+        let now = 1_700_000_000;
+        let mut expired = sample_record(now - 1000, "expired.internal:9090", &["gpu"]);
+        expired.expires_at_unix = now - 1;
+        let result = scheduler_for_test(false)
+            .with_authenticated_peer_records(vec![expired], now);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn remote_delegation_requires_explicit_operator_opt_in() {
+        let now = 1_700_000_000;
+        let records = vec![sample_record(now, "gpu-peer.internal:9090", &["gpu"])];
+        let mut scheduler = scheduler_for_test(false);
+        let result = scheduler.with_authenticated_peer_records(records, now);
+        assert!(result.is_err());
+        scheduler.remote_enabled = true;
+        assert!(scheduler.with_authenticated_peer_records(Vec::new(), now).is_ok());
     }
 
     #[test]
