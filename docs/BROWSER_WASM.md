@@ -1,6 +1,28 @@
 # YuKKi-OS Browser WebAssembly Client
 
-The browser-wasm directory contains a static browser application and a dependency-free Rust verifier compiled to wasm32-unknown-unknown. It is a browser client for the existing stream gateway; it is not a browser build of the native YuKKi-OS node.
+The browser-wasm directory contains a responsive static browser workspace and a dependency-free Rust verifier compiled to wasm32-unknown-unknown. It is a browser client for the existing stream gateway; it is not a browser build of the native YuKKi-OS node or a general-purpose HTML/CSS browser engine.
+
+## Responsive workspace
+
+The interface is mobile-first and fluid rather than tied to a fixed device-resolution list. Its layout adapts to available CSS viewport width and component space:
+
+| Layout range | Behaviour |
+| --- | --- |
+| 320–671 CSS px | Single-column workspace, stacked forms, wrapping navigation and full-width touch actions |
+| 672–1023 CSS px | Compact two-column form layouts; workspace remains a readable single column |
+| 1024–1599 CSS px | Two-column workspace grid |
+| 1600–2239 CSS px | Three-column wide workspace; chunk reader receives a taller dedicated column |
+| 2240 CSS px and above | Expanded spacing and content width for ultrawide / 4K-class displays |
+
+These are layout transition points, not supported-resolution limits. Intermediate widths, portrait/landscape changes, browser zoom, and OS text scaling use fluid sizing and reflow. The browser's device-pixel ratio is intentionally not used as a layout breakpoint: CSS viewport dimensions determine layout, while the browser handles raster density.
+
+The interface includes a skip link, semantic landmarks, keyboard focus indicators, reduced-motion handling, forced-colors support, and larger controls for coarse pointers. The layout is designed to reflow at 320 CSS px and keep text readable under zoom; verify the result in the target browser/device matrix before release.
+
+Run the responsive markup/style contract check with:
+
+~~~sh
+node browser-wasm/tests/responsive-layout.test.mjs
+~~~
 
 ## Features
 
@@ -17,22 +39,9 @@ The gateway is codec-agnostic. The client validates YKMC framing and metadata bu
 
 ## MMO spatial WASM core
 
-The same browser WASM module now exposes the portable spatial and motion core
-described in [MMO Browser WASM integration](MMO_BROWSER_WASM.md). The browser
-page includes a local entity panel for WGS84/ECEF conversion and bounded
-spatiotemporal nearest-observation resolution. These sample entities remain in
-the WASM instance's linear memory; they are not posted to the gateway.
+The same browser WASM module exposes the portable spatial and motion core described in [MMO Browser WASM integration](MMO_BROWSER_WASM.md). The page includes a local entity panel for WGS84/ECEF conversion and bounded spatiotemporal nearest-observation resolution. These sample entities remain in the WASM instance's linear memory; they are not posted to the gateway.
 
-The spatial core is deliberately separate from the native daemon sketch.
-POSIX shared memory, futexes, pthread workers, and hardware SIMD are not browser
-APIs. Networked data continues to use the authenticated gateway, existing
-YKMC stream framing, and BRK1/BRK2 plus NXR1/WSM1 at the Overhauled broker
-boundary. The WASM resolver is a local computational primitive, not a new
-transport or authentication mechanism. The user-facing ingestion workflows
-for drone telemetry, finance/market-site data, environmental monitoring, and
-other multivariate sources are covered in [User how-to](USER_HOWTO_MMO.md).
-Browser-WASM performance measurements run against the compiled module with
-the data-driven harness described in [Benchmarking](BENCHMARKING.md).
+The spatial core is deliberately separate from the native daemon sketch. POSIX shared memory, futexes, pthread workers, and hardware SIMD are not browser APIs. Networked data continues to use the authenticated gateway, existing YKMC stream framing, and BRK1/BRK2 plus NXR1/WSM1 at the Overhauled broker boundary. The WASM resolver is a local computational primitive, not a new transport or authentication mechanism. The user-facing ingestion workflows for drone telemetry, finance/market-site data, environmental monitoring, and other multivariate sources are covered in [User how-to](USER_HOWTO_MMO.md). Browser-WASM performance measurements run against the compiled module with the data-driven harness described in [Benchmarking](BENCHMARKING.md).
 
 ## Build and run locally
 
