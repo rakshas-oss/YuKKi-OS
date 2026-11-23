@@ -4,6 +4,7 @@
 //! remains a portable gateway client, while this native crate hosts an OS
 //! WebView engine for general page rendering.
 
+pub mod accelerator;
 pub mod policy;
 pub mod store;
 
