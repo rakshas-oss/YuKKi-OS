@@ -1,0 +1,18 @@
+[package]
+name = "yukki-browser-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Native browser runtime adapter and proof of concept for YuKKi-OS"
+
+[[bin]]
+name = "yukki-browser"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tao = "0.37.3"
+url = "2.5"
+wry = "0.57.3"
