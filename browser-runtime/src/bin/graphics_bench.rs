@@ -9,9 +9,11 @@ use std::{
 
 use serde::Serialize;
 use tokio::task::JoinSet;
-use yukki_browser_runtime::{
-    accelerator::{rgba_invert_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport, MAX_GRAPHICS_PAYLOAD_BYTES},
+use yukki_browser_runtime::accelerator::{
+    rgba_invert_cpu, BrowserAcceleratorScheduler, GraphicsComputeReport,
+    MAX_GRAPHICS_PAYLOAD_BYTES,
 };
+use yukkios::exec_policy::ExecutionBackend;
 
 const TILE_EDGE: usize = 128;
 const DEFAULT_CONCURRENCY: usize = 4;
@@ -93,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env::set_var("YUKKI_FORCE_CPU_FALLBACK", "true");
     }
 
-    let scheduler = Arc::new(BrowserAcceleratorScheduler::from_env()?);
+    let scheduler = Arc::new(BrowserAcceleratorScheduler::from_env().map_err(std::io::Error::other)?);
     let status = scheduler.status();
     let dimensions: &[(usize, usize)] = if quick {
         &[(128, 128), (320, 240)]
@@ -209,7 +211,7 @@ async fn benchmark_frame(
                 .into());
             }
             match (report.actual_backend, report.execution_node_id) {
-                (yukki_browser_runtime::accelerator::ExecutionBackend::Gpu, Some(node)) => {
+                (ExecutionBackend::Gpu, Some(node)) => {
                     counts.remote_gpu += 1;
                     remote_execution_count += 1;
                     remote_nodes.insert(node.to_string());
@@ -217,7 +219,7 @@ async fn benchmark_frame(
                 (yukki_browser_runtime::accelerator::ExecutionBackend::Gpu, None) => {
                     counts.local_gpu += 1;
                 }
-                (yukki_browser_runtime::accelerator::ExecutionBackend::Cpu, Some(node)) => {
+                (ExecutionBackend::Cpu, Some(node)) => {
                     counts.remote_cpu += 1;
                     remote_execution_count += 1;
                     remote_nodes.insert(node.to_string());
@@ -276,8 +278,8 @@ async fn run_tiles_bounded(
         }
 
         if let Some(joined) = tasks.join_next().await {
-            let result = joined??;
-            completed.push(result);
+            let result = joined.map_err(std::io::Error::other)?;
+            completed.push(result.map_err(std::io::Error::other)?);
         }
     }
 
@@ -296,7 +298,7 @@ async fn benchmark_npu(
 
     for index in 0..iterations {
         let task_id = format!("gfx-npu-{index}");
-        let report = scheduler.run_npu_inference(&task_id, payload).await?;
+        let report = scheduler.run_npu_inference(&task_id, payload).await.map_err(std::io::Error::other)?;
         samples.push(Duration::from_millis(report.elapsed_ms.min(u64::MAX as u128) as u64));
         if let Some(worker) = report.broker_worker_id {
             worker_ids.insert(worker);
