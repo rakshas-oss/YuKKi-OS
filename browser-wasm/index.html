@@ -2,127 +2,129 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:* http://[::1]:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#101820">
   <title>YuKKi-OS Browser Gateway</title>
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <p class="eyebrow">YUKKI-OS · BROWSER CLIENT</p>
-      <h1>Stream gateway</h1>
-      <p class="muted">Browse authenticated stream metadata and bounded media-chunk ranges. YKMC frames are checked by the Rust WebAssembly core before display.</p>
+  <a class="skip-link" href="#main-content">Skip to workspace</a>
+  <main class="shell" id="main-content">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">YUKKI-OS · BROWSER CLIENT</p>
+        <h1>Internet workspace</h1>
+        <p class="lede">A responsive WebAssembly workspace for authenticated streams and local spatiotemporal tools.</p>
+      </div>
+      <nav class="workspace-nav" aria-label="Workspace sections">
+        <a href="#connection">Gateway</a>
+        <a href="#streams">Streams</a>
+        <a href="#chunk-reader">Chunk reader</a>
+        <a href="#spatial-tools">Spatial tools</a>
+      </nav>
     </header>
 
-    <section class="panel" aria-labelledby="connection-heading">
-      <h2 id="connection-heading">Gateway connection</h2>
-      <form id="connect-form">
-        <label for="gateway-url">Gateway base URL</label>
-        <input id="gateway-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" required>
-        <label for="gateway-token">Bearer token</label>
-        <input id="gateway-token" type="password" autocomplete="off" spellcheck="false" required>
-        <div class="actions">
-          <button id="connect-button" type="submit">Connect and load streams</button>
-          <button id="disconnect-button" type="button" class="secondary" disabled>Disconnect</button>
+    <div class="workspace-grid">
+      <section class="panel connection-panel" id="connection" aria-labelledby="connection-heading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">01 · ACCESS</p><h2 id="connection-heading">Gateway connection</h2></div>
+          <span class="panel-mark" aria-hidden="true">01</span>
         </div>
-      </form>
-      <p id="connection-status" class="status" role="status" aria-live="polite">Loading browser verifier…</p>
-      <p class="hint">The token stays in page memory only. It is sent only in the Authorization header and is not written to a URL or browser storage.</p>
-    </section>
+        <form id="connect-form">
+          <label for="gateway-url">Gateway base URL</label>
+          <input id="gateway-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" required>
+          <label for="gateway-token">Bearer token</label>
+          <input id="gateway-token" type="password" autocomplete="off" spellcheck="false" required>
+          <div class="actions">
+            <button id="connect-button" type="submit">Connect and load streams</button>
+            <button id="disconnect-button" type="button" class="secondary" disabled>Disconnect</button>
+          </div>
+        </form>
+        <p id="connection-status" class="status" role="status" aria-live="polite">Loading browser verifier…</p>
+        <p class="hint">The token stays in page memory only. It is sent only in the Authorization header and is not written to a URL or browser storage.</p>
+      </section>
 
-    <section class="panel" aria-labelledby="streams-heading">
-      <div class="section-heading">
-        <h2 id="streams-heading">Streams</h2>
-        <span id="stream-count" class="muted">Not connected</span>
-      </div>
-      <div id="stream-list" class="stream-list" aria-live="polite">
-        <p class="muted">Connect to a gateway to list streams.</p>
-      </div>
-    </section>
+      <section class="panel streams-panel" id="streams" aria-labelledby="streams-heading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">02 · DISCOVERY</p><h2 id="streams-heading">Streams</h2></div>
+          <span id="stream-count" class="muted">Not connected</span>
+        </div>
+        <div id="stream-list" class="stream-list" aria-live="polite">
+          <p class="muted">Connect to a gateway to list streams.</p>
+        </div>
+      </section>
 
-    <section class="panel" aria-labelledby="chunks-heading">
-      <div class="section-heading">
-        <h2 id="chunks-heading">Chunk reader</h2>
-        <span id="selected-stream" class="muted">No stream selected</span>
-      </div>
-      <form id="chunk-form">
-        <label for="from-sequence">Start sequence</label>
-        <input id="from-sequence" type="text" inputmode="numeric" value="0" pattern="[0-9]+" required>
-        <label for="chunk-limit">Chunk limit (1–8)</label>
-        <input id="chunk-limit" type="number" min="1" max="8" value="1" required>
-        <div class="actions">
-          <button id="read-button" type="submit" disabled>Read chunk range</button>
-          <label class="check-label"><input id="auto-refresh" type="checkbox" disabled> Poll every 2 seconds</label>
+      <section class="panel chunks-panel" id="chunk-reader" aria-labelledby="chunks-heading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">03 · INSPECT</p><h2 id="chunks-heading">Chunk reader</h2></div>
+          <span id="selected-stream" class="muted">No stream selected</span>
         </div>
-      </form>
-      <p id="chunk-status" class="status" role="status" aria-live="polite">Select a stream to inspect retained chunks.</p>
-      <ol id="chunk-list" class="chunk-list">
-        <li class="muted">No chunks loaded.</li>
-      </ol>
-    </section>
+        <form id="chunk-form" class="chunk-form">
+          <label for="from-sequence">Start sequence</label>
+          <input id="from-sequence" type="text" inputmode="numeric" value="0" pattern="[0-9]+" required>
+          <label for="chunk-limit">Chunk limit (1–8)</label>
+          <input id="chunk-limit" type="number" min="1" max="8" value="1" required>
+          <div class="actions">
+            <button id="read-button" type="submit" disabled>Read chunk range</button>
+            <label class="check-label"><input id="auto-refresh" type="checkbox" disabled> Poll every 2 seconds</label>
+          </div>
+        </form>
+        <p id="chunk-status" class="status" role="status" aria-live="polite">Select a stream to inspect retained chunks.</p>
+        <ol id="chunk-list" class="chunk-list">
+          <li class="muted">No chunks loaded.</li>
+        </ol>
+      </section>
 
-    <section class="panel" aria-labelledby="mmo-heading">
-      <div class="section-heading">
-        <h2 id="mmo-heading">MMO spatial resolver</h2>
-        <span class="muted">Local browser WASM · 512 entity limit</span>
-      </div>
-      <p class="hint">Add WGS84 observations and resolve the nearest eligible entity using location, observation time, freshness, and distance. This runs in the browser WASM core; it does not send these sample entities to a gateway.</p>
-      <form id="mmo-form">
-        <label for="mmo-entity-id">Entity ID</label>
-        <input id="mmo-entity-id" type="number" min="0" max="4294967294" step="1" value="1" required>
-        <label for="mmo-lat">Latitude</label>
-        <input id="mmo-lat" type="number" min="-90" max="90" step="any" value="43.6532" required>
-        <label for="mmo-lon">Longitude</label>
-        <input id="mmo-lon" type="number" min="-180" max="180" step="any" value="-79.3832" required>
-        <label for="mmo-alt">Altitude (m)</label>
-        <input id="mmo-alt" type="number" step="any" value="100" required>
-        <div class="actions">
-          <button type="submit">Add / update observation</button>
-          <button id="mmo-reset" type="button" class="secondary">Clear local entities</button>
+      <section class="panel spatial-panel" id="spatial-tools" aria-labelledby="mmo-heading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">04 · LOCAL COMPUTE</p><h2 id="mmo-heading">MMO spatial resolver</h2></div>
+          <span class="muted">WASM · 512 entity limit</span>
         </div>
-      </form>
-      <p id="mmo-status" class="status" role="status" aria-live="polite">Waiting for spatial WASM exports…</p>
-      <ol id="mmo-entity-list" class="chunk-list">
-        <li class="muted">No local entities loaded.</li>
-      </ol>
-      <h3>Arc–secant–tangent path reduction</h3>
-      <p class="hint">Simplify the entity sequence as a path. Arc/secant deviation controls positional error; tangent-angle limits preserve sharp turns.</p>
-      <form id="mmo-simplify-form">
-        <label for="mmo-simplify-tolerance">Maximum geometric error (m)</label>
-        <input id="mmo-simplify-tolerance" type="number" min="0" max="100000" step="any" value="2" required>
-        <label for="mmo-simplify-turn">Maximum tangent turn (degrees)</label>
-        <input id="mmo-simplify-turn" type="number" min="1" max="180" step="1" value="35" required>
-        <div class="actions">
-          <button type="submit">Simplify current entity path</button>
-        </div>
-      </form>
-      <p id="mmo-simplify-status" class="status" role="status" aria-live="polite">Add at least two entities to simplify a path.</p>
-      <ol id="mmo-simplify-list" class="chunk-list">
-        <li class="muted">No simplified path yet.</li>
-      </ol>
-      <h3>Resolve a spatiotemporal match</h3>
-      <form id="mmo-resolve-form">
-        <label for="mmo-query-lat">Query latitude</label>
-        <input id="mmo-query-lat" type="number" min="-90" max="90" step="any" value="43.6532" required>
-        <label for="mmo-query-lon">Query longitude</label>
-        <input id="mmo-query-lon" type="number" min="-180" max="180" step="any" value="-79.3832" required>
-        <label for="mmo-query-alt">Query altitude (m)</label>
-        <input id="mmo-query-alt" type="number" step="any" value="100" required>
-        <label for="mmo-max-age">Maximum age (ms)</label>
-        <input id="mmo-max-age" type="number" min="0" max="86400000" step="1" value="60000" required>
-        <label for="mmo-max-distance">Maximum distance (m)</label>
-        <input id="mmo-max-distance" type="number" min="0" max="10000000" step="any" value="5000" required>
-        <div class="actions">
-          <button type="submit">Resolve nearest eligible entity</button>
-        </div>
-      </form>
-    </section>
+        <p class="hint">Add WGS84 observations and resolve the nearest eligible entity using location, observation time, freshness, and distance. This runs in the browser WASM core; sample entities are not sent to a gateway.</p>
+        <form id="mmo-form" class="spatial-form">
+          <label for="mmo-entity-id">Entity ID</label><input id="mmo-entity-id" type="number" min="0" max="4294967294" step="1" value="1" required>
+          <label for="mmo-lat">Latitude</label><input id="mmo-lat" type="number" min="-90" max="90" step="any" value="43.6532" required>
+          <label for="mmo-lon">Longitude</label><input id="mmo-lon" type="number" min="-180" max="180" step="any" value="-79.3832" required>
+          <label for="mmo-alt">Altitude (m)</label><input id="mmo-alt" type="number" step="any" value="100" required>
+          <div class="actions">
+            <button type="submit">Add / update observation</button>
+            <button id="mmo-reset" type="button" class="secondary">Clear local entities</button>
+          </div>
+        </form>
+        <p id="mmo-status" class="status" role="status" aria-live="polite">Waiting for spatial WASM exports…</p>
+        <ol id="mmo-entity-list" class="chunk-list"><li class="muted">No local entities loaded.</li></ol>
+
+        <details class="tool-details">
+          <summary>Arc–secant–tangent path reduction</summary>
+          <p class="hint">Simplify the entity sequence as a path. Arc/secant deviation controls positional error; tangent-angle limits preserve sharp turns.</p>
+          <form id="mmo-simplify-form" class="spatial-form">
+            <label for="mmo-simplify-tolerance">Maximum geometric error (m)</label><input id="mmo-simplify-tolerance" type="number" min="0" max="100000" step="any" value="2" required>
+            <label for="mmo-simplify-turn">Maximum tangent turn (degrees)</label><input id="mmo-simplify-turn" type="number" min="1" max="180" step="1" value="35" required>
+            <div class="actions"><button type="submit">Simplify current entity path</button></div>
+          </form>
+          <p id="mmo-simplify-status" class="status" role="status" aria-live="polite">Add at least two entities to simplify a path.</p>
+          <ol id="mmo-simplify-list" class="chunk-list"><li class="muted">No simplified path yet.</li></ol>
+        </details>
+
+        <details class="tool-details" open>
+          <summary>Resolve a spatiotemporal match</summary>
+          <form id="mmo-resolve-form" class="spatial-form">
+            <label for="mmo-query-lat">Query latitude</label><input id="mmo-query-lat" type="number" min="-90" max="90" step="any" value="43.6532" required>
+            <label for="mmo-query-lon">Query longitude</label><input id="mmo-query-lon" type="number" min="-180" max="180" step="any" value="-79.3832" required>
+            <label for="mmo-query-alt">Query altitude (m)</label><input id="mmo-query-alt" type="number" step="any" value="100" required>
+            <label for="mmo-max-age">Maximum age (ms)</label><input id="mmo-max-age" type="number" min="0" max="86400000" step="1" value="60000" required>
+            <label for="mmo-max-distance">Maximum distance (m)</label><input id="mmo-max-distance" type="number" min="0" max="10000000" step="any" value="5000" required>
+            <div class="actions"><button type="submit">Resolve nearest eligible entity</button></div>
+          </form>
+        </details>
+      </section>
+    </div>
 
     <footer>
-      <p>Browser transport: authenticated HTTP GET. The current gateway WebSocket endpoint requires a custom Authorization header, which the browser WebSocket API does not expose; this client does not place credentials in query strings.</p>
+      <p>Browser transport: authenticated HTTP GET. The gateway WebSocket endpoint requires a custom Authorization header, which the browser WebSocket API does not expose; this client does not put credentials in query strings.</p>
       <p>Media payloads remain opaque. This client validates YKMC structure; it does not decode or transcode audio/video codecs.</p>
     </footer>
   </main>
