@@ -406,8 +406,11 @@ or OPEX improvements from these instrumentation changes.
 
 ## 6. Native browser graphics delegation benchmark
 
-The native browser runtime includes a bounded benchmark for broker-side
-browser-adjacent compute. It does not benchmark WebKit's page compositor.
+The native browser runtime includes a **Test compute** toolbar diagnostic and
+a bounded CLI benchmark for broker-side browser-adjacent compute. The toolbar
+diagnostic processes one synthetic 128×128 RGBA tile and verifies the output
+against the CPU reference; it never reads webpage pixels. Neither tool
+benchmarks WebKit's page compositor.
 
 ```sh
 cargo run --manifest-path browser-runtime/Cargo.toml --release \
