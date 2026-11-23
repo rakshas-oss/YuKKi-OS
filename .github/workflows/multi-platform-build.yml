@@ -253,7 +253,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev weston xwayland
       - name: Check browser runtime formatting
         run: cargo fmt --manifest-path browser-runtime/Cargo.toml -- --check
       - name: Test Linux display backend selection
@@ -265,6 +265,9 @@ jobs:
         run: |
           cargo build --manifest-path browser-runtime/Cargo.toml --release
           cargo build --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench
+      - name: Smoke-test native Wayland and XWayland startup
+        if: matrix.os == 'ubuntu-latest'
+        run: bash .github/scripts/smoke-browser-linux-displays.sh
       - name: Run bounded CPU graphics benchmark smoke test
         env:
           YUKKI_FORCE_CPU_FALLBACK: "true"
