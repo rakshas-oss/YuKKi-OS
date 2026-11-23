@@ -70,3 +70,47 @@ NUMA node IDs, cache topology, raw affinity masks, or tenant information.
 The bootstrap node currently relays service announcements to connected peers.
 A future DHT implementation can replace the relay/lookup mechanism while
 preserving this versioned service-record contract.
+
+
+## Local broker directory handoff for browser runtimes
+
+A node can expose its currently known broker snapshot to a co-located native
+browser process without opening a new unauthenticated discovery port. Set the
+same private file path for the node and browser process:
+
+```sh
+install -d -m 0700 "$HOME/.local/state/yukki-os"
+export YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json"
+```
+
+The node writes a JSON array containing only unexpired `BrokerServiceRecord`
+values that it learned locally or over the authenticated peer mesh. The
+snapshot is refreshed when records arrive and every 15 seconds to remove
+expired leases. The file is atomically replaced, limited to 4 MiB, and written
+with Unix mode 0600; the parent directory is restricted to 0700. The browser
+runtime rejects symlinks, non-regular files, oversized snapshots, and
+group/world-accessible files. It reloads the snapshot at most once every five
+seconds while it is running.
+
+This file is a local process handoff, not a second network discovery protocol.
+Only the YuKKi node should produce it. Do not populate it from arbitrary
+internet sources or user-supplied JSON. The browser still revalidates every
+record's schema, capability bounds, BRK2 support, and lease before creating a
+peer client.
+
+The labels have these coarse meanings:
+
+- `cpu`: the broker advertises a CPU execution path.
+- `gpu`: the broker advertises a GPU execution path for supported broker
+  workloads. This is not a claim about WebGL/WebGPU support in the browser's
+  local WebView.
+- `npu`: the broker advertises an NPU inference path.
+
+All labels remain descriptive and operator-configured, not hardware
+attestations. The browser checks the actual BRK2 response backend before
+counting an execution as CPU, GPU, or NPU.
+
+The broker TCP endpoint is still not authenticated by the mesh. The mesh
+authenticates the announcement path, but it does not authenticate a later
+browser-to-broker TCP connection. Use a private trusted network for these
+connections; do not expose the broker listener to untrusted networks.
