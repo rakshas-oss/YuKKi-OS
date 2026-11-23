@@ -149,6 +149,13 @@ export YUKKI_GPU_ADAPTER_ENABLED=true
 export YUKKI_GPU_BROKER_ENDPOINT=127.0.0.1:9090
 ```
 
+The browser toolbar includes a **Test compute** diagnostic button. It creates
+one deterministic 128×128 synthetic RGBA tile inside the native host, submits
+it to the scheduler, compares the result with the local CPU reference, and
+reports the actual broker backend and execution node. It never captures or
+sends a webpage, canvas, screenshot, or user-selected image. The same scheduler
+is also used by the CLI benchmark.
+
 The browser schedules a deterministic RGB channel-gain tile task using the
 Overhauled generic BRK2 inference/compute path. Each 128×128 RGBA tile is
 bounded to 64 KiB. YuKKi encodes its RGB channels as network-order f64 values;
