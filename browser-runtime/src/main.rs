@@ -853,18 +853,12 @@ mod linux_display_backend_tests {
     #[test]
     fn display_backend_resolves_native_wayland_x11_and_xwayland() {
         assert_eq!(
-            super::resolve_linux_gdk_backend(
-                Some("wayland"),
-                Some("wayland-1"),
-                None,
-                None
-            )
-            .unwrap(),
+            super::resolve_linux_gdk_backend(Some("wayland"), Some("wayland-1"), None, None)
+                .unwrap(),
             Some("wayland")
         );
         assert_eq!(
-            super::resolve_linux_gdk_backend(Some("x11"), None, Some(":0"), Some("x11"))
-                .unwrap(),
+            super::resolve_linux_gdk_backend(Some("x11"), None, Some(":0"), Some("x11")).unwrap(),
             Some("x11")
         );
         assert_eq!(
@@ -880,13 +874,8 @@ mod linux_display_backend_tests {
         // Some launchers provide only the session marker alongside XWayland's
         // DISPLAY; the explicit session marker is a valid Wayland assertion.
         assert_eq!(
-            super::resolve_linux_gdk_backend(
-                Some("xwayland"),
-                None,
-                Some(":2"),
-                Some("Wayland")
-            )
-            .unwrap(),
+            super::resolve_linux_gdk_backend(Some("xwayland"), None, Some(":2"), Some("Wayland"))
+                .unwrap(),
             Some("x11")
         );
     }
