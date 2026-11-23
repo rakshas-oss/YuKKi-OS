@@ -17,6 +17,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 yukkios = { path = ".." }
 tao = "0.37.3"
 url = "2.5"
+uuid = "1.6"
 wry = { version = "0.57.3", features = ["mac-proxy"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
