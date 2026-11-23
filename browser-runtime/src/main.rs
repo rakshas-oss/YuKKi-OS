@@ -1,5 +1,14 @@
 use serde::Deserialize;
-use std::{env, error::Error, path::PathBuf, sync::{Arc, Mutex}, time::Instant};
+use std::{
+    env,
+    error::Error,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Instant,
+};
 use tao::{
     dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
@@ -13,6 +22,7 @@ use wry::{
 };
 
 use yukki_browser_runtime::{
+    accelerator::{rgba_gain_cpu, BrowserAcceleratorScheduler},
     policy::{resolve_address, validate_navigation},
     store::{self, BrowserState},
     EngineAdapter, MAX_TABS,
@@ -398,6 +408,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Ready · private page storage",
     );
 
+    // Runtime construction is intentionally non-fatal: page browsing still
+    // works when broker configuration is absent. The toolbar diagnostic reports
+    // configuration errors instead of blocking ordinary navigation.
+    let accelerator_scheduler = Arc::new(BrowserAcceleratorScheduler::from_env());
+    let graphics_test_running = Arc::new(AtomicBool::new(false));
+    let async_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?;
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -514,6 +534,57 @@ fn main() -> Result<(), Box<dyn Error>> {
                             let added = browser_state.add_bookmark(&tab.url);
                             persist_state(&state_path, &browser_state);
                             status = if added { "Bookmark saved".to_owned() } else { "Already bookmarked".to_owned() };
+                        }
+                    }
+                    "graphics_test" => {
+                        if graphics_test_running.swap(true, Ordering::AcqRel) {
+                            status = "A synthetic graphics check is already running".to_owned();
+                        } else {
+                            status = "Running synthetic graphics check; website pixels are not sent".to_owned();
+                            let scheduler = Arc::clone(&accelerator_scheduler);
+                            let running = Arc::clone(&graphics_test_running);
+                            let completion_proxy = proxy.clone();
+                            async_runtime.spawn(async move {
+                                // Deliberately synthetic test input. This diagnostic
+                                // never reads from a WebView, canvas, page screenshot,
+                                // or user-selected image.
+                                let mut tile = vec![0u8; 128 * 128 * 4];
+                                for (index, pixel) in tile.chunks_exact_mut(4).enumerate() {
+                                    pixel[0] = (index.wrapping_mul(17) & 0xff) as u8;
+                                    pixel[1] = (index.wrapping_mul(31) & 0xff) as u8;
+                                    pixel[2] = ((index ^ (index >> 3)) & 0xff) as u8;
+                                    pixel[3] = 255;
+                                }
+                                let result = match scheduler.as_ref() {
+                                    Ok(scheduler) => match scheduler
+                                        .run_rgba_gain("browser-ui-synthetic-graphics-check", &tile)
+                                        .await
+                                    {
+                                        Ok(report) if report.output == rgba_gain_cpu(&tile) => {
+                                            let location = report.execution_node_id
+                                                .map(|node| format!("peer {node}"))
+                                                .unwrap_or_else(|| "local node".to_owned());
+                                            format!(
+                                                "Synthetic graphics check passed: requested {:?}, ran on {:?} at {location}, {} ms",
+                                                report.requested_backend,
+                                                report.actual_backend,
+                                                report.elapsed_ms,
+                                            )
+                                        }
+                                        Ok(report) => {
+                                            format!(
+                                                "Synthetic graphics check failed CPU comparison (reported backend {:?}, output {} bytes)",
+                                                report.actual_backend,
+                                                report.output.len(),
+                                            )
+                                        }
+                                        Err(error) => format!("Synthetic graphics check failed: {error}"),
+                                    },
+                                    Err(error) => format!("Graphics scheduler unavailable: {error}"),
+                                };
+                                running.store(false, Ordering::Release);
+                                let _ = completion_proxy.send_event(RuntimeEvent::Notice(result));
+                            });
                         }
                     }
                     _ => status = "Unknown browser command".to_owned(),
