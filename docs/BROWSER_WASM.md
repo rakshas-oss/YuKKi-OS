@@ -82,3 +82,8 @@ The CI artifact contains index.html, app.js, styles.css, and yukki_browser_core.
 ## Validation boundary
 
 The browser verifier accepts only exact YKMC v1 frames: correct magic/version, audio/video type, known flags, bounded UTF-8 stream and codec labels, a payload no larger than 256 KiB, and no trailing or truncated bytes. The verifier is a structural protocol guard, not a media decoder or a security boundary against a user controlling their own browser.
+
+
+## Native browser runtime
+
+The gateway workspace remains a browser-hosted WASM application; it does not render arbitrary websites. The separate native Wry-based page renderer, browser chrome, and current runtime security limits are documented in [YuKKi Browser Runtime](BROWSER_RUNTIME.md).
