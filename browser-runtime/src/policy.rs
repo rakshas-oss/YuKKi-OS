@@ -3,7 +3,7 @@
 //! This is not a network firewall: WebView subresources and DNS resolution are
 //! controlled by the platform engine and operating system. See BROWSER_RUNTIME.md.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,7 +56,7 @@ pub fn resolve_address(input: &str) -> Result<Url, NavigationError> {
     };
 
     let url = Url::parse(&candidate).map_err(|_| NavigationError::InvalidAddress)?;
-    validate_navigation(&url)?;
+    validate_url(&url)?;
     Ok(url)
 }
 
