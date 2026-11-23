@@ -125,6 +125,7 @@ enum RuntimeEvent {
     TitleChanged { tab_id: u64, title: String },
     LoadFinished { tab_id: u64, url: String, duration_ms: u128 },
     Notice(String),
+    #[cfg(target_os = "linux")]
     Exit,
 }
 
@@ -578,6 +579,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(RuntimeEvent::Notice(message)) => {
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
             }
+            #[cfg(target_os = "linux")]
             Event::UserEvent(RuntimeEvent::Exit) => {
                 *control_flow = ControlFlow::Exit;
             }
