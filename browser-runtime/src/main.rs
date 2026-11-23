@@ -344,6 +344,9 @@ fn persist_state(path: &PathBuf, state: &BrowserState) {
 fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     {
+        // Wry's child WebView path uses X11. Select it explicitly so Tao and
+        // GTK do not choose different display backends in mixed Wayland/XWayland sessions.
+        env::set_var("WINIT_UNIX_BACKEND", "x11");
         if env::var_os("WAYLAND_DISPLAY").is_some() {
             if env::var_os("DISPLAY").is_none() {
                 return Err("This first browser adapter supports Linux/X11 only; start an XWayland display or use the later GTK-container adapter for native Wayland.".into());
