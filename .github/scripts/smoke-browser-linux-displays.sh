@@ -48,9 +48,8 @@ fi
 
 export WAYLAND_DISPLAY=wayland-1
 echo "Launching the GTK/WebKit browser through native Wayland"
-YUKKI_BROWSER_DISPLAY_BACKEND=wayland \
-YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS=3000 \
-  "$browser_bin" https://example.com
+timeout 30s env YUKKI_BROWSER_DISPLAY_BACKEND=wayland \
+  YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS=3000 "$browser_bin" https://example.com
 
 x_display=""
 for _ in $(seq 1 100); do
@@ -71,7 +70,5 @@ if [[ -z "$x_display" ]]; then
 fi
 
 echo "Launching the GTK/WebKit browser through XWayland on DISPLAY=$x_display"
-DISPLAY="$x_display" \
-YUKKI_BROWSER_DISPLAY_BACKEND=xwayland \
-YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS=3000 \
-  "$browser_bin" https://example.com
+timeout 30s env DISPLAY="$x_display" YUKKI_BROWSER_DISPLAY_BACKEND=xwayland \
+  YUKKI_BROWSER_SMOKE_EXIT_AFTER_MS=3000 "$browser_bin" https://example.com
