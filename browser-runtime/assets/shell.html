@@ -47,6 +47,7 @@
     <strong>Bookmarks</strong><span id="bookmarks">None</span>
     <strong>Recent</strong><span id="history">None</span>
     <strong>Graphics APIs</strong><span id="graphics">Probing…</span>
+    <button id="graphics-test" type="button" title="Runs a synthetic 128×128 tile only; it never sends webpage pixels">Test compute</button>
     <span id="status" role="status" aria-live="polite">Ready</span>
   </div>
   <script>
@@ -111,6 +112,7 @@
     document.getElementById("bookmark").addEventListener("click", () => send({action: "bookmark"}));
     document.getElementById("new-tab").addEventListener("click", () => send({action: "new_tab"}));
     document.getElementById("close-tab").addEventListener("click", () => send({action: "close_tab"}));
+    document.getElementById("graphics-test").addEventListener("click", () => send({action: "graphics_test"}));
     window.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
         event.preventDefault();
