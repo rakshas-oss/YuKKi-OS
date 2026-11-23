@@ -46,6 +46,7 @@
   <div class="shelf">
     <strong>Bookmarks</strong><span id="bookmarks">None</span>
     <strong>Recent</strong><span id="history">None</span>
+    <strong>Graphics APIs</strong><span id="graphics">Probing…</span>
     <span id="status" role="status" aria-live="polite">Ready</span>
   </div>
   <script>
@@ -125,6 +126,30 @@
         send({action: "close_tab"});
       }
     });
+    async function detectGraphicsApis() {
+      const available = [];
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl2");
+      if (gl) {
+        available.push("WebGL 2");
+        const extension = gl.getExtension("WEBGL_lose_context");
+        if (extension) extension.loseContext();
+      }
+      if ("gpu" in navigator) {
+        try {
+          const adapter = await navigator.gpu.requestAdapter();
+          if (adapter) available.push("WebGPU adapter");
+        } catch (_) {
+          // API presence does not guarantee an available or permitted adapter.
+        }
+      }
+      document.getElementById("graphics").textContent =
+        available.length ? available.join(" · ") : "Canvas 2D only";
+      document.getElementById("graphics").title =
+        "API availability only. Hardware acceleration and driver health are not verified.";
+    }
+
+    detectGraphicsApis();
     send({action: "ready"});
   </script>
 </body>
