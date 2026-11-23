@@ -178,8 +178,21 @@ fn build_toolbar(
         .with_html(include_str!("../assets/shell.html"))
         .with_bounds(toolbar_rect(size, scale_factor))
         .with_ipc_handler(move |request| {
+            // The toolbar is local, but still treat its IPC as untrusted input:
+            // cap the body before JSON parsing and constrain the command schema.
+            if request.body().len() > 4096 {
+                return;
+            }
             if let Ok(message) = serde_json::from_str::<UiMessage>(request.body()) {
-                let _ = ipc_proxy.send_event(RuntimeEvent::Ui(message));
+                let known_action = matches!(
+                    message.action.as_str(),
+                    "ready" | "navigate" | "back" | "forward" | "reload"
+                        | "bookmark" | "new_tab" | "close_tab" | "switch_tab"
+                );
+                let valid_url = message.url.as_ref().is_none_or(|url| url.len() <= 2048);
+                if known_action && message.action.len() <= 32 && valid_url {
+                    let _ = ipc_proxy.send_event(RuntimeEvent::Ui(message));
+                }
             }
         })
         .build_as_child(window)?;
