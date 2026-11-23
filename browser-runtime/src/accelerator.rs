@@ -417,7 +417,7 @@ impl BrowserAcceleratorScheduler {
                     }
                     Err(error) => {
                         failures.push(format!("CPU peer {}: {error}", peer.record.node_id))
-                    },
+                    }
                 }
             }
         }
