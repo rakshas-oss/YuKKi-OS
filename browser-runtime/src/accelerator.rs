@@ -7,8 +7,9 @@
 
 use std::{
     env, fs,
-    sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use yukkios::{
@@ -65,7 +66,9 @@ struct PeerBroker {
 pub struct BrowserAcceleratorScheduler {
     local_client: Option<Arc<LifecycleClient>>,
     base_config: GpuAdapterConfig,
-    peer_brokers: Vec<PeerBroker>,
+    peer_brokers: RwLock<Vec<PeerBroker>>,
+    peer_directory_file: Option<PathBuf>,
+    last_peer_refresh: Mutex<Option<Instant>>,
     policy: BackendPolicy,
     graphics_module_id: Option<String>,
     graphics_module_version: Option<String>,
@@ -96,7 +99,13 @@ impl BrowserAcceleratorScheduler {
         let mut scheduler = Self {
             local_client,
             base_config,
-            peer_brokers: Vec::new(),
+            peer_brokers: RwLock::new(Vec::new()),
+            peer_directory_file: if remote_enabled {
+                env::var_os("YUKKI_BROKER_DIRECTORY_FILE").map(PathBuf::from)
+            } else {
+                None
+            },
+            last_peer_refresh: Mutex::new(None),
             policy: BackendPolicy::from_env(),
             graphics_module_id,
             graphics_module_version,
@@ -106,14 +115,7 @@ impl BrowserAcceleratorScheduler {
         };
 
         if remote_enabled {
-            if let Some(path) = env::var_os("YUKKI_BROKER_DIRECTORY_FILE") {
-                let records = load_peer_directory(path.as_ref())?;
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                scheduler = scheduler.with_authenticated_peer_records(records, now)?;
-            }
+            scheduler.refresh_peer_directory()?;
         }
         Ok(scheduler)
     }
@@ -139,6 +141,22 @@ impl BrowserAcceleratorScheduler {
             ));
         }
 
+        self.replace_authenticated_peer_records(records, now_unix)?;
+        *self.last_peer_refresh.lock().map_err(|_| "peer refresh lock poisoned")? =
+            Some(Instant::now());
+        Ok(self)
+    }
+
+    fn replace_authenticated_peer_records(
+        &self,
+        records: Vec<BrokerServiceRecord>,
+        now_unix: u64,
+    ) -> Result<(), String> {
+        if records.len() > MAX_DISCOVERED_PEERS {
+            return Err(format!(
+                "peer directory contains more than {MAX_DISCOVERED_PEERS} broker records"
+            ));
+        }
         let mut registry = BrokerServiceRegistry::new();
         for record in records {
             registry
@@ -146,15 +164,15 @@ impl BrowserAcceleratorScheduler {
                 .map_err(|error| error.to_string())?;
         }
 
-        let mut peers = registry.list(now_unix);
-        peers.retain(|record| {
+        let mut records = registry.list(now_unix);
+        records.retain(|record| {
             record.protocol_versions.iter().any(|version| version == "BRK2")
                 && record.capabilities.iter().any(|capability| {
                     matches!(capability.as_str(), "cpu" | "gpu" | "npu")
                 })
                 && record.endpoint != self.base_config.endpoint
         });
-        peers.sort_by_key(|record| {
+        records.sort_by_key(|record| {
             (
                 if record.capabilities.iter().any(|value| value == "gpu") {
                     0
@@ -167,8 +185,8 @@ impl BrowserAcceleratorScheduler {
             )
         });
 
-        let mut clients = Vec::with_capacity(peers.len());
-        for record in peers {
+        let mut clients = Vec::with_capacity(records.len());
+        for record in records {
             let mut config = self.base_config.clone();
             config.enabled = true;
             config.endpoint = record.endpoint.clone();
@@ -182,40 +200,66 @@ impl BrowserAcceleratorScheduler {
             );
             clients.push(PeerBroker { record, client });
         }
-        self.peer_brokers = clients;
-        Ok(self)
+        *self.peer_brokers.write().map_err(|_| "peer directory lock poisoned")? = clients;
+        Ok(())
+    }
+
+    /// Refresh the authenticated peer snapshot at most once every five seconds.
+    /// A node may discover a new GPU server or expire a disconnected one while
+    /// the browser stays open; each browser compute request observes that change.
+    pub fn refresh_peer_directory(&self) -> Result<usize, String> {
+        if !self.remote_enabled {
+            return Ok(0);
+        }
+        let Some(path) = self.peer_directory_file.as_ref() else {
+            return Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len());
+        };
+        let mut last_refresh = self
+            .last_peer_refresh
+            .lock()
+            .map_err(|_| "peer refresh lock poisoned")?;
+        if last_refresh.is_some_and(|last| last.elapsed() < Duration::from_secs(5)) {
+            return Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len());
+        }
+
+        let records = load_peer_directory(path)?;
+        let now_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.replace_authenticated_peer_records(records, now_unix)?;
+        *last_refresh = Some(Instant::now());
+        Ok(self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.len())
     }
 
     pub fn status(&self) -> AcceleratorStatus {
         let has_local_broker = self.local_client.is_some();
         let gpu_module_configured =
             self.graphics_module_id.is_some() && self.graphics_module_version.is_some();
+        let peers = self.peer_brokers.read().expect("peer directory lock poisoned");
         let has_remote_gpu = self.remote_enabled
-            && self.peer_brokers.iter().any(|peer| has_capability(peer, "gpu"));
+            && peers.iter().any(|peer| has_capability(peer, "gpu"));
         let has_remote_npu = self.remote_enabled
-            && self.peer_brokers.iter().any(|peer| has_capability(peer, "npu"));
+            && peers.iter().any(|peer| has_capability(peer, "npu"));
         let has_remote_cpu = self.remote_enabled
-            && self.peer_brokers.iter().any(|peer| has_capability(peer, "cpu"));
+            && peers.iter().any(|peer| has_capability(peer, "cpu"));
         AcceleratorStatus {
-            broker_configured: has_local_broker || !self.peer_brokers.is_empty(),
+            broker_configured: has_local_broker || !peers.is_empty(),
             gpu_module_configured: gpu_module_configured
                 && (has_local_broker || has_remote_gpu),
             npu_opted_in: self.npu_opted_in,
             cpu_forced: !self.policy.accelerators_allowed,
             gpu_offload_threshold_bytes: self.policy.offload_threshold_bytes,
-            discovered_peer_count: self.peer_brokers.len(),
-            discovered_gpu_peer_count: self
-                .peer_brokers
+            discovered_peer_count: peers.len(),
+            discovered_gpu_peer_count: peers
                 .iter()
                 .filter(|peer| has_capability(peer, "gpu"))
                 .count(),
-            discovered_npu_peer_count: self
-                .peer_brokers
+            discovered_npu_peer_count: peers
                 .iter()
                 .filter(|peer| has_capability(peer, "npu"))
                 .count(),
-            discovered_cpu_peer_count: self
-                .peer_brokers
+            discovered_cpu_peer_count: peers
                 .iter()
                 .filter(|peer| has_capability(peer, "cpu"))
                 .count(),
@@ -266,6 +310,8 @@ impl BrowserAcceleratorScheduler {
     ) -> Result<GraphicsComputeReport, String> {
         validate_rgba_payload(rgba8)?;
         let started = Instant::now();
+        self.refresh_peer_directory()?;
+        let peers = self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.clone();
         let requested_backend = self.select_graphics_backend(rgba8.len());
 
         if requested_backend == ExecutionBackend::Cpu {
@@ -301,7 +347,7 @@ impl BrowserAcceleratorScheduler {
                 }
             }
 
-            for peer in self.peer_brokers.iter().filter(|peer| has_capability(peer, "gpu")) {
+            for peer in peers.iter().filter(|peer| has_capability(peer, "gpu")) {
                 let peer_task_id = format!("{task_id}.{}", peer.record.service_id.simple());
                 match submit_rgba(
                     &peer.client,
@@ -339,7 +385,7 @@ impl BrowserAcceleratorScheduler {
         // enabled. This is not the default because network cost can exceed local
         // CPU time for small image tiles.
         if self.remote_cpu_enabled {
-            for peer in self.peer_brokers.iter().filter(|peer| has_capability(peer, "cpu")) {
+            for peer in peers.iter().filter(|peer| has_capability(peer, "cpu")) {
                 let peer_task_id = format!("{task_id}.{}", peer.record.service_id.simple());
                 match submit_rgba(
                     &peer.client,
@@ -405,6 +451,8 @@ impl BrowserAcceleratorScheduler {
             cpu_retry_safe: false,
             ..TaskProfile::default()
         };
+        self.refresh_peer_directory()?;
+        let peers = self.peer_brokers.read().map_err(|_| "peer directory lock poisoned")?.clone();
         let requested_backend = self.policy.select(&profile, self.availability());
         if requested_backend != ExecutionBackend::Npu {
             return Err("NPU is not selected: opt in to NPU execution, configure a compatible NPU peer, and do not force CPU".to_owned());
@@ -439,7 +487,7 @@ impl BrowserAcceleratorScheduler {
         }
 
         let mut failures = Vec::new();
-        for peer in self.peer_brokers.iter().filter(|peer| has_capability(peer, "npu")) {
+        for peer in peers.iter().filter(|peer| has_capability(peer, "npu")) {
             let peer_task_id = format!("{bounded_id}.{}", peer.record.service_id.simple());
             match peer
                 .client
@@ -483,8 +531,7 @@ fn has_capability(peer: &PeerBroker, capability: &str) -> bool {
         .any(|value| value == capability)
 }
 
-fn load_peer_directory(path: &std::ffi::OsStr) -> Result<Vec<BrokerServiceRecord>, String> {
-    let path = std::path::Path::new(path);
+fn load_peer_directory(path: &std::path::Path) -> Result<Vec<BrokerServiceRecord>, String> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -727,7 +774,9 @@ mod tests {
         BrowserAcceleratorScheduler {
             local_client: None,
             base_config: GpuAdapterConfig::default(),
-            peer_brokers: Vec::new(),
+            peer_brokers: RwLock::new(Vec::new()),
+            peer_directory_file: None,
+            last_peer_refresh: Mutex::new(None),
             policy: BackendPolicy::default(),
             graphics_module_id: Some("browser.graphics.rgba-invert".to_owned()),
             graphics_module_version: Some("1".to_owned()),
