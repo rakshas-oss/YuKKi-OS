@@ -12,7 +12,7 @@ The actual engine and feature support therefore follow the installed OS runtime.
 
 ## Runtime contract and proof of concept
 
-The `yukki-browser-runtime` crate defines a narrow `EngineAdapter` contract for navigation, back/forward, reload, and history capability. The Wry adapter implements that contract. Browser chrome runs in a separate, bundled toolbar WebView; website pages are rendered in their own WebView child surfaces. The two surfaces communicate only through a host-validated IPC command schema.
+The `yukki-browser-runtime` crate defines a narrow `EngineAdapter` contract for navigation, back/forward, reload, and history capability. The Wry adapter implements that contract. Browser chrome runs in a separate, bundled toolbar WebView; website pages are rendered in their own WebView surfaces hosted by the native window. On Linux, both surfaces use GTK containers (`gtk::Fixed`) through Wry's `build_gtk` integration so they work on native Wayland and X11/XWayland. The two surfaces communicate only through a host-validated IPC command schema.
 
 Start the proof of concept from the repository root:
 
@@ -24,7 +24,26 @@ cargo test --manifest-path browser-runtime/Cargo.toml
 cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
 ```
 
-The initial implementation targets macOS and Linux/X11. Wry uses WebKitGTK on Linux; Wayland requires the GTK-container integration path and is not enabled by this first adapter. Windows MSVC is not an advertised YuKKi-OS target. The existing `browser-wasm` target remains independently built and deployable as a static web application.
+The native runtime targets macOS and Linux. Linux uses WebKitGTK hosted in GTK containers, which is the Wry-supported integration for native Wayland and X11/XWayland. Windows MSVC is not an advertised YuKKi-OS target. The existing `browser-wasm` target remains independently built and deployable as a static web application.
+
+### Linux display selection
+
+By default, `YUKKI_BROWSER_DISPLAY_BACKEND=auto` leaves display selection to GTK/GDK. In a Wayland desktop session GTK normally selects the native Wayland display; on an Xorg session it selects X11. An explicit `GDK_BACKEND` setting is preserved in auto mode.
+
+You can select a backend explicitly before launching:
+
+```sh
+# Let GTK select the active desktop session (default)
+YUKKI_BROWSER_DISPLAY_BACKEND=auto cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
+
+# Force native Wayland (requires WAYLAND_DISPLAY)
+YUKKI_BROWSER_DISPLAY_BACKEND=wayland cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
+
+# Force the X11 client path. In a Wayland session, DISPLAY should refer to XWayland.
+YUKKI_BROWSER_DISPLAY_BACKEND=xwayland cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
+```
+
+`x11` is an accepted alias for `xwayland` and also works on a native Xorg session. The runtime checks that the selected display variable exists and sets `GDK_BACKEND` before GTK initialization. The Linux host no longer forces X11 or removes `WAYLAND_DISPLAY`; Tao owns the GTK window and Wry embeds the toolbar and page views into GTK `Fixed` containers. This avoids relying on Wayland-incompatible child-window embedding while retaining the same container path for X11/XWayland.
 
 The address bar accepts HTTP(S) URLs, hostnames (upgraded to HTTPS), and search terms. The shell includes navigation, reload, tabs, bounded history, and bookmarks. The runtime caps the number of resident tabs at eight. Per-tab top-level page-load timings are exposed in the tab tooltip and status line as an initial performance baseline; they do not measure GPU work or whole-page resource costs. The toolbar probes whether WebGL 2 and a WebGPU adapter are available in the platform WebView and reports the APIs detected. This is capability detection only: it does not prove hardware acceleration, driver stability, or YuKKi GPU/NPU scheduling.
 
@@ -71,7 +90,7 @@ The default private WebView mode avoids intentionally persisting website cookies
 | Downloads | Disabled pending bounded download storage and quota enforcement |
 | Whole-request egress mediation / mesh isolation | Not complete; requires OS proxy/firewall integration |
 | Hard CPU/memory quotas and robust site/process isolation | Not complete |
-| Wayland GTK container adapter | Not enabled in this first implementation |
+| Native Wayland and X11/XWayland GTK container integration | Implemented through Wry `build_gtk` and shared GTK `Fixed` hosts |
 | Page-load timing baseline | Implemented per tab; measures Wry page-load event duration only |
 | Browser graphics acceleration benchmarking | Not complete; platform engine defaults apply |
 
