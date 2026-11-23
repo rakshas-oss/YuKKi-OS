@@ -230,7 +230,7 @@ fn build_toolbar(
                 let known_action = matches!(
                     message.action.as_str(),
                     "ready" | "navigate" | "back" | "forward" | "reload"
-                        | "bookmark" | "new_tab" | "close_tab" | "switch_tab"
+                        | "bookmark" | "new_tab" | "close_tab" | "switch_tab" | "graphics_test"
                 );
                 let valid_url = message.url.as_ref().is_none_or(|url| url.len() <= 2048);
                 if known_action && message.action.len() <= 32 && valid_url {
