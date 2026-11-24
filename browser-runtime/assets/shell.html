@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+  <title>YuKKi Browser</title>
+  <style>
+    :root { color-scheme: dark; font: 14px system-ui,sans-serif; color: #edf4f7; background: #111d25; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 9px 12px; }
+    .row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .controls { height: 36px; }
+    button { min-width: 34px; min-height: 32px; border: 1px solid #425966; border-radius: 7px; color: inherit; background: #203541; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: default; }
+    input { flex: 1; min-width: 60px; height: 34px; border: 1px solid #425966; border-radius: 7px; padding: 0 11px; color: inherit; background: #0b151c; font: inherit; }
+    #go { background: #176b8c; border-color: #3486a4; padding-inline: 15px; font-weight: 700; }
+    .tabs { display: flex; gap: 5px; align-items: center; overflow-x: auto; padding-top: 7px; }
+    .tab { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-inline: 10px; }
+    .tab[aria-current="page"] { background: #315364; border-color: #69c3dc; }
+    .shelf { display: flex; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; padding-top: 5px; color: #9eb4bf; font-size: 12px; }
+    .shelf strong { color: #c7d7df; }
+    .shelf button { min-height: 24px; padding: 1px 7px; font-size: 12px; }
+    #status { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 640px) {
+      body { padding: 6px; }
+      .controls { gap: 4px; }
+      button { min-width: 30px; padding-inline: 4px; }
+      .tab { max-width: 120px; }
+      .shelf { gap: 5px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="row controls" role="toolbar" aria-label="Browser controls">
+    <button id="back" title="Back" aria-label="Back">←</button>
+    <button id="forward" title="Forward" aria-label="Forward">→</button>
+    <button id="reload" title="Reload" aria-label="Reload">↻</button>
+    <input id="address" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-label="Address or search">
+    <button id="go">Go</button>
+    <button id="bookmark" title="Bookmark current page" aria-label="Bookmark current page">☆</button>
+    <button id="new-tab" title="New tab" aria-label="New tab">＋</button>
+    <button id="close-tab" title="Close tab" aria-label="Close tab">×</button>
+  </div>
+  <div id="tabs" class="tabs" role="tablist" aria-label="Open tabs"></div>
+  <div class="shelf">
+    <strong>Bookmarks</strong><span id="bookmarks">None</span>
+    <strong>Recent</strong><span id="history">None</span>
+    <strong>Graphics APIs</strong><span id="graphics">Probing…</span>
+    <button id="graphics-test" type="button" title="Runs a synthetic 128×128 tile only; it never sends webpage pixels">Test compute</button>
+    <span id="status" role="status" aria-live="polite">Ready</span>
+  </div>
+  <script>
+    const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+    const address = document.getElementById("address");
+    const status = document.getElementById("status");
+    const tabs = document.getElementById("tabs");
+
+    function escapeText(value) {
+      return String(value ?? "");
+    }
+    function renderLinks(target, values, label) {
+      target.replaceChildren();
+      if (!values.length) {
+        target.textContent = "None";
+        return;
+      }
+      values.slice(0, 5).forEach((url, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label(index + 1);
+        button.title = escapeText(url);
+        button.addEventListener("click", () => send({action: "navigate", url}));
+        target.append(button);
+      });
+    }
+
+    window.yukkiBrowser = {
+      render(state) {
+        const active = state.tabs.find((tab) => tab.id === state.active_tab_id);
+        if (active && document.activeElement !== address) address.value = active.url;
+        tabs.replaceChildren();
+        state.tabs.forEach((tab) => {
+          const button = document.createElement("button");
+          button.className = "tab";
+          button.type = "button";
+          button.textContent = tab.title || tab.url || "New tab";
+          button.title = tab.load_ms == null ? tab.url : `${tab.url}\nPage load: ${tab.load_ms} ms`;
+          button.setAttribute("role", "tab");
+          if (tab.id === state.active_tab_id) button.setAttribute("aria-current", "page");
+          button.addEventListener("click", () => send({action: "switch_tab", tab_id: tab.id}));
+          tabs.append(button);
+        });
+        renderLinks(document.getElementById("bookmarks"), state.bookmarks, (i) => "★" + i);
+        renderLinks(document.getElementById("history"), state.history, (i) => "↶" + i);
+        status.textContent = state.status || "Ready";
+        document.getElementById("back").disabled = !state.can_go_back;
+        document.getElementById("forward").disabled = !state.can_go_forward;
+      }
+    };
+
+    function navigate() {
+      send({action: "navigate", url: address.value});
+    }
+    document.getElementById("go").addEventListener("click", navigate);
+    address.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") navigate();
+    });
+    document.getElementById("back").addEventListener("click", () => send({action: "back"}));
+    document.getElementById("forward").addEventListener("click", () => send({action: "forward"}));
+    document.getElementById("reload").addEventListener("click", () => send({action: "reload"}));
+    document.getElementById("bookmark").addEventListener("click", () => send({action: "bookmark"}));
+    document.getElementById("new-tab").addEventListener("click", () => send({action: "new_tab"}));
+    document.getElementById("close-tab").addEventListener("click", () => send({action: "close_tab"}));
+    document.getElementById("graphics-test").addEventListener("click", () => send({action: "graphics_test"}));
+    window.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        address.focus();
+        address.select();
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        send({action: "new_tab"});
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        send({action: "close_tab"});
+      }
+    });
+    async function detectGraphicsApis() {
+      const available = [];
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl2");
+      if (gl) {
+        available.push("WebGL 2");
+        const extension = gl.getExtension("WEBGL_lose_context");
+        if (extension) extension.loseContext();
+      }
+      if ("gpu" in navigator) {
+        try {
+          const adapter = await navigator.gpu.requestAdapter();
+          if (adapter) available.push("WebGPU adapter");
+        } catch (_) {
+          // API presence does not guarantee an available or permitted adapter.
+        }
+      }
+      document.getElementById("graphics").textContent =
+        available.length ? available.join(" · ") : "Canvas 2D only";
+      document.getElementById("graphics").title =
+        "API availability only. Hardware acceleration and driver health are not verified.";
+    }
+
+    detectGraphicsApis();
+    send({action: "ready"});
+  </script>
+</body>
+</html>

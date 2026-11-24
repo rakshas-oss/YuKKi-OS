@@ -233,6 +233,60 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  build-browser-runtime:
+    name: Native Browser Runtime — Wayland and X11/XWayland (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: Linux WebKitGTK
+            artifact: yukki-browser-runtime-linux-x86_64
+          - os: macos-latest
+            platform: macOS WKWebView
+            artifact: yukki-browser-runtime-macos
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install WebKitGTK development libraries
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev weston xwayland xvfb
+      - name: Check browser runtime formatting
+        run: cargo fmt --manifest-path browser-runtime/Cargo.toml -- --check
+      - name: Test Linux display backend selection
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --manifest-path browser-runtime/Cargo.toml --bin yukki-browser linux_display_backend
+      - name: Test browser runtime contracts
+        run: cargo test --manifest-path browser-runtime/Cargo.toml
+      - name: Build native browser runtime and graphics benchmark
+        run: |
+          cargo build --manifest-path browser-runtime/Cargo.toml --release
+          cargo build --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench
+      - name: Smoke-test native Wayland and XWayland startup
+        if: matrix.os == 'ubuntu-latest'
+        run: bash .github/scripts/smoke-browser-linux-displays.sh
+      - name: Run bounded CPU graphics benchmark smoke test
+        env:
+          YUKKI_FORCE_CPU_FALLBACK: "true"
+        run: |
+          cargo run --manifest-path browser-runtime/Cargo.toml --release --bin yukki-browser-graphics-bench -- \
+            --quick --cpu-only --iterations 1 --output browser-runtime-graphics-benchmark.json
+      - name: Upload graphics benchmark report
+        uses: actions/upload-artifact@v7
+        with:
+          name: yukki-browser-graphics-benchmark-${{ matrix.platform }}
+          path: browser-runtime-graphics-benchmark.json
+          if-no-files-found: error
+      - name: Upload native browser runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: browser-runtime/target/release/yukki-browser
+          if-no-files-found: error
+
   test-library:
     name: Library tests (including gateway CORS)
     runs-on: ubuntu-latest
@@ -250,8 +304,9 @@ jobs:
       needs.build-macos.result == 'success' &&
       needs.build-wasm.result == 'success' &&
       needs.build-browser-wasm.result == 'success' &&
+      needs.build-browser-runtime.result == 'success' &&
       needs.test-library.result == 'success'
-    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, test-library]
+    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, build-browser-runtime, test-library]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -282,7 +337,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, test-library]
+    needs: [build-linux, build-macos, build-wasm, build-browser-wasm, build-browser-runtime, test-library]
     if: always()
     steps:
       - name: Report build results
@@ -291,4 +346,5 @@ jobs:
           echo "macOS builds: ${{ needs.build-macos.result }}"
           echo "WASI guest build: ${{ needs.build-wasm.result }}"
           echo "Browser WASM build: ${{ needs.build-browser-wasm.result }}"
+          echo "Native browser runtime: ${{ needs.build-browser-runtime.result }}"
           echo "Library tests: ${{ needs.test-library.result }}"

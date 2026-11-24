@@ -402,3 +402,53 @@ execution. Compare before/after results on the same host, dataset, profile,
 toolchain and worker budget. Do not infer universal scaling, latency, power
 or OPEX improvements from these instrumentation changes.
 
+
+
+## 6. Native browser graphics delegation benchmark
+
+The native browser runtime includes a **Test compute** toolbar diagnostic and
+a bounded CLI benchmark for broker-side browser-adjacent compute. The toolbar
+diagnostic processes one synthetic 128×128 RGBA tile and verifies the output
+against the CPU reference; it never reads webpage pixels. Neither tool
+benchmarks WebKit's page compositor.
+
+```sh
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- --quick --cpu-only
+
+# With the local YuKKi node's broker directory:
+YUKKI_BROKER_DIRECTORY_FILE="$HOME/.local/state/yukki-os/broker-services.json" \
+YUKKI_BROWSER_REMOTE_ACCELERATION=true \
+cargo run --manifest-path browser-runtime/Cargo.toml --release \
+  --bin yukki-browser-graphics-bench -- \
+  --iterations 3 --concurrency 4 --output browser-graphics.json
+```
+
+The runner uses the Overhauled generic BRK2 compute kernel to double RGB
+channel values in deterministic RGBA8 tiles. Each 128×128 tile is no larger
+than 64 KiB as RGBA8 and is encoded as network-order f64 input values for the
+broker. The benchmark covers 320×240 through 3840×2160 frames, caps in-flight
+requests at eight (default four), and verifies every returned tile against
+the identical local CPU reference.
+
+The report includes CPU reference median, scheduled median/p95, local and
+remote CPU/GPU backend counts, and remote execution node IDs. GPU is counted
+only when Overhauled BRK2 response field 7 attests `backend=gpu`. CPU-only
+peer execution is opt-in with `YUKKI_BROWSER_REMOTE_CPU=true`. An explicit
+BRK2 GPU request bypasses the automatic 1 MiB offload heuristic only after
+Overhauled PR #89; forced CPU and exact-CPU policy still take precedence.
+Without that broker update, a small tile can correctly fall back to CPU.
+
+An optional `--npu-input <file>` submits 1..=64 KiB of 8-byte-aligned
+network-order f64 values to the discovered NPU path. The values must match the
+input contract of the deployed inference model/NPU executor. The runner accepts
+the result only when BRK2 attests `backend=npu`. This is model inference, not
+a generic graphics kernel.
+
+The benchmark does not measure browser page-render frame rate, WebGL/WebGPU
+throughput, full-page compositing, display latency, or graphics-driver
+performance. The native WebView continues to render pages locally. It also
+does not provide a secure transport: broker endpoints are learned through the
+authenticated YuKKi mesh, but the subsequent BRK2 TCP socket is not encrypted
+or authenticated by that mesh. Use synthetic or non-sensitive test data and
+keep endpoints on a trusted private network.

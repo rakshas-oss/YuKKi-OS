@@ -1,7 +1,9 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    env, io,
+    env, fs::{self, OpenOptions}, io,
+    io::Write,
     net::SocketAddr,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -485,6 +487,11 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     send_frame(&mut stream, &mut session, &registration).await?;
     send_gossip_digest(&mut stream, &mut session, &registry).await?;
     let mut broker_registry = BrokerServiceRegistry::new();
+    // Optional local handoff from the authenticated peer mesh to co-located
+    // browser runtimes. The file is private to this OS user and contains only
+    // expiring broker service records, never mesh keys or raw topology.
+    let broker_directory_file = env::var_os("YUKKI_BROKER_DIRECTORY_FILE")
+        .map(PathBuf::from);
     let broker_endpoint = env::var("YUKKI_BROKER_ENDPOINT").ok();
     let broker_service_id = Uuid::new_v4();
     if let Some(endpoint) = broker_endpoint.as_deref() {
@@ -496,6 +503,9 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
         broker_registry
             .upsert(record.clone(), now)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        if let Some(path) = broker_directory_file.as_ref() {
+            persist_broker_directory(&mut broker_registry, path, now)?;
+        }
         let bytes = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record))
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         send_frame(&mut stream, &mut session, &bytes).await?;
@@ -524,6 +534,7 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     info!(%bootstrap, %advertised, "node registered; press Ctrl-C to stop");
     let mut last_digest = Instant::now();
     let mut last_broker_lease = Instant::now();
+    let mut last_broker_directory_write = Instant::now();
     tokio::select! {
         result = async {
             loop {
@@ -548,6 +559,16 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                                 let protocols = record.protocol_versions.clone();
                                 let capabilities = record.capabilities.clone();
                                 if broker_registry.upsert(record, now).is_ok() {
+                                    if let Some(path) = broker_directory_file.as_ref() {
+                                        if let Err(error) = persist_broker_directory(
+                                            &mut broker_registry,
+                                            path,
+                                            now,
+                                        ) {
+                                            warn!(%error, "could not update local browser broker directory");
+                                        }
+                                        last_broker_directory_write = Instant::now();
+                                    }
                                     info!(
                                         %service_id,
                                         %endpoint,
@@ -592,10 +613,24 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
                         let record = broker_service_record(node_id, broker_service_id, endpoint, now)?;
                         broker_registry.upsert(record.clone(), now)
                             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+                        if let Some(path) = broker_directory_file.as_ref() {
+                            persist_broker_directory(&mut broker_registry, path, now)?;
+                            last_broker_directory_write = Instant::now();
+                        }
                         let bytes = serde_json::to_vec(&SovereignCommand::BrokerAnnouncement(record))
                             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
                         send_frame(&mut stream, &mut session, &bytes).await?;
                         last_broker_lease = Instant::now();
+                    }
+                }
+                if let Some(path) = broker_directory_file.as_ref() {
+                    if last_broker_directory_write.elapsed() >= Duration::from_secs(15) {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        persist_broker_directory(&mut broker_registry, path, now)?;
+                        last_broker_directory_write = Instant::now();
                     }
                 }
             }
@@ -608,6 +643,53 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
             Ok(())
         }
     }
+}
+
+const BROKER_DIRECTORY_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+fn persist_broker_directory(
+    registry: &mut BrokerServiceRegistry,
+    path: &std::path::Path,
+    now_unix: u64,
+) -> io::Result<()> {
+    let records = registry.list(now_unix);
+    let bytes = serde_json::to_vec(&records)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if bytes.len() as u64 > BROKER_DIRECTORY_MAX_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "broker directory snapshot exceeds 4 MiB",
+        ));
+    }
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "broker directory path has no parent")
+    })?;
+    fs::create_dir_all(parent)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    }
+
+    let temporary = path.with_extension("json.tmp");
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temporary, path)
 }
 
 fn broker_service_record(
@@ -631,7 +713,7 @@ fn broker_service_record(
         endpoint: endpoint.to_string(),
         protocol_versions: vec!["BRK1".to_string(), "BRK2".to_string()],
         capabilities,
-        max_frame_bytes: 64 * 1024,
+        max_frame_bytes: 1024 * 1024,
         issued_at_unix: now_unix,
         expires_at_unix: now_unix.saturating_add(BROKER_SERVICE_DEFAULT_LEASE_SECS),
         message_id: Uuid::new_v4(),

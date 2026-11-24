@@ -26,6 +26,7 @@ use yukkios::{
         MAX_TASK_TIMEOUT_MS, WSM1_MAGIC,
     },
     wasm_sandbox::RustasmSandbox,
+    WorkerDirective,
 };
 
 // ============================================================================
@@ -2266,4 +2267,51 @@ async fn test_shutdown_cancels_all_versions() {
     assert!(!h.is_cancellation_requested());
     manager.shutdown();
     assert!(h.is_cancellation_requested());
+}
+
+
+#[tokio::test]
+async fn test_wsm1_device_preference_requires_brk2_and_known_values() {
+    let task = WasmTaskRequest {
+        task_id: "browser-gpu-contract".to_owned(),
+        sandbox_id: "browser-runtime".to_owned(),
+        module_id: "browser.graphics.rgba-invert".to_owned(),
+        module_version: "1".to_owned(),
+        task_kind: "compute".to_owned(),
+        priority: 32,
+        deadline_ms: 0,
+        buffers: vec![WasmBufferDescriptor {
+            buffer_id: 1,
+            flags: 1,
+            offset: 0,
+            length: 4,
+            name: "rgba".to_owned(),
+        }],
+        payload: vec![10, 20, 30, 255],
+    };
+
+    let legacy = LifecycleClient::new(GpuAdapterConfig::new("127.0.0.1:0"))
+        .expect("create lifecycle client");
+    let wire_error = legacy
+        .submit_wsm1_task_with_device_preference(
+            &task,
+            &WorkerDirective::throughput(),
+            "gpu",
+        )
+        .await
+        .expect_err("explicit device preference must require BRK2");
+    assert!(matches!(wire_error, GpuAdapterError::InvalidRequest(_)));
+
+    let brk2 = LifecycleClient::new(GpuAdapterConfig::new("127.0.0.1:0"))
+        .expect("create BRK2 lifecycle client")
+        .with_wire_mode(LifecycleWireMode::Brk2);
+    let preference_error = brk2
+        .submit_wsm1_task_with_device_preference(
+            &task,
+            &WorkerDirective::throughput(),
+            "tpu",
+        )
+        .await
+        .expect_err("unknown device preference must be rejected before network I/O");
+    assert!(matches!(preference_error, GpuAdapterError::InvalidRequest(_)));
 }
