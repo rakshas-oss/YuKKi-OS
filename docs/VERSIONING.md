@@ -43,10 +43,10 @@ Before tagging or publishing:
 1. Run cargo fmt --check, cargo test --locked, Clippy and the complete native Linux/macOS/Windows test matrix on the exact release candidate.
 2. Run Linux, aarch64, macOS, browser-WASM and WASI build/test jobs, including the browser verifier and guest-worker contracts.
 3. Build and test the native browser runtime on Linux and macOS; on Linux, exercise X11/Xvfb, native Wayland and XWayland startup, and run the bounded CPU graphics benchmark smoke test.
-3. Run the stream ingestion/gateway/WebSocket rate-limit tests, including global cross-stream budgets, per-stream budgets and stream-open churn cases.
-4. Run paired YuKKi-OS sender / Overhauled receiver conformance and negative tests for sender identity, publisher provenance, replay, expiry, digest, transfer bounds and failed activation.
-5. Confirm untrusted stream access still works without an executable publisher key and that its independent resource limits reject floods.
-6. Only after checks pass and the release commit is approved, create the 6.18.0 tag and GitHub Release. Verify external registry publication separately.
+4. Run the stream ingestion/gateway/WebSocket rate-limit tests, including global cross-stream budgets, per-stream budgets and stream-open churn cases.
+5. Run paired YuKKi-OS sender / Overhauled receiver conformance and negative tests for sender identity, publisher provenance, replay, expiry, digest, transfer bounds and failed activation.
+6. Confirm untrusted stream access still works without an executable publisher key and that its independent resource limits reject floods.
+7. Only after checks pass and the release commit is approved, create the 6.19.0 tag and GitHub Release. Verify external registry publication separately.
 
 PR #173 (native browser runtime and graphics delegation) is merged to main. The metadata candidate updates the native package, root lockfile, OCI label, README, changelog and versioning guide together; the browser-runtime package remains independently versioned at 0.1.0. Its release CI and approval remain separate.
 
