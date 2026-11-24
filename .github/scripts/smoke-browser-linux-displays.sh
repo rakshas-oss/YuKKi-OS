@@ -11,8 +11,12 @@ runtime_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/yukki-display-smoke.XXXXXX")"
 chmod 700 "$runtime_dir"
 xvfb_display_file="$runtime_dir/xvfb.display"
 xvfb_log="$runtime_dir/xvfb.log"
-mkdir -p /tmp/.X11-unix
-chmod 1777 /tmp/.X11-unix
+# Hosted runners commonly provide this directory as a root-owned,
+# correctly permissioned system path. Never chmod an existing shared /tmp
+# directory from the unprivileged workflow user.
+if [[ ! -d /tmp/.X11-unix ]]; then
+  mkdir -m 1777 /tmp/.X11-unix
+fi
 export LIBGL_ALWAYS_SOFTWARE=1
 export XDG_RUNTIME_DIR="$runtime_dir"
 
