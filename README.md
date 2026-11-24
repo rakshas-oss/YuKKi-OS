@@ -1,25 +1,27 @@
-# YuKKi-OS v6.18.0 (release candidate)
+# YuKKi-OS v6.19.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.18.0 is the next minor release candidate after published v6.17.0 (2026-11-22). No 6.18.0 tag or release assets exist yet.
+> **Release status:** v6.19.0 is the next minor release candidate after published v6.17.0 (2026-11-22). No 6.19.0 tag or release assets exist yet.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Release candidate: v6.18.0. The latest published release remains v6.17.0 until the candidate passes its release gate and is tagged. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Release candidate: v6.19.0. The latest published release remains v6.17.0 until the candidate passes its release gate and is tagged. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.18.0 candidate; latest published release v6.17.0 (2026-11-22).
+- **Release line:** v6.19.0 candidate; latest published release v6.17.0 (2026-11-22).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.17.0 GitHub Release has 10 attached assets, including SHA256SUMS; v6.18.0 release assets are pending a future tag.
+- **Status:** v6.17.0 GitHub Release has 10 attached assets, including SHA256SUMS; v6.19.0 release assets are pending a future tag.
 
-## What's new in v6.18.0 (release candidate)
+## What's new in v6.19.0 (release candidate)
+
+- **Native browser runtime:** add a native WebKit-based browser shell for Linux and macOS, with Linux X11, native Wayland and XWayland display paths. The browser runtime includes bounded graphics benchmark coverage and can delegate compatible work to Overhauled through explicit BRK2 device preferences; CPU fallback remains available. This native runtime is a separate workspace package and retains its own `0.1.0` version.
 
 - **Authenticated WASM handoff sender:** add a Rust sender API with pluggable signing and receiver-receipt verification, separate deployment-sender and artifact-publisher identities, canonical manifests/digests, bounded sequential chunk transfer and signed activation requests.
 - **Untrusted stream availability:** stream ingestion and consumption remain independent of executable-artifact publisher authorization. Untrusted NXR1/MED1/media sources do not need a WASM publisher key.
@@ -91,7 +93,7 @@ BRK2 locality-codec baseline:
   Ed25519 signatures over RFC 8785 canonical bytes, sender/audience binding,
   expiry and replay checks, bounded transfer, backend capability negotiation,
   and separate prepare/activate phases.
-- **Implementation boundary at v6.17.0:** that release delivered the normative handoff schema and protocol specification. The subsequent v6.18.0 candidate adds the Rust `HandoffSender` API, separate deployment/publisher signing, bounded sequential chunk streaming, signed prepare-decision and receipt verification, and the paired Overhauled `HandoffReceiver` state machine/runtime bridge (PR #86). A concrete mTLS transport adapter, durable replay/staging service and ordinary broker-listener integration are still not included. The shared-Store Wasmtime isolation limitation still applies.
+- **Implementation boundary at v6.17.0:** that release delivered the normative handoff schema and protocol specification. The subsequent v6.19.0 candidate adds the Rust `HandoffSender` API, separate deployment/publisher signing, bounded sequential chunk streaming, signed prepare-decision and receipt verification, and the paired Overhauled `HandoffReceiver` state machine/runtime bridge (PR #86). A concrete mTLS transport adapter, durable replay/staging service and ordinary broker-listener integration are still not included. The shared-Store Wasmtime isolation limitation still applies.
 
 See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md),
 [the handoff contract](docs/WASM_AUTHENTICATED_HANDOFF.md), and
@@ -269,7 +271,7 @@ Mainline Windows/MSVC is unsupported. The browser application (`wasm32-unknown-u
 The repository ships a Dockerfile that builds and embeds `yukki_core_node`.
 
 ```bash
-docker build -t yukkios:6.18.0 .
+docker build -t yukkios:6.19.0 .
 ```
 
 Current limitation: no built-in TLS termination for peer or broker links.
