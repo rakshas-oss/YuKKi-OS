@@ -3,19 +3,19 @@
 ## Release state
 
 - **Latest published release:** v6.17.0 (2026-11-22).
-- **Next minor release candidate:** v6.18.0 (not tagged or published).
-- **Native Cargo package candidate:** 6.18.0.
-- **OCI image label candidate:** 6.18.0.
+- **Next minor release candidate:** v6.19.0 (not tagged or published).
+- **Native Cargo package candidate:** 6.19.0.
+- **OCI image label candidate:** 6.19.0.
 - **Rust toolchain pin:** 1.98.1 (unchanged).
 - **Runtime binary:** yukki_core_node (unchanged).
 - **Published v6.17.0 assets:** 10 GitHub Release assets, including native Linux/macOS binaries, browser-WASM, WASI and SHA256SUMS.
 - **External package publication:** crates.io is not claimed; GitHub Release publication and registry publication are separate.
 
-No 6.18.0 tag, GitHub Release or release archive is claimed by this candidate.
+No 6.19.0 tag, GitHub Release or release archive is claimed by this candidate.
 
 ## Version assessment
 
-The additive changes merged in YuKKi-OS PR #168 justify a minor increment from 6.17.0:
+The authenticated handoff and stream-flood controls in 6.18.0 established the previous candidate. The native browser runtime, display-backend coverage and explicit broker device-preference APIs merged in PR #173 justify advancing this candidate to 6.19.0:
 
 - Add the yukkios::wasm_handoff sender API with pluggable HandoffSigner and receiver-receipt verifier interfaces.
 - Build canonical manifests and module digests, sign prepare/chunk/activation messages, preserve separate deployment-sender and artifact-publisher identities, and stream strictly sequential bounded chunks.
@@ -36,18 +36,19 @@ The corresponding receiver-side state machine is in Overhauled PR #86, now merge
 - Discovery records are not execution authorization. Broker transport and the handoff transport must be authenticated independently.
 - The browser-WASM crate (yukki-browser-core) and WASI guest worker (yukki_guest_worker) are separate unpublished workspaces at 0.1.0; they are not implicitly bumped with the native yukkios package.
 
-## Release gate for 6.18.0
+## Release gate for 6.19.0
 
 Before tagging or publishing:
 
 1. Run cargo fmt --check, cargo test --locked, Clippy and the complete native Linux/macOS/Windows test matrix on the exact release candidate.
 2. Run Linux, aarch64, macOS, browser-WASM and WASI build/test jobs, including the browser verifier and guest-worker contracts.
-3. Run the stream ingestion/gateway/WebSocket rate-limit tests, including global cross-stream budgets, per-stream budgets and stream-open churn cases.
-4. Run paired YuKKi-OS sender / Overhauled receiver conformance and negative tests for sender identity, publisher provenance, replay, expiry, digest, transfer bounds and failed activation.
-5. Confirm untrusted stream access still works without an executable publisher key and that its independent resource limits reject floods.
-6. Only after checks pass and the release commit is approved, create the 6.18.0 tag and GitHub Release. Verify external registry publication separately.
+3. Build and test the native browser runtime on Linux and macOS; on Linux, exercise X11/Xvfb, native Wayland and XWayland startup, and run the bounded CPU graphics benchmark smoke test.
+4. Run the stream ingestion/gateway/WebSocket rate-limit tests, including global cross-stream budgets, per-stream budgets and stream-open churn cases.
+5. Run paired YuKKi-OS sender / Overhauled receiver conformance and negative tests for sender identity, publisher provenance, replay, expiry, digest, transfer bounds and failed activation.
+6. Confirm untrusted stream access still works without an executable publisher key and that its independent resource limits reject floods.
+7. Only after checks pass and the release commit is approved, create the 6.19.0 tag and GitHub Release. Verify external registry publication separately.
 
-PR #168 (authenticated handoff sender and stream flood controls) is merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d. The metadata candidate updates the native package, lockfile, OCI label, README, changelog and version assertion together. Its CI and release approval remain separate.
+PR #173 (native browser runtime and graphics delegation) is merged to main. The metadata candidate updates the native package, root lockfile, OCI label, README, changelog and versioning guide together; the browser-runtime package remains independently versioned at 0.1.0. Its release CI and approval remain separate.
 
 ## Published release history
 

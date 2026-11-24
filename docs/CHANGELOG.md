@@ -1,3 +1,22 @@
+## v6.19.0 (release candidate; not published)
+
+### Native browser runtime and graphics delegation
+
+- Add the native `yukki-browser` runtime as a separate workspace package, using WebKitGTK on Linux and WKWebView on macOS.
+- Exercise Linux X11/Xvfb, native Wayland and XWayland startup paths with deterministic headless smoke orchestration; add macOS runtime contract/build coverage.
+- Add a bounded CPU graphics benchmark smoke path and upload platform benchmark reports with the runtime artifacts.
+- Expose explicit BRK2 device-preference APIs for browser WSM1 and inference work; return broker-reported backend telemetry so callers can distinguish requested from actual execution.
+- Keep browser-runtime package versioning independent at `0.1.0`; this release advances only the native `yukkios` package.
+
+### Compatibility and boundaries
+
+- The browser shell is native desktop software, not the browser-WASM gateway or WASI guest worker. It does not make Windows/MSVC a supported native target.
+- GPU/NPU delegation remains broker-mediated and capability-dependent. A preference is not proof of accelerator execution; CPU fallback and exact-CPU policy remain authoritative.
+- Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
+- No `6.19.0` tag, GitHub Release or external registry publication is claimed.
+
+---
+
 # Changelog
 
 ## v6.18.0 (release candidate; not published)
