@@ -176,4 +176,27 @@ run_browser "XWayland inside Weston" \
   XDG_RUNTIME_DIR="$runtime_dir" WAYLAND_DISPLAY=wayland-xwayland \
   DISPLAY="$xwayland_display" XDG_SESSION_TYPE=wayland GDK_BACKEND=x11 \
   YUKKI_BROWSER_DISPLAY_BACKEND=xwayland
+
+# Weston creates its listening X socket before spawning XWayland. The first
+# X11 client connection (the browser above) must actually start the server;
+# require the server-spawn log rather than treating the socket as proof.
+xwayland_started=false
+for _ in $(seq 1 100); do
+  if grep -Eqi 'Spawned Xwayland server|created wm, root' "$xwayland_log"; then
+    xwayland_started=true
+    break
+  fi
+  if ! kill -0 "$weston_pid" 2>/dev/null; then
+    cat "$xwayland_log" >&2 || true
+    echo "Weston exited while starting XWayland" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ "$xwayland_started" != true ]]; then
+  cat "$xwayland_log" >&2 || true
+  cat "$runtime_dir/weston-xwayland.stdout" >&2 || true
+  echo "The browser connected to the X socket but Weston never spawned XWayland" >&2
+  exit 1
+fi
 stop_weston
