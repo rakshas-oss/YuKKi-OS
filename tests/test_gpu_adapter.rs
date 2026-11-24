@@ -2269,7 +2269,6 @@ async fn test_shutdown_cancels_all_versions() {
     assert!(h.is_cancellation_requested());
 }
 
-
 #[tokio::test]
 async fn test_wsm1_device_preference_requires_brk2_and_known_values() {
     let task = WasmTaskRequest {
@@ -2293,11 +2292,7 @@ async fn test_wsm1_device_preference_requires_brk2_and_known_values() {
     let legacy = LifecycleClient::new(GpuAdapterConfig::new("127.0.0.1:0"))
         .expect("create lifecycle client");
     let wire_error = legacy
-        .submit_wsm1_task_with_device_preference(
-            &task,
-            &WorkerDirective::throughput(),
-            "gpu",
-        )
+        .submit_wsm1_task_with_device_preference(&task, &WorkerDirective::throughput(), "gpu")
         .await
         .expect_err("explicit device preference must require BRK2");
     assert!(matches!(wire_error, GpuAdapterError::InvalidRequest(_)));
@@ -2306,12 +2301,11 @@ async fn test_wsm1_device_preference_requires_brk2_and_known_values() {
         .expect("create BRK2 lifecycle client")
         .with_wire_mode(LifecycleWireMode::Brk2);
     let preference_error = brk2
-        .submit_wsm1_task_with_device_preference(
-            &task,
-            &WorkerDirective::throughput(),
-            "tpu",
-        )
+        .submit_wsm1_task_with_device_preference(&task, &WorkerDirective::throughput(), "tpu")
         .await
         .expect_err("unknown device preference must be rejected before network I/O");
-    assert!(matches!(preference_error, GpuAdapterError::InvalidRequest(_)));
+    assert!(matches!(
+        preference_error,
+        GpuAdapterError::InvalidRequest(_)
+    ));
 }

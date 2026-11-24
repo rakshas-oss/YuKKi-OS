@@ -442,13 +442,11 @@ impl HandoffSender {
         receipt_verifier: &dyn HandoffReceiptVerifier,
         issued_at: u64,
     ) -> Result<HandoffReceipt, HandoffError> {
-        let (request_id, prepare) = self.build_prepare(
-            artifacts,
-            deployment_signer,
-            publisher_signer,
-            issued_at,
-        )?;
-        let decision = transport.prepare(&prepare.bytes).map_err(HandoffError::Transport)?;
+        let (request_id, prepare) =
+            self.build_prepare(artifacts, deployment_signer, publisher_signer, issued_at)?;
+        let decision = transport
+            .prepare(&prepare.bytes)
+            .map_err(HandoffError::Transport)?;
         verify_prepare_decision(
             &decision,
             &request_id,
@@ -458,7 +456,9 @@ impl HandoffSender {
         )?;
         if !decision.accepted || decision.decision != "accepted" {
             return Err(HandoffError::Rejected(
-                decision.rejection_code.unwrap_or_else(|| "unspecified".into()),
+                decision
+                    .rejection_code
+                    .unwrap_or_else(|| "unspecified".into()),
             ));
         }
         let transfer_id = decision.transfer_id.ok_or_else(|| {
@@ -481,7 +481,11 @@ impl HandoffSender {
             &transfer_id,
             deployment_signer,
             issued_at,
-            |chunk| transport.append_chunk(&chunk.bytes).map_err(HandoffError::Transport),
+            |chunk| {
+                transport
+                    .append_chunk(&chunk.bytes)
+                    .map_err(HandoffError::Transport)
+            },
         )?;
         let activation =
             self.build_activation(&request_id, &transfer_id, deployment_signer, issued_at)?;
@@ -500,7 +504,8 @@ impl HandoffSender {
             || receipt.expires_at <= receipt.issued_at
         {
             return Err(HandoffError::InvalidDecision(
-                "activation receipt does not match the requested release or backend contract".into(),
+                "activation receipt does not match the requested release or backend contract"
+                    .into(),
             ));
         }
         validate_uuid(&receipt.message_id, "receipt message_id")?;
@@ -545,9 +550,9 @@ impl HandoffSender {
                     "module is not WebAssembly core version 1".into(),
                 ));
             }
-            total = total.checked_add(artifact.bytes.len()).ok_or_else(|| {
-                HandoffError::InvalidInput("artifact set size overflow".into())
-            })?;
+            total = total
+                .checked_add(artifact.bytes.len())
+                .ok_or_else(|| HandoffError::InvalidInput("artifact set size overflow".into()))?;
             if total > MAX_TOTAL_BYTES {
                 return Err(HandoffError::InvalidInput(
                     "artifact set exceeds 256 MiB".into(),
@@ -575,10 +580,7 @@ fn validate_signer(
 }
 
 fn validate_identifier(value: &str, max: usize, field: &str) -> Result<(), HandoffError> {
-    if value.is_empty()
-        || value.len() > max
-        || value.contains(['\r', '\n', '|'])
-    {
+    if value.is_empty() || value.len() > max || value.contains(['\r', '\n', '|']) {
         return Err(HandoffError::InvalidInput(format!(
             "{field} is empty, too long, or contains forbidden control delimiters"
         )));
@@ -605,11 +607,7 @@ fn descriptors(artifacts: &[WasmArtifact]) -> Result<Vec<Value>, HandoffError> {
             })
         })
         .collect::<Vec<_>>();
-    result.sort_by(|a, b| {
-        a["module_id"]
-            .as_str()
-            .cmp(&b["module_id"].as_str())
-    });
+    result.sort_by(|a, b| a["module_id"].as_str().cmp(&b["module_id"].as_str()));
     Ok(result)
 }
 
@@ -662,11 +660,14 @@ fn canonical_prepare_decision(decision: &PrepareDecision) -> Result<Vec<u8>, Han
     envelope.insert("message_id".into(), json!(decision.message_id));
     envelope.insert("nonce".into(), json!(decision.nonce));
     envelope.insert("payload".into(), payload);
-    envelope.insert("sender".into(), json!({
-        "issuer": decision.issuer,
-        "key_id": decision.signer_key_id,
-        "subject": decision.subject
-    }));
+    envelope.insert(
+        "sender".into(),
+        json!({
+            "issuer": decision.issuer,
+            "key_id": decision.signer_key_id,
+            "subject": decision.subject
+        }),
+    );
     canonical_json(&Value::Object(envelope))
 }
 
@@ -748,11 +749,14 @@ fn canonical_receipt(receipt: &HandoffReceipt) -> Result<Vec<u8>, HandoffError> 
     envelope.insert("message_id".into(), json!(receipt.message_id));
     envelope.insert("nonce".into(), json!(receipt.nonce));
     envelope.insert("payload".into(), payload);
-    envelope.insert("sender".into(), json!({
-        "issuer": receipt.issuer,
-        "key_id": receipt.signer_key_id,
-        "subject": receipt.subject
-    }));
+    envelope.insert(
+        "sender".into(),
+        json!({
+            "issuer": receipt.issuer,
+            "key_id": receipt.signer_key_id,
+            "subject": receipt.subject
+        }),
+    );
     canonical_json(&Value::Object(envelope))
 }
 
@@ -827,7 +831,9 @@ fn lower_hex(bytes: &[u8]) -> String {
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, HandoffError> {
     if !value.len().is_multiple_of(2) {
-        return Err(HandoffError::InvalidInput("invalid hexadecimal digest".into()));
+        return Err(HandoffError::InvalidInput(
+            "invalid hexadecimal digest".into(),
+        ));
     }
     let mut output = Vec::with_capacity(value.len() / 2);
     let (pairs, remainder) = value.as_bytes().as_chunks::<2>();
@@ -840,8 +846,10 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, HandoffError> {
                 _ => None,
             }
         };
-        let hi = digit(pair[0]).ok_or_else(|| HandoffError::InvalidInput("invalid digest hex".into()))?;
-        let lo = digit(pair[1]).ok_or_else(|| HandoffError::InvalidInput("invalid digest hex".into()))?;
+        let hi = digit(pair[0])
+            .ok_or_else(|| HandoffError::InvalidInput("invalid digest hex".into()))?;
+        let lo = digit(pair[1])
+            .ok_or_else(|| HandoffError::InvalidInput("invalid digest hex".into()))?;
         output.push((hi << 4) | lo);
     }
     Ok(output)
@@ -880,9 +888,15 @@ mod tests {
     }
 
     impl HandoffSigner for TestSigner {
-        fn key_id(&self) -> &str { &self.identity.key_id }
-        fn issuer(&self) -> &str { &self.identity.issuer }
-        fn subject(&self) -> &str { &self.identity.subject }
+        fn key_id(&self) -> &str {
+            &self.identity.key_id
+        }
+        fn issuer(&self) -> &str {
+            &self.identity.issuer
+        }
+        fn subject(&self) -> &str {
+            &self.identity.subject
+        }
         fn sign_ed25519(&self, message: &[u8]) -> Result<[u8; 64], String> {
             let digest = Sha256::digest(message);
             let mut signature = [0u8; 64];
@@ -922,15 +936,25 @@ mod tests {
             },
             PrepareOptions::default(),
             DEFAULT_CHUNK_BYTES,
-        ).unwrap();
-        let (request_id, message) = sender.build_prepare(
-            &[wasm()], &deployment, &publisher, 1_800_000_000
-        ).unwrap();
-        assert_eq!(Uuid::parse_str(&request_id).unwrap().to_string(), request_id);
+        )
+        .unwrap();
+        let (request_id, message) = sender
+            .build_prepare(&[wasm()], &deployment, &publisher, 1_800_000_000)
+            .unwrap();
+        assert_eq!(
+            Uuid::parse_str(&request_id).unwrap().to_string(),
+            request_id
+        );
         let parsed: Value = serde_json::from_slice(&message.bytes).unwrap();
         assert_eq!(parsed["payload"]["kind"], "prepare_request");
-        assert_eq!(parsed["payload"]["publisher_provenance"]["issuer"], "publisher-issuer");
-        assert!(parsed["payload"]["manifest_digest"].as_str().unwrap().starts_with("sha256:"));
+        assert_eq!(
+            parsed["payload"]["publisher_provenance"]["issuer"],
+            "publisher-issuer"
+        );
+        assert!(parsed["payload"]["manifest_digest"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"));
         assert_eq!(parsed["signature"]["alg"], "Ed25519");
         assert_eq!(parsed["signature"]["key_id"], "deploy-key");
     }
@@ -938,19 +962,24 @@ mod tests {
     #[test]
     fn chunks_are_sequential_bounded_and_individually_signed() {
         let deployment = signer("yukki-issuer", "node-7", "deploy-key");
-        let sender = HandoffSender::new(
-            deployment.identity.clone(), PrepareOptions::default(), 4096
-        ).unwrap();
+        let sender =
+            HandoffSender::new(deployment.identity.clone(), PrepareOptions::default(), 4096)
+                .unwrap();
         let mut artifact = wasm();
         artifact.bytes.extend(std::iter::repeat_n(0x11, 8200));
         let mut chunks = Vec::new();
-        sender.for_each_chunk(
-            &[artifact], &Uuid::new_v4().to_string(), &deployment, 1_800_000_000,
-            |chunk| {
-                chunks.push(chunk);
-                Ok(())
-            },
-        ).unwrap();
+        sender
+            .for_each_chunk(
+                &[artifact],
+                &Uuid::new_v4().to_string(),
+                &deployment,
+                1_800_000_000,
+                |chunk| {
+                    chunks.push(chunk);
+                    Ok(())
+                },
+            )
+            .unwrap();
         assert_eq!(chunks.len(), 3);
         let first: Value = serde_json::from_slice(&chunks[0].bytes).unwrap();
         let last: Value = serde_json::from_slice(&chunks[2].bytes).unwrap();
@@ -963,24 +992,33 @@ mod tests {
     #[test]
     fn rejects_invalid_wasm_and_duplicate_modules() {
         let deployment = signer("yukki-issuer", "node-7", "deploy-key");
-        let sender = HandoffSender::new(
-            deployment.identity.clone(), PrepareOptions::default(), 4096
-        ).unwrap();
+        let sender =
+            HandoffSender::new(deployment.identity.clone(), PrepareOptions::default(), 4096)
+                .unwrap();
         let mut invalid = wasm();
         invalid.bytes[0] = 1;
-        assert!(sender.build_prepare(&[invalid], &deployment, &deployment, 1).is_err());
-        assert!(sender.build_prepare(&[wasm(), wasm()], &deployment, &deployment, 1).is_err());
+        assert!(sender
+            .build_prepare(&[invalid], &deployment, &deployment, 1)
+            .is_err());
+        assert!(sender
+            .build_prepare(&[wasm(), wasm()], &deployment, &deployment, 1)
+            .is_err());
     }
 
     #[test]
     fn sender_identity_cannot_be_swapped_after_configuration() {
         let deployment = signer("yukki-issuer", "node-7", "deploy-key");
         let attacker = signer("attacker", "node-x", "other-key");
-        let sender = HandoffSender::new(
-            deployment.identity.clone(), PrepareOptions::default(), 4096
-        ).unwrap();
-        assert!(sender.build_activation(
-            &Uuid::new_v4().to_string(), &Uuid::new_v4().to_string(), &attacker, 1
-        ).is_err());
+        let sender =
+            HandoffSender::new(deployment.identity.clone(), PrepareOptions::default(), 4096)
+                .unwrap();
+        assert!(sender
+            .build_activation(
+                &Uuid::new_v4().to_string(),
+                &Uuid::new_v4().to_string(),
+                &attacker,
+                1
+            )
+            .is_err());
     }
 }

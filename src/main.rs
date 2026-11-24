@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    env, fs::{self, OpenOptions}, io,
+    env,
+    fs::{self, OpenOptions},
+    io,
     io::Write,
     net::SocketAddr,
     path::PathBuf,
@@ -490,8 +492,7 @@ async fn run_node(bootstrap: SocketAddr, advertised: SocketAddr, psk: [u8; 32]) 
     // Optional local handoff from the authenticated peer mesh to co-located
     // browser runtimes. The file is private to this OS user and contains only
     // expiring broker service records, never mesh keys or raw topology.
-    let broker_directory_file = env::var_os("YUKKI_BROKER_DIRECTORY_FILE")
-        .map(PathBuf::from);
+    let broker_directory_file = env::var_os("YUKKI_BROKER_DIRECTORY_FILE").map(PathBuf::from);
     let broker_endpoint = env::var("YUKKI_BROKER_ENDPOINT").ok();
     let broker_service_id = Uuid::new_v4();
     if let Some(endpoint) = broker_endpoint.as_deref() {
@@ -662,7 +663,10 @@ fn persist_broker_directory(
         ));
     }
     let parent = path.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "broker directory path has no parent")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "broker directory path has no parent",
+        )
     })?;
     fs::create_dir_all(parent)?;
 

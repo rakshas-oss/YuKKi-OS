@@ -291,7 +291,6 @@ fn media_stream_checks_metadata_limits_and_stream_capacity() {
     );
 }
 
-
 #[test]
 fn media_stream_ingestion_is_rate_limited_globally_and_per_stream() {
     let config = MediaStreamConfig {
@@ -308,11 +307,13 @@ fn media_stream_ingestion_is_rate_limited_globally_and_per_stream() {
     };
     let streams = LiveMediaStreams::new(config).unwrap();
     for id in ["camera-a", "camera-b"] {
-        streams.open_stream(MediaStreamMetadata {
-            stream_id: id.to_string(),
-            media_type: MediaType::Video,
-            codec: "h264".to_string(),
-        }).unwrap();
+        streams
+            .open_stream(MediaStreamMetadata {
+                stream_id: id.to_string(),
+                media_type: MediaType::Video,
+                codec: "h264".to_string(),
+            })
+            .unwrap();
     }
 
     let mut first = chunk(0);
@@ -334,7 +335,8 @@ fn media_stream_open_churn_is_rate_limited() {
         stream_open_per_second: 0.001,
         stream_open_burst: 1,
         ..MediaStreamConfig::default()
-    }).unwrap();
+    })
+    .unwrap();
     let metadata = |id: &str| MediaStreamMetadata {
         stream_id: id.to_string(),
         media_type: MediaType::Audio,
@@ -342,7 +344,10 @@ fn media_stream_open_churn_is_rate_limited() {
     };
     streams.open_stream(metadata("source-a")).unwrap();
     assert_eq!(streams.remove_stream("source-a").unwrap(), 0);
-    assert_eq!(streams.open_stream(metadata("source-b")).unwrap_err(), MediaError::RateLimited);
+    assert_eq!(
+        streams.open_stream(metadata("source-b")).unwrap_err(),
+        MediaError::RateLimited
+    );
 }
 
 #[test]
@@ -350,15 +355,17 @@ fn media_stream_configuration_cannot_expand_past_hard_memory_or_index_ceilings()
     assert!(LiveMediaStreams::new(MediaStreamConfig {
         max_streams: MEDIA_MAX_STREAMS_HARD + 1,
         ..MediaStreamConfig::default()
-    }).is_err());
+    })
+    .is_err());
     assert!(LiveMediaStreams::new(MediaStreamConfig {
         max_total_chunks: MEDIA_MAX_TOTAL_CHUNKS_HARD + 1,
         ..MediaStreamConfig::default()
-    }).is_err());
+    })
+    .is_err());
     assert!(LiveMediaStreams::new(MediaStreamConfig {
         max_total_chunks: MEDIA_MAX_RETAINED_BYTES / MEDIA_MAX_CHUNK_BYTES + 1,
         max_chunk_bytes: MEDIA_MAX_CHUNK_BYTES,
         ..MediaStreamConfig::default()
-    }).is_err());
+    })
+    .is_err());
 }
-

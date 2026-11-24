@@ -3,9 +3,7 @@ use std::{fs, path::Path};
 #[test]
 fn package_version_matches_release_metadata() {
     let package_version = env!("CARGO_PKG_VERSION");
-    let expected_lock_entry = format!(
-        "name = \"yukkios\"\nversion = \"{package_version}\""
-    );
+    let expected_lock_entry = format!("name = \"yukkios\"\nversion = \"{package_version}\"");
     let lockfile = fs::read_to_string("Cargo.lock").expect("read Cargo.lock");
     assert!(
         lockfile.contains(&expected_lock_entry),
@@ -13,9 +11,7 @@ fn package_version_matches_release_metadata() {
     );
 
     let dockerfile = fs::read_to_string("Dockerfile").expect("read Dockerfile");
-    let expected_oci_label = format!(
-        "org.opencontainers.image.version=\"{package_version}\""
-    );
+    let expected_oci_label = format!("org.opencontainers.image.version=\"{package_version}\"");
     assert!(
         dockerfile.contains(&expected_oci_label),
         "Docker image version label must match Cargo.toml version {package_version}"

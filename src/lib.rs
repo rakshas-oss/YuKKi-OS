@@ -31,8 +31,8 @@ pub mod stream_gateway;
 pub mod stream_registry;
 pub mod stream_relay;
 pub mod wasm_composition;
-pub mod wasm_ingest;
 pub mod wasm_handoff;
+pub mod wasm_ingest;
 #[rustfmt::skip]
 pub mod wasm_sandbox;
 
@@ -61,9 +61,9 @@ pub use gpu_adapter::{
     decode_brk1_frame, decode_brk1_response_frame, decode_wsm1_message, encode_brk1_frame,
     encode_wsm1_lifecycle_request, encode_wsm1_lifecycle_response, encode_wsm1_task_request,
     encode_wsm1_task_response, Brk1Frame, Brk1ResponseFrame, BrokerMessage, BrokerTaskError,
-    BrokerTaskExecution, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest, CancelTaskResponse,
-    GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest, GpuTaskResponse,
-    GpuTaskStatus, LifecycleClient, LifecycleWireMode, ModuleLifecycleManager,
+    BrokerTaskExecution, BufferAccess, BufferDescriptor, BufferKind, CancelTaskRequest,
+    CancelTaskResponse, GpuAdapterConfig, GpuAdapterError, GpuBrokerClient, GpuTaskRequest,
+    GpuTaskResponse, GpuTaskStatus, LifecycleClient, LifecycleWireMode, ModuleLifecycleManager,
     ModuleLifecycleState, ModuleVersionHandle, ModuleVersionResources, ProtocolHandshakeRequest,
     ProtocolHandshakeResponse, StateHandoffHook, WasmBufferDescriptor, WasmLifecycleAction,
     WasmLifecycleRequest, WasmLifecycleResponse, WasmLifecycleState, WasmLifecycleStatus,
@@ -98,9 +98,9 @@ pub use arcgis::{
 pub use media_codec::{
     LiveMediaStreams, MediaChunk, MediaError, MediaStreamConfig, MediaStreamMetadata,
     MediaStreamSnapshot, MediaType, MEDIA_CHUNK_BROKER_KEY, MEDIA_CHUNK_HEADER_LEN,
-    MEDIA_CHUNK_KIND, MEDIA_CHUNK_MAGIC, MEDIA_CHUNK_VERSION, MEDIA_MAX_CHUNK_BYTES,
-    MEDIA_MAX_CODEC_BYTES, MEDIA_MAX_STREAM_ID_BYTES, MEDIA_MAX_RETAINED_BYTES,
-    MEDIA_MAX_STREAMS_HARD, MEDIA_MAX_CHUNKS_PER_STREAM_HARD, MEDIA_MAX_TOTAL_CHUNKS_HARD,
+    MEDIA_CHUNK_KIND, MEDIA_CHUNK_MAGIC, MEDIA_CHUNK_VERSION, MEDIA_MAX_CHUNKS_PER_STREAM_HARD,
+    MEDIA_MAX_CHUNK_BYTES, MEDIA_MAX_CODEC_BYTES, MEDIA_MAX_RETAINED_BYTES, MEDIA_MAX_STREAMS_HARD,
+    MEDIA_MAX_STREAM_ID_BYTES, MEDIA_MAX_TOTAL_CHUNKS_HARD,
 };
 
 pub use stream_registry::{
