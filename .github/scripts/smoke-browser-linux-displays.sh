@@ -125,7 +125,9 @@ run_browser "standalone X11/Xvfb" \
 # commands after "--"; the socket is the explicit readiness boundary.
 wayland_log="$runtime_dir/weston-wayland.log"
 echo "Starting headless Weston for native Wayland"
-weston --no-config --backend=headless --renderer=pixman \
+env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u XAUTHORITY \
+  XDG_RUNTIME_DIR="$runtime_dir" weston \
+  --no-config --backend=headless --renderer=pixman \
   --socket=wayland-native --idle-time=0 --log="$wayland_log" \
   >"$runtime_dir/weston-wayland.stdout" 2>&1 &
 weston_pid=$!
@@ -141,7 +143,9 @@ stop_weston
 # for its reported X display and Unix socket before connecting the X11 client.
 xwayland_log="$runtime_dir/weston-xwayland.log"
 echo "Starting headless Weston with XWayland enabled"
-weston --no-config --backend=headless --renderer=pixman \
+env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u XAUTHORITY \
+  XDG_RUNTIME_DIR="$runtime_dir" weston \
+  --no-config --backend=headless --renderer=pixman \
   --socket=wayland-xwayland --idle-time=0 --xwayland --log="$xwayland_log" \
   >"$runtime_dir/weston-xwayland.stdout" 2>&1 &
 weston_pid=$!
