@@ -27,6 +27,10 @@ path = "src/bin/yukki_dataset_bench.rs"
 name = "yukki_eigensolver_bench"
 path = "src/bin/yukki_eigensolver_bench.rs"
 
+[[bin]]
+name = "yukki_crawl"
+path = "src/bin/yukki_crawl.rs"
+
 [features]
 default = []
 mesh_dashboard = ["dep:rstar"]
@@ -82,6 +86,9 @@ rstar = { version = "0.14", optional = true }
 
 # Enable getrandom's JavaScript backend only for wasm32 builds.
 # This satisfies getrandom 0.4 users without changing native targets.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4.3", features = ["wasm_js"] }
 

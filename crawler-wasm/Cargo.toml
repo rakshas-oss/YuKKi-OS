@@ -1,0 +1,16 @@
+[package]
+name = "yukkios-crawler-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-only"
+description = "No-std HTML extraction guest for YuKKi-OS crawler workers"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1

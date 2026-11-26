@@ -8,6 +8,7 @@ manifests=(
   "Cargo.toml"
   "guest-worker/Cargo.toml"
   "browser-wasm/Cargo.toml"
+  "crawler-wasm/Cargo.toml"
 )
 
 for relative_manifest in "${manifests[@]}"; do

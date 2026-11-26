@@ -5,6 +5,10 @@ pub mod adi_auto_tune;
 pub mod arcgis;
 pub mod benchmark_dataset;
 pub mod broker_client;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crawler;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crawler_wasm;
 pub mod broker_discovery;
 pub mod symmetric_eigen;
 #[rustfmt::skip]
