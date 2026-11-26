@@ -1195,7 +1195,8 @@ impl BrokerConnectionPool {
         Self {
             inner: Arc::new(BrokerConnectionPoolInner {
                 endpoint,
-                    permits: Arc::new(Semaphore::new(max_connections)),
+                max_connections,
+                permits: Arc::new(Semaphore::new(max_connections)),
                 idle: Mutex::new(VecDeque::with_capacity(max_connections)),
             }),
         }
