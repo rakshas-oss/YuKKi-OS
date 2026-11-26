@@ -7,7 +7,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: aikido-security-lock-\${{ github.ref }}
+  group: aikido-security-lock-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
