@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
       - name: Update URL parser to patched version
         run: cargo +1.98.1 update -p url --precise 2.5.9
       - name: Verify rand serde feature is not enabled
