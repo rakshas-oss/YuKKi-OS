@@ -63,7 +63,7 @@
 //! by the current overhauled listener.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env,
     ops::Deref,
     sync::{
@@ -79,7 +79,7 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    sync::{watch, Notify},
+    sync::{watch, Notify, OwnedSemaphorePermit, Semaphore},
     time::{sleep, timeout},
 };
 
@@ -87,6 +87,8 @@ pub const CURRENT_PROTOCOL_VERSION: &str = "overhauled.wasm.gpu.v1";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["overhauled.wasm.gpu.v1"];
 pub const DEFAULT_GPU_BROKER_ENDPOINT: &str = "127.0.0.1:9090";
 pub const DEFAULT_GPU_MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_GPU_MAX_CONNECTIONS: usize = 16;
+pub const MAX_GPU_BROKER_CONNECTIONS: usize = 256;
 pub const DEFAULT_GPU_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const DEFAULT_GPU_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_GPU_MAX_RETRIES: usize = 3;
@@ -834,6 +836,9 @@ pub struct GpuAdapterConfig {
     pub request_timeout: Duration,
     /// Maximum allowable message frame size in bytes.
     pub max_frame_size: usize,
+    /// Maximum number of single-flight persistent broker connections.
+    /// Requests are never multiplexed on a connection.
+    pub max_connections: usize,
     /// Maximum number of retries for retryable failures.
     pub max_retries: usize,
     /// Initial backoff delay between retries.
@@ -853,6 +858,7 @@ impl Default for GpuAdapterConfig {
             connect_timeout: DEFAULT_GPU_CONNECT_TIMEOUT,
             request_timeout: DEFAULT_GPU_REQUEST_TIMEOUT,
             max_frame_size: DEFAULT_GPU_MAX_FRAME_BYTES,
+            max_connections: DEFAULT_GPU_MAX_CONNECTIONS,
             max_retries: DEFAULT_GPU_MAX_RETRIES,
             retry_backoff: DEFAULT_GPU_RETRY_BACKOFF,
             quiesce_timeout: DEFAULT_GPU_QUIESCE_TIMEOUT,
@@ -891,6 +897,8 @@ impl GpuAdapterConfig {
             duration_from_env_ms("YUKKI_GPU_QUIESCE_TIMEOUT_MS", DEFAULT_GPU_QUIESCE_TIMEOUT)?;
         let max_frame_size =
             usize_from_env("YUKKI_GPU_MAX_FRAME_BYTES", DEFAULT_GPU_MAX_FRAME_BYTES)?;
+        let max_connections =
+            usize_from_env("YUKKI_GPU_MAX_CONNECTIONS", DEFAULT_GPU_MAX_CONNECTIONS)?;
         let max_retries = usize_from_env("YUKKI_GPU_MAX_RETRIES", DEFAULT_GPU_MAX_RETRIES)?;
         let use_wsm1 = match env::var("YUKKI_GPU_USE_WSM1") {
             Ok(v) => matches!(
@@ -907,6 +915,7 @@ impl GpuAdapterConfig {
             connect_timeout,
             request_timeout,
             max_frame_size,
+            max_connections,
             max_retries,
             retry_backoff: DEFAULT_GPU_RETRY_BACKOFF,
             quiesce_timeout,
@@ -953,6 +962,11 @@ impl GpuAdapterConfig {
             return Err(GpuAdapterError::InvalidConfig(format!(
                 "quiesce_timeout must not exceed {MAX_CONFIG_TIMEOUT:?} (got {:?})",
                 self.quiesce_timeout
+            )));
+        }
+        if !(1..=MAX_GPU_BROKER_CONNECTIONS).contains(&self.max_connections) {
+            return Err(GpuAdapterError::InvalidConfig(format!(
+                "max_connections must be between 1 and {MAX_GPU_BROKER_CONNECTIONS}"
             )));
         }
         if self.max_frame_size == 0 || self.max_frame_size > u32::MAX as usize {
@@ -1114,8 +1128,101 @@ impl Default for CancellationToken {
 
 /// Asynchronous client for the legacy JSON broker message protocol.
 /// The current `overhauled` TCP listener requires BRK1/WSM1; use `LifecycleClient`.
+
+/// A bounded, endpoint-scoped pool of persistent broker sessions.
+///
+/// Each lease owns one connection for one request/response exchange. The
+/// semaphore bounds active plus idle sockets; no connection is multiplexed,
+/// so legacy BRK1 and request-ID-correlated BRK2 traffic keep their existing
+/// framing and ordering semantics.
+#[derive(Clone)]
+struct BrokerConnectionPool {
+    inner: Arc<BrokerConnectionPoolInner>,
+}
+
+struct BrokerConnectionPoolInner {
+    endpoint: String,
+    max_connections: usize,
+    permits: Arc<Semaphore>,
+    idle: Mutex<VecDeque<TcpStream>>,
+}
+
+struct BrokerConnectionLease {
+    stream: Option<TcpStream>,
+    pool: BrokerConnectionPool,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl BrokerConnectionPool {
+    fn new(endpoint: String, max_connections: usize) -> Self {
+        Self {
+            inner: Arc::new(BrokerConnectionPoolInner {
+                endpoint,
+                max_connections,
+                permits: Arc::new(Semaphore::new(max_connections)),
+                idle: Mutex::new(VecDeque::with_capacity(max_connections)),
+            }),
+        }
+    }
+
+    async fn acquire(
+        &self,
+        connect_timeout: Duration,
+    ) -> Result<BrokerConnectionLease, GpuAdapterError> {
+        let permit = timeout(
+            connect_timeout,
+            self.inner.permits.clone().acquire_owned(),
+        )
+        .await
+        .map_err(|_| GpuAdapterError::ConnectTimeout(connect_timeout))?
+        .map_err(|_| GpuAdapterError::InvalidConfig(
+            "broker connection pool has been closed".to_string(),
+        ))?;
+
+        let idle = self.inner.idle.lock().unwrap().pop_front();
+        let stream = match idle {
+            Some(stream) => stream,
+            None => timeout(connect_timeout, TcpStream::connect(&self.inner.endpoint))
+                .await
+                .map_err(|_| GpuAdapterError::ConnectTimeout(connect_timeout))??,
+        };
+
+        Ok(BrokerConnectionLease {
+            stream: Some(stream),
+            pool: self.clone(),
+            _permit: permit,
+        })
+    }
+
+    fn recycle(&self, stream: TcpStream) {
+        let mut idle = self.inner.idle.lock().unwrap();
+        if idle.len() < self.inner.max_connections {
+            idle.push_back(stream);
+        }
+        // If the pool is already full, dropping the stream closes it.
+    }
+
+    #[cfg(test)]
+    fn idle_len(&self) -> usize {
+        self.inner.idle.lock().unwrap().len()
+    }
+}
+
+impl BrokerConnectionLease {
+    fn stream_mut(&mut self) -> &mut TcpStream {
+        self.stream.as_mut().expect("connection lease has a stream")
+    }
+
+    fn recycle(mut self) {
+        if let Some(stream) = self.stream.take() {
+            self.pool.recycle(stream);
+        }
+    }
+}
+
 pub struct GpuBrokerClient {
     config: GpuAdapterConfig,
+    connection_pool: BrokerConnectionPool,
     /// Tasks currently awaiting a broker response, keyed by task_id, so that
     /// timeout/disconnect/shutdown paths can issue best-effort cancellation.
     in_flight_tasks: Mutex<HashMap<String, CancellationToken>>,
@@ -1124,8 +1231,13 @@ pub struct GpuBrokerClient {
 impl GpuBrokerClient {
     pub fn new(config: GpuAdapterConfig) -> Result<Self, GpuAdapterError> {
         config.validate()?;
+        let connection_pool = BrokerConnectionPool::new(
+            config.endpoint.clone(),
+            config.max_connections,
+        );
         Ok(Self {
             config,
+            connection_pool,
             in_flight_tasks: Mutex::new(HashMap::new()),
         })
     }
@@ -2460,9 +2572,8 @@ impl LifecycleClient {
             return Err(GpuAdapterError::Disabled);
         }
 
-        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
-            .await
-            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut connection = self.broker_client.connection_pool.acquire(config.connect_timeout).await?;
+        let stream = connection.stream_mut();
 
         let lifecycle_kind = match request.action {
             WasmLifecycleAction::Prepare => "wasm.lifecycle.prepare.v1",
@@ -2509,17 +2620,17 @@ impl LifecycleClient {
             stream.write_all(&frame_bytes).await?;
             stream.flush().await?;
         } else {
-            write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+            write_raw_frame(stream, &frame_bytes, config.max_frame_size).await?;
         }
 
         let response_bytes = timeout(
             config.request_timeout,
-            read_raw_frame(&mut stream, config.max_frame_size),
+            read_raw_frame(stream, config.max_frame_size),
         )
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
 
-        if let Some(id) = brk2_id {
+        let result = if let Some(id) = brk2_id {
             let DecodedBrk2Response { status, result, error, .. } =
                 decode_brk2_response_fields(&response_bytes, id, &request.request_id)?;
             if result.is_empty() {
@@ -2539,7 +2650,11 @@ impl LifecycleClient {
             Ok(decoded)
         } else {
             parse_lifecycle_response(&response_bytes)
+        };
+        if result.is_ok() {
+            connection.recycle();
         }
+        result
     }
 
     /// Prepare a module version on the broker.
@@ -2728,9 +2843,8 @@ impl LifecycleClient {
         device_preference: Option<&str>,
     ) -> Result<WasmTaskExecution, GpuAdapterError> {
         let config = self.broker_client.config();
-        let mut stream = timeout(config.connect_timeout, TcpStream::connect(&config.endpoint))
-            .await
-            .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut connection = self.broker_client.connection_pool.acquire(config.connect_timeout).await?;
+        let stream = connection.stream_mut();
 
         let mut brk2_id = None;
         let frame_bytes = match self.wire_mode {
@@ -2770,7 +2884,7 @@ impl LifecycleClient {
             stream.write_all(&frame_bytes).await?;
             stream.flush().await?;
         } else {
-            write_raw_frame(&mut stream, &frame_bytes, config.max_frame_size).await?;
+            write_raw_frame(stream, &frame_bytes, config.max_frame_size).await?;
         }
 
         // Track as in-flight so a local timeout, a dropped connection, or process
@@ -2779,7 +2893,7 @@ impl LifecycleClient {
         let outcome = tokio::select! {
             outcome = timeout(
                 config.request_timeout,
-                read_raw_frame(&mut stream, config.max_frame_size),
+                read_raw_frame(stream, config.max_frame_size),
             ) => Some(outcome),
             _ = cancellation.cancelled() => None,
         };
@@ -2814,7 +2928,7 @@ impl LifecycleClient {
             }
         };
 
-        if let Some(id) = brk2_id {
+        let execution = if let Some(id) = brk2_id {
             let DecodedBrk2Response { status, result, error, backend, worker_telemetry } =
                 decode_brk2_response_fields(&response_bytes, id, &task.task_id)?;
             if result.is_empty() {
@@ -2831,18 +2945,22 @@ impl LifecycleClient {
             if !status_matches {
                 return Err(GpuAdapterError::MalformedResponse("BRK2 outer status conflicts with WSM1 task status".into()));
             }
-            Ok(WasmTaskExecution {
+            WasmTaskExecution {
                 response: decoded,
                 backend,
                 worker_telemetry,
-            })
+            }
         } else {
-            Ok(WasmTaskExecution {
+            WasmTaskExecution {
                 response: parse_task_response(&response_bytes)?,
                 backend: None,
                 worker_telemetry: None,
-            })
+            }
+        };
+        if execution.response.status == WasmTaskStatus::Ok {
+            connection.recycle();
         }
+        Ok(execution)
     }
 
     /// Submit a BRK2 inference request with an explicit accelerator preference.
@@ -2884,17 +3002,13 @@ impl LifecycleClient {
                 max: config.max_frame_size,
             });
         }
-        let mut stream = timeout(
-            config.connect_timeout,
-            TcpStream::connect(&config.endpoint),
-        )
-        .await
-        .map_err(|_| GpuAdapterError::ConnectTimeout(config.connect_timeout))??;
+        let mut connection = self.broker_client.connection_pool.acquire(config.connect_timeout).await?;
+        let stream = connection.stream_mut();
         stream.write_all(&frame).await?;
         stream.flush().await?;
         let response_bytes = timeout(
             config.request_timeout,
-            read_raw_frame(&mut stream, config.max_frame_size),
+            read_raw_frame(stream, config.max_frame_size),
         )
         .await
         .map_err(|_| GpuAdapterError::RequestTimeout(config.request_timeout))??;
@@ -2906,11 +3020,14 @@ impl LifecycleClient {
             worker_telemetry,
         } = decode_brk2_response_fields(&response_bytes, request_id, task_id)?;
         match status {
-            0 => Ok(BrokerTaskExecution {
-                result,
-                backend,
-                worker_telemetry,
-            }),
+            0 => {
+                connection.recycle();
+                Ok(BrokerTaskExecution {
+                    result,
+                    backend,
+                    worker_telemetry,
+                })
+            }
             1 => Err(GpuAdapterError::BrokerRejected {
                 task_id: task_id.to_owned(),
                 code: "REJECTED".to_string(),
