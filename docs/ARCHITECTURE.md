@@ -1,4 +1,4 @@
-# YuKKi-OS v6.18.0 — Architecture (release candidate)
+# YuKKi-OS v6.21.0 — Architecture (release candidate)
 
 ## System identity and scope
 
@@ -15,7 +15,26 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.18.0 minor-release candidate. The latest published baseline is v6.17.0 (2026-11-22); the 6.18.0 tag and release assets have not been published.
+This document describes the v6.21.0 minor-release candidate. The latest published baseline is v6.20.0 (2026-11-26); the v6.21.0 tag and release assets have not been published.
+
+## Bounded crawler fabric and metriculation
+
+The optional crawler keeps network authority in the native host. The host
+validates seed/discovered URLs against explicit domain allowlists, resolves and
+pins public DNS answers, evaluates robots.txt, applies per-host pacing and
+request/page/crawl byte limits, and performs HTTP/HTTPS fetching. The separate
+no-std YCR1 guest receives one bounded document and extracts static HTML title
+and anchor data. It has no imports, WASI, sockets, filesystem or credentials;
+each document runs inside an isolated Wasmtime Store with fuel and memory
+limits. JavaScript execution, redirects, CAPTCHA/form automation and general
+browser rendering are outside this capability.
+
+The crawler writes page-level provenance and aggregate JSON metrics. Overhauled
+v1.10.0 adds a separate CPU-only `Overhauled::crawler_metrics` C++ library for
+constant-memory aggregation of normalized numeric page observations. It is
+not a BRK1/BRK2 operation, is not automatically wired to the crawler, and does
+not dispatch crawler reductions to GPU/NPU. Raw HTML remains in the native
+crawler boundary and is not forwarded to the broker.
 
 ### Broker discovery and BRK2 locality extension (v6.16.0 published baseline)
 
