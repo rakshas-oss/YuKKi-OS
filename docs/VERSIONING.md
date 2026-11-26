@@ -41,7 +41,7 @@ Overhauled v1.10.0 adds a separate constant-memory C++ accumulator for normalize
 
 Before tagging or publishing:
 
-1. Resolve the currently failing Wasmtime lock-refresh workflow. Its latest main-branch run attempted `cargo update -p wasmtime --precise 50.0.3` while `Cargo.toml` requires `^51.0`; crates.io reported only 50.0.3 as a matching candidate. Decide the supported Rust-crate version, regenerate the lockfile with Cargo, and remove the stale version mismatch without suppressing the check.
+1. The lock-refresh workflow's hard-coded `wasmtime 50.0.3` downgrade is corrected here to `51.0.0`, matching the manifest's `^51.0` requirement and the existing Cargo.lock resolution. The PR's branch checks cannot validate a main-only push workflow, so verify the workflow succeeds after this change reaches main; keep the full RustSec audit and locked dependency checks mandatory.
 2. Run `cargo metadata --locked` for the root, crawler guest and browser-WASM manifests; then run `cargo fmt --all -- --check`, `cargo test --all-targets --locked`, and strict Clippy on the exact candidate.
 3. Pass supported native Linux/macOS tests/builds, browser-WASM and WASI builds, crawler-specific YCR1/host tests, Cargo lockfile integrity, dependency/license/security audits, Docker validation and coverage.
 4. Exercise crawler allowlist enforcement, DNS pinning, private/special-address rejection, proxy disablement, redirect refusal, robots fail-closed behavior, per-host pacing, page/crawl byte ceilings, concurrency limits and guest memory/fuel bounds.
