@@ -15,6 +15,7 @@ allow = [
   "Unicode-DFS-2016",
   "0BSD",
   "CC0-1.0",
+  "CDLA-Permissive-2.0",
 ]
 exceptions = [
   { name = "yukkios", allow = ["GPL-3.0-only"] },

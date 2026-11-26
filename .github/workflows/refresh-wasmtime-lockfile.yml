@@ -8,8 +8,7 @@ on:
       - "Cargo.toml"
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: refresh-wasmtime-lockfile-main
@@ -23,16 +22,18 @@ jobs:
     name: Resolve, verify, and commit patched Wasmtime lockfile
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
-          fetch-depth: 0
-          token: ${{ github.token }}
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Install Rust stable and WebAssembly targets
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown, wasm32-wasip1
@@ -43,9 +44,20 @@ jobs:
       - name: Update Wasmtime to patched release using Cargo
         run: cargo update -p wasmtime --precise 50.0.3
 
+      - name: Update vulnerable URL parser to patched release
+        run: cargo update -p url --precise 2.5.9
+
+      - name: Verify rand serde attack surface
+        run: |
+          cargo tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-0.9.5-features.txt
+          if grep -F 'rand feature "serde"' /tmp/rand-0.9.5-features.txt; then
+            echo "rand 0.9.5 serde support is enabled; this Aikido finding must be remediated before merge." >&2
+            exit 1
+          fi
+          echo "rand 0.9.5 is present through Axum WebSocket support without the affected serde feature."
+
       - name: Regenerate canonical workspace lockfile from manifests
-        # The manifest removed an unused optional dependency. Resolve that removal
-        # with Cargo before any downstream --locked validation is run.
+        # Resolve manifest and security updates with Cargo before downstream --locked checks.
         run: cargo check --workspace
 
       - name: Confirm resolved Wasmtime version
@@ -99,6 +111,4 @@ jobs:
           git add -u
           git add Cargo.lock
           git commit -m "fix: refresh Wasmtime security patches and Rust formatting"
-          git fetch origin main
-          git rebase origin/main
           git push origin HEAD:main

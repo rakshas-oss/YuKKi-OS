@@ -22,8 +22,7 @@ on:
       - "Cargo.lock"
       - ".github/workflows/crawler-wasm.yml"
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: wasm-crawler
@@ -32,10 +31,14 @@ concurrency:
 jobs:
   host:
     name: Native crawler and sandbox tests
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: rustfmt, clippy
       - name: Verify lockfiles
@@ -51,10 +54,14 @@ jobs:
 
   guest:
     name: Build no-std extraction guest
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: wasm32-unknown-unknown
       - name: Install WASM target for the pinned Rust toolchain

@@ -57,25 +57,33 @@ impl WasmHtmlExtractor {
         fuel_per_call: u64,
         max_memory_bytes: usize,
     ) -> Result<Self, CrawlerWasmError> {
-        if wasm.is_empty() || wasm.len() > 4 * 1024 * 1024 || fuel_per_call == 0
-            || max_memory_bytes < 64 * 1024
-            || max_memory_bytes > MAX_CRAWLER_WASM_MEMORY_BYTES
+        if wasm.is_empty()
+            || wasm.len() > 4 * 1024 * 1024
+            || fuel_per_call == 0
+            || !(64 * 1024..=MAX_CRAWLER_WASM_MEMORY_BYTES).contains(&max_memory_bytes)
         {
-            return Err(CrawlerWasmError::ModuleSize { max: 4 * 1024 * 1024 });
+            return Err(CrawlerWasmError::ModuleSize {
+                max: 4 * 1024 * 1024,
+            });
         }
 
         let mut config = Config::new();
         config.consume_fuel(true);
         config.max_wasm_stack(256 * 1024);
-        let engine = Engine::new(&config)
-            .map_err(|error| CrawlerWasmError::Compile(error.to_string()))?;
+        let engine =
+            Engine::new(&config).map_err(|error| CrawlerWasmError::Compile(error.to_string()))?;
         let module = Module::from_binary(&engine, wasm)
             .map_err(|error| CrawlerWasmError::Compile(error.to_string()))?;
         if module.imports().next().is_some() {
             return Err(CrawlerWasmError::ImportsForbidden);
         }
 
-        Ok(Self { engine, module, fuel_per_call, max_memory_bytes })
+        Ok(Self {
+            engine,
+            module,
+            fuel_per_call,
+            max_memory_bytes,
+        })
     }
 
     pub fn with_defaults(wasm: &[u8]) -> Result<Self, CrawlerWasmError> {
@@ -98,73 +106,101 @@ impl WasmHtmlExtractor {
             .build();
         let mut store = Store::new(&self.engine, StoreState { limits });
         store.limiter(|state| &mut state.limits);
-        store.set_fuel(self.fuel_per_call)
+        store
+            .set_fuel(self.fuel_per_call)
             .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?;
 
         let instance = Instance::new(&mut store, &self.module, &[])
             .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?;
-        let memory = instance.get_memory(&mut store, "memory")
+        let memory = instance
+            .get_memory(&mut store, "memory")
             .ok_or_else(|| CrawlerWasmError::InvalidModule("missing exported memory".into()))?;
-        let alloc = instance.get_typed_func::<i32, i32>(&mut store, "alloc")
+        let alloc = instance
+            .get_typed_func::<i32, i32>(&mut store, "alloc")
             .map_err(|error| CrawlerWasmError::InvalidModule(error.to_string()))?;
-        let process = instance.get_typed_func::<(i32, i32), i64>(&mut store, "process")
+        let process = instance
+            .get_typed_func::<(i32, i32), i64>(&mut store, "process")
             .map_err(|error| CrawlerWasmError::InvalidModule(error.to_string()))?;
 
-        let input_ptr = alloc.call(&mut store, document.len() as i32)
+        let input_ptr = alloc
+            .call(&mut store, document.len() as i32)
             .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?;
         if input_ptr <= 0 {
-            return Err(CrawlerWasmError::InvalidModule("alloc returned an invalid pointer".into()));
+            return Err(CrawlerWasmError::InvalidModule(
+                "alloc returned an invalid pointer".into(),
+            ));
         }
-        memory.write(&mut store, input_ptr as usize, document)
+        memory
+            .write(&mut store, input_ptr as usize, document)
             .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?;
 
-        let packed = process.call(&mut store, (input_ptr, document.len() as i32))
-            .map_err(|error| CrawlerWasmError::Execution(error.to_string()))? as u64;
+        let packed = process
+            .call(&mut store, (input_ptr, document.len() as i32))
+            .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?
+            as u64;
         let output_ptr = (packed & 0xffff_ffff) as usize;
         let output_len = (packed >> 32) as usize;
         let memory_len = memory.data_size(&store);
-        if output_ptr == 0 || output_len < 12 || output_len > MAX_CRAWLER_OUTPUT_BYTES
-            || output_ptr.checked_add(output_len).filter(|end| *end <= memory_len).is_none()
+        if output_ptr == 0
+            || !(12..=MAX_CRAWLER_OUTPUT_BYTES).contains(&output_len)
+            || output_ptr
+                .checked_add(output_len)
+                .filter(|end| *end <= memory_len)
+                .is_none()
         {
-            return Err(CrawlerWasmError::InvalidOutput("output pointer or length is out of bounds".into()));
+            return Err(CrawlerWasmError::InvalidOutput(
+                "output pointer or length is out of bounds".into(),
+            ));
         }
 
         let mut output = vec![0u8; output_len];
-        memory.read(&store, output_ptr, &mut output)
+        memory
+            .read(&store, output_ptr, &mut output)
             .map_err(|error| CrawlerWasmError::Execution(error.to_string()))?;
         decode_ycr1(&output, document.len())
     }
 }
 
 fn read_u16(bytes: &[u8], at: usize) -> Result<u16, CrawlerWasmError> {
-    let slice = bytes.get(at..at + 2)
+    let slice = bytes
+        .get(at..at + 2)
         .ok_or_else(|| CrawlerWasmError::InvalidOutput("truncated u16".into()))?;
     Ok(u16::from_le_bytes([slice[0], slice[1]]))
 }
 
 fn read_u32(bytes: &[u8], at: usize) -> Result<u32, CrawlerWasmError> {
-    let slice = bytes.get(at..at + 4)
+    let slice = bytes
+        .get(at..at + 4)
         .ok_or_else(|| CrawlerWasmError::InvalidOutput("truncated u32".into()))?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn decode_ycr1(bytes: &[u8], expected_document_bytes: usize) -> Result<HtmlExtraction, CrawlerWasmError> {
+fn decode_ycr1(
+    bytes: &[u8],
+    expected_document_bytes: usize,
+) -> Result<HtmlExtraction, CrawlerWasmError> {
     if bytes.get(0..4) != Some(b"YCR1") {
         return Err(CrawlerWasmError::InvalidOutput("bad magic".into()));
     }
     let document_bytes = read_u32(bytes, 4)?;
     if document_bytes as usize != expected_document_bytes {
-        return Err(CrawlerWasmError::InvalidOutput("document length does not match input".into()));
+        return Err(CrawlerWasmError::InvalidOutput(
+            "document length does not match input".into(),
+        ));
     }
     let link_count = read_u16(bytes, 8)? as usize;
     let title_len = read_u16(bytes, 10)? as usize;
     if link_count > MAX_EXTRACTED_LINKS || title_len > 256 {
-        return Err(CrawlerWasmError::InvalidOutput("title or link count exceeds ABI limits".into()));
+        return Err(CrawlerWasmError::InvalidOutput(
+            "title or link count exceeds ABI limits".into(),
+        ));
     }
     let mut cursor = 12usize;
-    let title_end = cursor.checked_add(title_len)
+    let title_end = cursor
+        .checked_add(title_len)
         .ok_or_else(|| CrawlerWasmError::InvalidOutput("title length overflow".into()))?;
-    let title_bytes = bytes.get(cursor..title_end)
+    let title_bytes = bytes
+        .get(cursor..title_end)
         .ok_or_else(|| CrawlerWasmError::InvalidOutput("truncated title".into()))?;
     let title = String::from_utf8_lossy(title_bytes).trim().to_string();
     cursor = title_end;
@@ -172,14 +208,19 @@ fn decode_ycr1(bytes: &[u8], expected_document_bytes: usize) -> Result<HtmlExtra
     let mut links = Vec::with_capacity(link_count);
     for _ in 0..link_count {
         let length = read_u16(bytes, cursor)? as usize;
-        cursor = cursor.checked_add(2)
+        cursor = cursor
+            .checked_add(2)
             .ok_or_else(|| CrawlerWasmError::InvalidOutput("link offset overflow".into()))?;
         if length == 0 || length > 2048 {
-            return Err(CrawlerWasmError::InvalidOutput("invalid link length".into()));
+            return Err(CrawlerWasmError::InvalidOutput(
+                "invalid link length".into(),
+            ));
         }
-        let end = cursor.checked_add(length)
+        let end = cursor
+            .checked_add(length)
             .ok_or_else(|| CrawlerWasmError::InvalidOutput("link length overflow".into()))?;
-        let value = bytes.get(cursor..end)
+        let value = bytes
+            .get(cursor..end)
             .ok_or_else(|| CrawlerWasmError::InvalidOutput("truncated link".into()))?;
         let link = String::from_utf8_lossy(value).trim().to_string();
         if !link.is_empty() {
@@ -190,7 +231,11 @@ fn decode_ycr1(bytes: &[u8], expected_document_bytes: usize) -> Result<HtmlExtra
     if cursor != bytes.len() {
         return Err(CrawlerWasmError::InvalidOutput("trailing bytes".into()));
     }
-    Ok(HtmlExtraction { document_bytes, title, links })
+    Ok(HtmlExtraction {
+        document_bytes,
+        title,
+        links,
+    })
 }
 
 #[cfg(test)]
@@ -199,14 +244,17 @@ mod tests {
 
     #[test]
     fn executes_capability_free_ycr1_module() {
-        let wasm = wat::parse_str(r#"
+        let wasm = wat::parse_str(
+            r#"
             (module
               (memory (export "memory") 1 64)
               (func (export "alloc") (param i32) (result i32) (i32.const 1024))
               (data (i32.const 2048) "YCR1\05\00\00\00\00\00\00\00")
               (func (export "process") (param i32 i32) (result i64)
                 (i64.const 51539609600)))
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let extractor = WasmHtmlExtractor::with_defaults(&wasm).unwrap();
         let output = extractor.extract(b"hello").unwrap();
         assert_eq!(output.document_bytes, 5);
@@ -216,11 +264,14 @@ mod tests {
 
     #[test]
     fn rejects_modules_with_imports() {
-        let wasm = wat::parse_str(r#"
+        let wasm = wat::parse_str(
+            r#"
             (module
               (import "wasi_snapshot_preview1" "fd_write"
                 (func (param i32 i32 i32 i32) (result i32))))
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         assert!(matches!(
             WasmHtmlExtractor::with_defaults(&wasm),
             Err(CrawlerWasmError::ImportsForbidden)
@@ -229,11 +280,14 @@ mod tests {
 
     #[test]
     fn rejects_oversized_documents_before_wasm_execution() {
-        let wasm = wat::parse_str(r#"
+        let wasm = wat::parse_str(
+            r#"
             (module (memory (export "memory") 1 64)
               (func (export "alloc") (param i32) (result i32) (i32.const 1024))
               (func (export "process") (param i32 i32) (result i64) (i64.const 0)))
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let extractor = WasmHtmlExtractor::with_defaults(&wasm).unwrap();
         let input = vec![0u8; MAX_CRAWLER_INPUT_BYTES + 1];
         assert!(matches!(

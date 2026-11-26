@@ -1,0 +1,65 @@
+name: Resolve Aikido security dependency updates
+
+on:
+  push:
+    branches: ["fix/aikido-security-findings"]
+
+permissions: {}
+
+concurrency:
+  group: aikido-security-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-and-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout security branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: fix/aikido-security-findings
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Update URL parser to patched version
+        run: cargo +1.98.1 update -p url --precise 2.5.9
+      - name: Verify rand serde feature is not enabled
+        run: |
+          cargo +1.98.1 tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-0.9.5-features.txt
+          if grep -F 'rand feature "serde"' /tmp/rand-0.9.5-features.txt; then
+            echo "rand 0.9.5 serde support is enabled; do not classify this finding as not applicable." >&2
+            exit 1
+          fi
+          echo "Aikido's UniformChar serde path is not compiled in this dependency graph."
+      - name: Apply canonical Rust formatting
+        run: |
+          cargo +1.98.1 fmt --all
+          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml
+      - name: Verify Rust formatting
+        run: |
+          cargo +1.98.1 fmt --all -- --check
+          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml -- --check
+      - name: Verify dependency graph and run Clippy
+        run: |
+          cargo +1.98.1 metadata --format-version 1 --locked
+          cargo +1.98.1 check --workspace --all-targets --locked
+          cargo +1.98.1 clippy --all-targets --locked -- -D warnings
+      - name: Run complete native tests
+        run: cargo +1.98.1 test --all-targets --locked
+      - name: Verify patched URL version
+        run: |
+          cargo +1.98.1 tree --locked -i url
+          grep -A2 '^name = "url"$' Cargo.lock
+      - name: Commit Cargo-generated lockfile
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -u
+            git add Cargo.lock
+            git commit -m "fix(security): update url and format crawler code"
+            git push origin HEAD:fix/aikido-security-findings
+          fi
