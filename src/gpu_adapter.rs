@@ -65,6 +65,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     env,
+    net::SocketAddr,
     ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -828,6 +829,8 @@ pub struct GpuAdapterConfig {
     pub enabled: bool,
     /// Broker endpoint address (e.g. "127.0.0.1:9000").
     pub endpoint: String,
+    /// Refuse remote/plain TCP endpoints and require a local mTLS sidecar.
+    pub require_mtls_proxy: bool,
     /// Protocol version string.
     pub protocol_version: String,
     /// Timeout when opening a TCP connection to the broker.
@@ -854,6 +857,7 @@ impl Default for GpuAdapterConfig {
         Self {
             enabled: false,
             endpoint: DEFAULT_GPU_BROKER_ENDPOINT.to_string(),
+            require_mtls_proxy: false,
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
             connect_timeout: DEFAULT_GPU_CONNECT_TIMEOUT,
             request_timeout: DEFAULT_GPU_REQUEST_TIMEOUT,
@@ -900,6 +904,10 @@ impl GpuAdapterConfig {
         let max_connections =
             usize_from_env("YUKKI_GPU_MAX_CONNECTIONS", DEFAULT_GPU_MAX_CONNECTIONS)?;
         let max_retries = usize_from_env("YUKKI_GPU_MAX_RETRIES", DEFAULT_GPU_MAX_RETRIES)?;
+        let require_mtls_proxy = match env::var("YUKKI_GPU_REQUIRE_MTLS_PROXY") {
+            Ok(v) => matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"),
+            Err(_) => false,
+        };
         let use_wsm1 = match env::var("YUKKI_GPU_USE_WSM1") {
             Ok(v) => matches!(
                 v.trim().to_lowercase().as_str(),
@@ -911,6 +919,7 @@ impl GpuAdapterConfig {
         let config = Self {
             enabled,
             endpoint,
+            require_mtls_proxy,
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
             connect_timeout,
             request_timeout,
@@ -930,6 +939,16 @@ impl GpuAdapterConfig {
             return Err(GpuAdapterError::InvalidConfig(
                 "endpoint must not be empty".to_string(),
             ));
+        }
+        if self.require_mtls_proxy {
+            let local_endpoint = self.endpoint.parse::<SocketAddr>()
+                .map(|address| address.ip().is_loopback())
+                .unwrap_or(false);
+            if !local_endpoint {
+                return Err(GpuAdapterError::InvalidConfig(
+                    "YUKKI_GPU_REQUIRE_MTLS_PROXY requires a numeric loopback endpoint served by a local mTLS proxy".to_string(),
+                ));
+            }
         }
         if self.connect_timeout.is_zero() {
             return Err(GpuAdapterError::InvalidConfig(
