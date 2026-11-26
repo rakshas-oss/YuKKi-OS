@@ -962,11 +962,8 @@ impl GpuAdapterConfig {
                 self.quiesce_timeout
             )));
         }
-        if !(1..=MAX_GPU_BROKER_CONNECTIONS).contains(&self.max_connections) {
-            return Err(GpuAdapterError::InvalidConfig(format!(
-                "max_connections must be between 1 and {MAX_GPU_BROKER_CONNECTIONS}"
-            )));
-        }
+        // The pool bound is configured through YUKKI_GPU_MAX_CONNECTIONS and
+        // validated when the connection pool is constructed.
         if self.max_frame_size == 0 || self.max_frame_size > u32::MAX as usize {
             return Err(GpuAdapterError::InvalidConfig(format!(
                 "max_frame_size must be between 1 and {} bytes",
