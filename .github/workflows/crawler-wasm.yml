@@ -55,6 +55,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - name: Install WASM target for the pinned Rust toolchain
+        run: rustup target add wasm32-unknown-unknown --toolchain 1.98.1
       - name: Build sandboxed HTML extractor
         run: cargo build --manifest-path crawler-wasm/Cargo.toml --target wasm32-unknown-unknown --release
       - name: Verify WebAssembly artifact exists and is bounded
