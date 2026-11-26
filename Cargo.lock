@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "yukkios"
-version = "6.19.0"
+version = "6.20.0"
 dependencies = [
  "axum",
  "byteorder",

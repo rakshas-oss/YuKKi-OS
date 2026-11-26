@@ -1,25 +1,35 @@
-# YuKKi-OS v6.19.0 (release candidate)
+# YuKKi-OS v6.20.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.19.0 is the next minor release candidate after published v6.17.0 (2026-11-22). No 6.19.0 tag or release assets exist yet.
+> **Release status:** v6.20.0 is the next minor release candidate after published v6.19.0 (2026-11-24). The 6.19.0 GitHub Release is published; the 6.20.0 tag and assets are pending release validation.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Release candidate: v6.19.0. The latest published release remains v6.17.0 until the candidate passes its release gate and is tagged. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Release candidate: v6.20.0. The latest published release is v6.19.0 (2026-11-24). This does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.19.0 candidate; latest published release v6.17.0 (2026-11-22).
+- **Release line:** v6.20.0 candidate; latest published release v6.19.0 (2026-11-24).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.17.0 GitHub Release has 10 attached assets, including SHA256SUMS; v6.19.0 release assets are pending a future tag.
+- **Status:** v6.19.0 GitHub Release is published with release assets and SHA256SUMS; v6.20.0 assets await the release gate.
 
-## What's new in v6.19.0 (release candidate)
+## What's new in v6.20.0 (release candidate)
+
+- **Persistent BRK transport:** add an endpoint-scoped pool of persistent BRK1/BRK2 TCP sessions. Each checked-out connection carries one request/response exchange; it is recycled only after a complete, valid response is decoded. Timeouts, cancellation, disconnects and malformed responses discard the socket.
+- **Bounded connection admission:** configure the pool with `YUKKI_GPU_MAX_CONNECTIONS` (default 16, range 1..256). The pool applies backpressure when all connection permits are in use. Non-idempotent requests are not automatically replayed after an ambiguous transport failure.
+- **Strict mTLS sidecar routing:** `YUKKI_GPU_REQUIRE_MTLS_PROXY=true` requires a numeric loopback endpoint so the application is routed through a local TLS terminator. The paired Overhauled deployment profile uses stunnel TLS 1.3 and a loopback-only broker bind.
+- **Paired broker hardening:** Overhauled adds a 1,024-session ceiling, strict loopback-listener enforcement and an optional fsync-backed replay journal. The journal preserves accepted nonces across a single-process restart; it does not persist staged artifacts or active runtime state.
+- **Compatibility:** existing YKMC, BRK1/BRK2, NXR1 and WSM1 identities remain unchanged. The Rust pool is still plain TCP; TLS is supplied by the sidecar, and certificate identity is not yet bound to signed artifact-sender authorization.
+
+The native browser runtime remains a separate workspace package at 0.1.0. Browser-WASM and WASI guest-worker package versions remain independently versioned at 0.1.0.
+
+## What's new in v6.19.0 (published)
 
 - **Native browser runtime:** add a native WebKit-based browser shell for Linux and macOS, with Linux X11, native Wayland and XWayland display paths. The browser runtime includes bounded graphics benchmark coverage and can delegate compatible work to Overhauled through explicit BRK2 device preferences; CPU fallback remains available. This native runtime is a separate workspace package and retains its own `0.1.0` version.
 
@@ -36,7 +46,7 @@ PR #168 is merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d. This cand
 The Rust package is being prepared for crates.io as `yukkios`; it is not
 advertised as published until the registry accepts the first upload. The
 native and WebAssembly release archives remain available from the
-[GitHub Release](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/6.17.0).
+[GitHub Release](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/6.19.0).
 See [package distribution and publishing](docs/PACKAGING.md) for validation,
 installation and the one-time publisher setup.
 
