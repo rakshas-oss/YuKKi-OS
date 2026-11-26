@@ -1160,9 +1160,6 @@ impl Default for CancellationToken {
 // Client Transport & Version Negotiation
 // ============================================================================
 
-/// Asynchronous client for the legacy JSON broker message protocol.
-/// The current `overhauled` TCP listener requires BRK1/WSM1; use `LifecycleClient`.
-
 /// A bounded, endpoint-scoped pool of persistent broker sessions.
 ///
 /// Each lease owns one connection for one request/response exchange. The
@@ -1254,6 +1251,8 @@ impl BrokerConnectionLease {
     }
 }
 
+/// Asynchronous client for the legacy JSON broker message protocol.
+/// The current `overhauled` TCP listener requires BRK1/WSM1; use `LifecycleClient`.
 pub struct GpuBrokerClient {
     config: GpuAdapterConfig,
     connection_pool: BrokerConnectionPool,
@@ -3746,7 +3745,7 @@ mod broker_connection_pool_tests {
         let endpoint = listener.local_addr().unwrap().to_string();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            for expected in [b'a', b'b'] {
+            for expected in *b"ab" {
                 let mut prefix = [0u8; 4];
                 socket.read_exact(&mut prefix).await.unwrap();
                 assert_eq!(u32::from_be_bytes(prefix), 1);
@@ -3761,7 +3760,7 @@ mod broker_connection_pool_tests {
 
         let pool = BrokerConnectionPool::new(endpoint, 1);
         let timeout_limit = Duration::from_secs(1);
-        for expected in [b'a', b'b'] {
+        for expected in *b"ab" {
             let mut lease = pool.acquire(timeout_limit).await.unwrap();
             let stream = lease.stream_mut();
             stream.write_all(&1u32.to_be_bytes()).await.unwrap();
