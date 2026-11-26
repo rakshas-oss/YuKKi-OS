@@ -20,8 +20,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: fix/aikido-security-findings
-          fetch-depth: 0
-          token: \${{ github.token }}
+          fetch-depth: 1
           persist-credentials: true
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
@@ -62,7 +61,5 @@ jobs:
             git add -u
             git add Cargo.lock
             git commit -m "fix(security): update url and format crawler code"
-            git fetch origin fix/aikido-security-findings
-            git rebase origin/fix/aikido-security-findings
             git push origin HEAD:fix/aikido-security-findings
           fi
