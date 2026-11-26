@@ -21,7 +21,8 @@ fn usage() {
 }
 
 fn value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, Box<dyn Error>> {
-    args.next().ok_or_else(|| format!("{flag} requires a value").into())
+    args.next()
+        .ok_or_else(|| format!("{flag} requires a value").into())
 }
 
 #[tokio::main]
@@ -45,11 +46,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "--output" => output = value(&mut args, "--output")?,
             "--max-pages" => config.max_pages = value(&mut args, "--max-pages")?.parse()?,
             "--depth" => config.max_depth = value(&mut args, "--depth")?.parse()?,
-            "--concurrency" => config.max_concurrency = value(&mut args, "--concurrency")?.parse()?,
-            "--max-page-bytes" => config.max_page_bytes = value(&mut args, "--max-page-bytes")?.parse()?,
-            "--max-total-bytes" => config.max_total_bytes = value(&mut args, "--max-total-bytes")?.parse()?,
-            "--delay-ms" => config.per_domain_delay = std::time::Duration::from_millis(value(&mut args, "--delay-ms")?.parse()?),
-            "--timeout-secs" => config.request_timeout = std::time::Duration::from_secs(value(&mut args, "--timeout-secs")?.parse()?),
+            "--concurrency" => {
+                config.max_concurrency = value(&mut args, "--concurrency")?.parse()?
+            }
+            "--max-page-bytes" => {
+                config.max_page_bytes = value(&mut args, "--max-page-bytes")?.parse()?
+            }
+            "--max-total-bytes" => {
+                config.max_total_bytes = value(&mut args, "--max-total-bytes")?.parse()?
+            }
+            "--delay-ms" => {
+                config.per_domain_delay =
+                    std::time::Duration::from_millis(value(&mut args, "--delay-ms")?.parse()?)
+            }
+            "--timeout-secs" => {
+                config.request_timeout =
+                    std::time::Duration::from_secs(value(&mut args, "--timeout-secs")?.parse()?)
+            }
             unknown => return Err(format!("unknown argument: {unknown}").into()),
         }
     }

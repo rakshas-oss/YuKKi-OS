@@ -167,8 +167,16 @@ struct FetchPayload {
 impl Crawler {
     pub fn new(config: CrawlerConfig, wasm_plugin: &[u8]) -> Result<Self, CrawlerError> {
         validate_config(&config)?;
-        let allowed_domains = config.allowed_domains.iter()
-            .map(|domain| domain.trim().trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase())
+        let allowed_domains = config
+            .allowed_domains
+            .iter()
+            .map(|domain| {
+                domain
+                    .trim()
+                    .trim_start_matches('.')
+                    .trim_end_matches('.')
+                    .to_ascii_lowercase()
+            })
             .collect::<Vec<_>>();
         let extractor = WasmHtmlExtractor::from_bytes(
             wasm_plugin,
@@ -192,13 +200,17 @@ impl Crawler {
     /// the WASM guest and queued breadth-first up to max_depth/max_pages.
     pub async fn crawl(&self, seeds: &[String]) -> Result<CrawlReport, CrawlerError> {
         if seeds.is_empty() {
-            return Err(CrawlerError::InvalidConfig("at least one --seed URL is required".into()));
+            return Err(CrawlerError::InvalidConfig(
+                "at least one --seed URL is required".into(),
+            ));
         }
         let mut frontier = VecDeque::new();
         let mut seen = HashSet::new();
         for seed in seeds {
             let url = Url::parse(seed).map_err(|_| CrawlerError::InvalidSeed(seed.clone()))?;
-            let normalized = self.normalize_url(url).map_err(|_| CrawlerError::InvalidSeed(seed.clone()))?;
+            let normalized = self
+                .normalize_url(url)
+                .map_err(|_| CrawlerError::InvalidSeed(seed.clone()))?;
             if seen.insert(normalized.as_str().to_string()) {
                 frontier.push_back((normalized, 0usize));
             }
@@ -207,11 +219,15 @@ impl Crawler {
         let crawl_byte_budget = Arc::new(AtomicUsize::new(0));
         let mut tasks = JoinSet::new();
         let mut records = Vec::new();
-        while records.len() < self.inner.config.max_pages && (!frontier.is_empty() || !tasks.is_empty()) {
+        while records.len() < self.inner.config.max_pages
+            && (!frontier.is_empty() || !tasks.is_empty())
+        {
             while tasks.len() < self.inner.config.max_concurrency
                 && records.len() + tasks.len() < self.inner.config.max_pages
             {
-                let Some((url, depth)) = frontier.pop_front() else { break; };
+                let Some((url, depth)) = frontier.pop_front() else {
+                    break;
+                };
                 let crawler = self.clone();
                 let crawl_byte_budget = crawl_byte_budget.clone();
                 tasks.spawn(async move {
@@ -220,7 +236,9 @@ impl Crawler {
                 });
             }
 
-            let Some(joined) = tasks.join_next().await else { break; };
+            let Some(joined) = tasks.join_next().await else {
+                break;
+            };
             let (depth, record) = match joined {
                 Ok(value) => value,
                 Err(_) => continue,
@@ -258,12 +276,16 @@ impl Crawler {
         {
             return Err(CrawlerError::InvalidSeed(url.to_string()));
         }
-        let host = url.host_str().ok_or_else(|| CrawlerError::InvalidSeed(url.to_string()))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| CrawlerError::InvalidSeed(url.to_string()))?;
         if !self.domain_allowed(host) {
             return Err(CrawlerError::DomainNotAllowed(host.to_string()));
         }
         if host.parse::<IpAddr>().is_ok() {
-            return Err(CrawlerError::InvalidSeed("IP-literal URLs are not accepted; use an allowlisted DNS name".into()));
+            return Err(CrawlerError::InvalidSeed(
+                "IP-literal URLs are not accepted; use an allowlisted DNS name".into(),
+            ));
         }
         url.set_fragment(None);
         Ok(url)
@@ -272,9 +294,11 @@ impl Crawler {
     fn domain_allowed(&self, host: &str) -> bool {
         let host = host.to_ascii_lowercase();
         self.inner.allowed_domains.iter().any(|allowed| {
-            host == *allowed || host.strip_suffix(allowed)
-                .map(|prefix| prefix.ends_with('.'))
-                .unwrap_or(false)
+            host == *allowed
+                || host
+                    .strip_suffix(allowed)
+                    .map(|prefix| prefix.ends_with('.'))
+                    .unwrap_or(false)
         })
     }
 
@@ -335,34 +359,73 @@ impl Crawler {
         url: &Url,
         crawl_byte_budget: &AtomicUsize,
     ) -> Result<FetchPayload, (Option<u16>, String)> {
-        let host = url.host_str().ok_or((None, "missing URL host".into()))?.to_string();
-        let port = url.port_or_known_default().ok_or((None, "unknown URL port".into()))?;
-        let client = self.client_for(&host, port).await.map_err(|error| (None, error.to_string()))?;
+        let host = url
+            .host_str()
+            .ok_or((None, "missing URL host".into()))?
+            .to_string();
+        let port = url
+            .port_or_known_default()
+            .ok_or((None, "unknown URL port".into()))?;
+        let client = self
+            .client_for(&host, port)
+            .await
+            .map_err(|error| (None, error.to_string()))?;
 
-        let robots = self.robots_policy(url, &client).await.map_err(|error| (None, error.to_string()))?;
+        let robots = self
+            .robots_policy(url, &client)
+            .await
+            .map_err(|error| (None, error.to_string()))?;
         if robots.deny_all || !robots.is_allowed(url.path()) {
             return Err((None, CrawlerError::RobotsDenied.to_string()));
         }
 
         self.throttle_domain(&host).await;
         let fetch_started = Instant::now();
-        let response = client.get(url.clone()).send().await
+        let response = client
+            .get(url.clone())
+            .send()
+            .await
             .map_err(|error| (None, CrawlerError::Request(error.to_string()).to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err((Some(status.as_u16()), format!("HTTP status {status}; redirects are not followed")));
+            return Err((
+                Some(status.as_u16()),
+                format!("HTTP status {status}; redirects are not followed"),
+            ));
         }
-        if let Some(content_type) = response.headers().get(CONTENT_TYPE).and_then(|value| value.to_str().ok()) {
-            let media_type = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        if let Some(content_type) = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+        {
+            let media_type = content_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
             if media_type != "text/html" && media_type != "application/xhtml+xml" {
-                return Err((Some(status.as_u16()), format!("unsupported content type: {media_type}")));
+                return Err((
+                    Some(status.as_u16()),
+                    format!("unsupported content type: {media_type}"),
+                ));
             }
         } else {
-            return Err((Some(status.as_u16()), "missing or invalid Content-Type".into()));
+            return Err((
+                Some(status.as_u16()),
+                "missing or invalid Content-Type".into(),
+            ));
         }
 
-        if response.content_length().map(|length| length as usize > self.inner.config.max_page_bytes).unwrap_or(false) {
-            return Err((Some(status.as_u16()), CrawlerError::PageTooLarge.to_string()));
+        if response
+            .content_length()
+            .map(|length| length as usize > self.inner.config.max_page_bytes)
+            .unwrap_or(false)
+        {
+            return Err((
+                Some(status.as_u16()),
+                CrawlerError::PageTooLarge.to_string(),
+            ));
         }
 
         let mut body = Vec::new();
@@ -370,10 +433,17 @@ impl Crawler {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|error| (Some(status.as_u16()), error.to_string()))?;
             if body.len().saturating_add(chunk.len()) > self.inner.config.max_page_bytes {
-                return Err((Some(status.as_u16()), CrawlerError::PageTooLarge.to_string()));
+                return Err((
+                    Some(status.as_u16()),
+                    CrawlerError::PageTooLarge.to_string(),
+                ));
             }
-            reserve_crawl_bytes(crawl_byte_budget, self.inner.config.max_total_bytes, chunk.len())
-                .map_err(|error| (Some(status.as_u16()), error.to_string()))?;
+            reserve_crawl_bytes(
+                crawl_byte_budget,
+                self.inner.config.max_total_bytes,
+                chunk.len(),
+            )
+            .map_err(|error| (Some(status.as_u16()), error.to_string()))?;
             body.extend_from_slice(&chunk);
         }
         let fetch_ms = fetch_started.elapsed().as_secs_f64() * 1000.0;
@@ -390,7 +460,11 @@ impl Crawler {
 
         let mut links = Vec::new();
         let mut unique = HashSet::new();
-        for href in extraction.links.into_iter().take(self.inner.config.max_links_per_page) {
+        for href in extraction
+            .links
+            .into_iter()
+            .take(self.inner.config.max_links_per_page)
+        {
             let candidate = match url.join(&href) {
                 Ok(candidate) => candidate,
                 Err(_) => continue,
@@ -420,8 +494,12 @@ impl Crawler {
     }
 
     async fn client_for(&self, host: &str, port: u16) -> Result<Client, CrawlerError> {
-        let lookup = lookup_host(format!("{host}:{port}")).await
-            .map_err(|error| CrawlerError::Dns { host: host.into(), message: error.to_string() })?;
+        let lookup = lookup_host(format!("{host}:{port}"))
+            .await
+            .map_err(|error| CrawlerError::Dns {
+                host: host.into(),
+                message: error.to_string(),
+            })?;
         let mut addresses = lookup.collect::<Vec<_>>();
         addresses.sort_unstable();
         addresses.dedup();
@@ -445,14 +523,21 @@ impl Crawler {
             .user_agent(self.inner.config.user_agent.clone())
             .build()
             .map_err(|error| CrawlerError::HttpClient(error.to_string()))?;
-        cache.insert(key, CachedClient { addresses, client: client.clone() });
+        cache.insert(
+            key,
+            CachedClient {
+                addresses,
+                client: client.clone(),
+            },
+        );
         Ok(client)
     }
 
     async fn throttle_domain(&self, host: &str) {
         let gate = {
             let mut gates = self.inner.domain_gates.lock().await;
-            gates.entry(host.to_ascii_lowercase())
+            gates
+                .entry(host.to_ascii_lowercase())
                 .or_insert_with(|| Arc::new(Mutex::new(Instant::now())))
                 .clone()
         };
@@ -463,9 +548,20 @@ impl Crawler {
         *next_allowed = Instant::now() + self.inner.config.per_domain_delay;
     }
 
-    async fn robots_policy(&self, url: &Url, client: &Client) -> Result<RobotsPolicy, CrawlerError> {
-        let host = url.host_str().ok_or_else(|| CrawlerError::InvalidSeed(url.to_string()))?;
-        let key = format!("{}://{}:{}", url.scheme(), host, url.port_or_known_default().unwrap_or(0));
+    async fn robots_policy(
+        &self,
+        url: &Url,
+        client: &Client,
+    ) -> Result<RobotsPolicy, CrawlerError> {
+        let host = url
+            .host_str()
+            .ok_or_else(|| CrawlerError::InvalidSeed(url.to_string()))?;
+        let key = format!(
+            "{}://{}:{}",
+            url.scheme(),
+            host,
+            url.port_or_known_default().unwrap_or(0)
+        );
         if let Some(policy) = self.inner.robots.lock().await.get(&key).cloned() {
             return Ok(policy);
         }
@@ -482,8 +578,12 @@ impl Crawler {
         robots_url.set_query(None);
         robots_url.set_fragment(None);
         let policy = match client.get(robots_url).send().await {
-            Ok(response) if response.status() == StatusCode::NOT_FOUND
-                || response.status() == StatusCode::GONE => RobotsPolicy::default(),
+            Ok(response)
+                if response.status() == StatusCode::NOT_FOUND
+                    || response.status() == StatusCode::GONE =>
+            {
+                RobotsPolicy::default()
+            }
             Ok(response) if response.status().is_success() => {
                 let mut bytes = Vec::new();
                 let mut stream = response.bytes_stream();
@@ -494,7 +594,10 @@ impl Crawler {
                     }
                     bytes.extend_from_slice(&chunk);
                 }
-                parse_robots(&String::from_utf8_lossy(&bytes), &self.inner.config.user_agent)
+                parse_robots(
+                    &String::from_utf8_lossy(&bytes),
+                    &self.inner.config.user_agent,
+                )
             }
             _ => return Err(CrawlerError::RobotsDenied),
         };
@@ -505,12 +608,17 @@ impl Crawler {
 
 impl RobotsPolicy {
     fn is_allowed(&self, path: &str) -> bool {
-        if self.deny_all { return false; }
+        if self.deny_all {
+            return false;
+        }
         let mut best: Option<(usize, bool)> = None;
         for rule in &self.rules {
             if robots_pattern_matches(&rule.pattern, path) {
                 let specificity = rule.pattern.trim_end_matches('$').replace('*', "").len();
-                if best.map(|(len, allow)| specificity > len || (specificity == len && !rule.allow && allow))
+                if best
+                    .map(|(len, allow)| {
+                        specificity > len || (specificity == len && !rule.allow && allow)
+                    })
                     .unwrap_or(true)
                 {
                     best = Some((specificity, rule.allow));
@@ -522,14 +630,22 @@ impl RobotsPolicy {
 }
 
 fn parse_robots(text: &str, user_agent: &str) -> RobotsPolicy {
-    let wanted = user_agent.split('/').next().unwrap_or(user_agent).to_ascii_lowercase();
+    let wanted = user_agent
+        .split('/')
+        .next()
+        .unwrap_or(user_agent)
+        .to_ascii_lowercase();
     let mut groups: Vec<(Vec<String>, Vec<RobotsRule>)> = Vec::new();
     let mut agents = Vec::new();
     let mut rules = Vec::new();
     for raw in text.lines() {
         let line = raw.split('#').next().unwrap_or("").trim();
-        if line.is_empty() { continue; }
-        let Some((name, value)) = line.split_once(':') else { continue; };
+        if line.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
         let name = name.trim().to_ascii_lowercase();
         let value = value.trim();
         if name == "user-agent" {
@@ -537,25 +653,42 @@ fn parse_robots(text: &str, user_agent: &str) -> RobotsPolicy {
                 groups.push((std::mem::take(&mut agents), std::mem::take(&mut rules)));
             }
             agents.push(value.to_ascii_lowercase());
-        } else if (name == "allow" || name == "disallow")
-            && !value.is_empty()
-            && !agents.is_empty()
+        } else if (name == "allow" || name == "disallow") && !value.is_empty() && !agents.is_empty()
         {
-            rules.push(RobotsRule { allow: name == "allow", pattern: value.to_string() });
+            rules.push(RobotsRule {
+                allow: name == "allow",
+                pattern: value.to_string(),
+            });
         }
     }
-    if !agents.is_empty() { groups.push((agents, rules)); }
+    if !agents.is_empty() {
+        groups.push((agents, rules));
+    }
 
-    let specific: Vec<_> = groups.iter().filter(|(agents, _)| {
-        agents.iter().any(|agent| agent != "*" && wanted.contains(agent))
-    }).collect();
+    let specific: Vec<_> = groups
+        .iter()
+        .filter(|(agents, _)| {
+            agents
+                .iter()
+                .any(|agent| agent != "*" && wanted.contains(agent))
+        })
+        .collect();
     let selected = if specific.is_empty() {
-        groups.iter().filter(|(agents, _)| agents.iter().any(|agent| agent == "*")).collect::<Vec<_>>()
+        groups
+            .iter()
+            .filter(|(agents, _)| agents.iter().any(|agent| agent == "*"))
+            .collect::<Vec<_>>()
     } else {
         specific
     };
-    let selected_rules = selected.into_iter().flat_map(|(_, rules)| rules.clone()).collect();
-    RobotsPolicy { deny_all: false, rules: selected_rules }
+    let selected_rules = selected
+        .into_iter()
+        .flat_map(|(_, rules)| rules.clone())
+        .collect();
+    RobotsPolicy {
+        deny_all: false,
+        rules: selected_rules,
+    }
 }
 
 fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
@@ -564,13 +697,23 @@ fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
     let parts = pattern.split('*').collect::<Vec<_>>();
     let mut cursor = 0usize;
     for (index, part) in parts.iter().enumerate() {
-        if part.is_empty() { continue; }
+        if part.is_empty() {
+            continue;
+        }
         let found = if index == 0 && !pattern.starts_with('*') {
-            if path.starts_with(part) { Some(0) } else { None }
+            if path.starts_with(part) {
+                Some(0)
+            } else {
+                None
+            }
         } else {
-            path.get(cursor..).and_then(|rest| rest.find(part)).map(|offset| cursor + offset)
+            path.get(cursor..)
+                .and_then(|rest| rest.find(part))
+                .map(|offset| cursor + offset)
         };
-        let Some(found) = found else { return false; };
+        let Some(found) = found else {
+            return false;
+        };
         cursor = found + part.len();
     }
     if anchored {
@@ -586,37 +729,57 @@ fn reserve_crawl_bytes(
     max_total_bytes: usize,
     bytes: usize,
 ) -> Result<(), CrawlerError> {
-    budget.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-        current.checked_add(bytes).filter(|next| *next <= max_total_bytes)
-    }).map(|_| ()).map_err(|_| CrawlerError::TotalBytesExceeded)
+    budget
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current
+                .checked_add(bytes)
+                .filter(|next| *next <= max_total_bytes)
+        })
+        .map(|_| ())
+        .map_err(|_| CrawlerError::TotalBytesExceeded)
 }
 
 fn validate_config(config: &CrawlerConfig) -> Result<(), CrawlerError> {
     if config.allowed_domains.is_empty() || config.allowed_domains.len() > MAX_ALLOWED_DOMAINS {
-        return Err(CrawlerError::InvalidConfig("provide 1..=256 allowed domains".into()));
+        return Err(CrawlerError::InvalidConfig(
+            "provide 1..=256 allowed domains".into(),
+        ));
     }
     if config.allowed_domains.iter().any(|domain| {
         let value = domain.trim().trim_start_matches('.');
-        value.is_empty() || value.contains('/') || value.contains(':') || value.contains('*') || value.contains(' ')
+        value.is_empty()
+            || value.contains('/')
+            || value.contains(':')
+            || value.contains('*')
+            || value.contains(' ')
     }) {
-        return Err(CrawlerError::InvalidConfig("allowed domains must be DNS names without schemes, ports or wildcards".into()));
+        return Err(CrawlerError::InvalidConfig(
+            "allowed domains must be DNS names without schemes, ports or wildcards".into(),
+        ));
     }
     if config.user_agent.trim().is_empty() || config.user_agent.len() > 256 {
-        return Err(CrawlerError::InvalidConfig("user-agent must be 1..=256 bytes".into()));
+        return Err(CrawlerError::InvalidConfig(
+            "user-agent must be 1..=256 bytes".into(),
+        ));
     }
     if !(1..=128).contains(&config.max_concurrency)
-        || config.max_pages == 0 || config.max_pages > 10_000
+        || config.max_pages == 0
+        || config.max_pages > 10_000
         || config.max_depth > 16
-        || config.max_page_bytes == 0 || config.max_page_bytes > MAX_CRAWLER_INPUT_BYTES
+        || config.max_page_bytes == 0
+        || config.max_page_bytes > MAX_CRAWLER_INPUT_BYTES
         || config.max_total_bytes < config.max_page_bytes
         || config.max_total_bytes > 512 * 1024 * 1024
-        || config.max_links_per_page == 0 || config.max_links_per_page > crate::crawler_wasm::MAX_EXTRACTED_LINKS
+        || config.max_links_per_page == 0
+        || config.max_links_per_page > crate::crawler_wasm::MAX_EXTRACTED_LINKS
         || config.per_domain_delay < Duration::from_millis(100)
         || config.request_timeout < Duration::from_secs(1)
         || config.request_timeout > Duration::from_secs(120)
         || config.wasm_fuel_per_call == 0
     {
-        return Err(CrawlerError::InvalidConfig("one or more resource limits are outside their safe range".into()));
+        return Err(CrawlerError::InvalidConfig(
+            "one or more resource limits are outside their safe range".into(),
+        ));
     }
     Ok(())
 }
@@ -630,9 +793,14 @@ fn is_public_ip(ip: IpAddr) -> bool {
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
     let [a, b, c, d] = ip.octets();
-    !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()
-        || ip.is_multicast() || (a == 255 && b == 255 && c == 255 && d == 255)
-        || a == 0 || (a == 100 && (64..=127).contains(&b))
+    !(ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || (a == 255 && b == 255 && c == 255 && d == 255)
+        || a == 0
+        || (a == 100 && (64..=127).contains(&b))
         || (a == 192 && b == 0 && c == 0)
         || (a == 192 && b == 0 && c == 2)
         || (a == 198 && (b == 18 || b == 19))
@@ -646,7 +814,9 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         return is_public_v4(mapped);
     }
     let segments = ip.segments();
-    !(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast()
+    !(ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
         || (segments[0] & 0xfe00 == 0xfc00)
         || (segments[0] & 0xffc0 == 0xfe80)
         || (segments[0] == 0x2001 && segments[1] == 0x0db8)
@@ -656,12 +826,22 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
 }
 
 fn summarize(records: &[CrawledPage]) -> CrawlMetrics {
-    let succeeded = records.iter().filter(|record| record.error.is_none()).collect::<Vec<_>>();
+    let succeeded = records
+        .iter()
+        .filter(|record| record.error.is_none())
+        .collect::<Vec<_>>();
     let pages_succeeded = succeeded.len();
     let total_document_bytes = succeeded.iter().map(|record| record.document_bytes).sum();
-    let total_links = succeeded.iter().map(|record| record.links.len() as u64).sum();
-    let mean = |values: Vec<f64>| if values.is_empty() { 0.0 } else {
-        values.iter().sum::<f64>() / values.len() as f64
+    let total_links = succeeded
+        .iter()
+        .map(|record| record.links.len() as u64)
+        .sum();
+    let mean = |values: Vec<f64>| {
+        if values.is_empty() {
+            0.0
+        } else {
+            values.iter().sum::<f64>() / values.len() as f64
+        }
     };
     CrawlMetrics {
         pages_attempted: records.len(),
@@ -669,9 +849,18 @@ fn summarize(records: &[CrawledPage]) -> CrawlMetrics {
         pages_failed: records.len().saturating_sub(pages_succeeded),
         total_document_bytes,
         total_links,
-        mean_document_bytes: if pages_succeeded == 0 { 0.0 } else { total_document_bytes as f64 / pages_succeeded as f64 },
+        mean_document_bytes: if pages_succeeded == 0 {
+            0.0
+        } else {
+            total_document_bytes as f64 / pages_succeeded as f64
+        },
         mean_fetch_ms: mean(succeeded.iter().map(|record| record.fetch_ms).collect()),
-        mean_extraction_ms: mean(succeeded.iter().map(|record| record.extraction_ms).collect()),
+        mean_extraction_ms: mean(
+            succeeded
+                .iter()
+                .map(|record| record.extraction_ms)
+                .collect(),
+        ),
     }
 }
 
@@ -687,7 +876,10 @@ fn hex_digest(bytes: &[u8]) -> String {
 }
 
 fn now_unix_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
 
 #[cfg(test)]
@@ -714,8 +906,21 @@ mod tests {
 
     #[test]
     fn private_and_special_addresses_are_rejected() {
-        for ip in ["127.0.0.1", "10.1.2.3", "169.254.169.254", "192.0.2.1", "100.64.0.1", "::1", "fd00::1", "fe80::1", "2001:db8::1"] {
-            assert!(!is_public_ip(ip.parse().unwrap()), "{ip} should be rejected");
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "169.254.169.254",
+            "192.0.2.1",
+            "100.64.0.1",
+            "::1",
+            "fd00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                !is_public_ip(ip.parse().unwrap()),
+                "{ip} should be rejected"
+            );
         }
         assert!(is_public_ip("1.1.1.1".parse().unwrap()));
         assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
@@ -748,14 +953,30 @@ mod tests {
     fn summary_uses_only_successful_pages_for_means() {
         let records = vec![
             CrawledPage {
-                url: "https://example.com".into(), depth: 0, status_code: Some(200),
-                fetched_at_unix_ms: 1, document_bytes: 100, sha256: "a".into(), title: "A".into(),
-                links: vec!["https://example.com/b".into()], fetch_ms: 10.0, extraction_ms: 2.0, error: None,
+                url: "https://example.com".into(),
+                depth: 0,
+                status_code: Some(200),
+                fetched_at_unix_ms: 1,
+                document_bytes: 100,
+                sha256: "a".into(),
+                title: "A".into(),
+                links: vec!["https://example.com/b".into()],
+                fetch_ms: 10.0,
+                extraction_ms: 2.0,
+                error: None,
             },
             CrawledPage {
-                url: "https://example.com/b".into(), depth: 1, status_code: None,
-                fetched_at_unix_ms: 2, document_bytes: 0, sha256: String::new(), title: String::new(),
-                links: vec![], fetch_ms: 0.0, extraction_ms: 0.0, error: Some("denied".into()),
+                url: "https://example.com/b".into(),
+                depth: 1,
+                status_code: None,
+                fetched_at_unix_ms: 2,
+                document_bytes: 0,
+                sha256: String::new(),
+                title: String::new(),
+                links: vec![],
+                fetch_ms: 0.0,
+                extraction_ms: 0.0,
+                error: Some("denied".into()),
             },
         ];
         let metrics = summarize(&records);
