@@ -466,6 +466,12 @@ impl Crawler {
         }
 
         self.throttle_domain(host).await;
+        // Concurrent page tasks may have queued behind the same domain gate
+        // while the first task fetched robots.txt. Re-check after the gate so
+        // only one robots request is sent per origin during this crawl.
+        if let Some(policy) = self.inner.robots.lock().await.get(&key).cloned() {
+            return Ok(policy);
+        }
         let mut robots_url = url.clone();
         robots_url.set_path("/robots.txt");
         robots_url.set_query(None);
@@ -627,7 +633,10 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
     !(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast()
         || (segments[0] & 0xfe00 == 0xfc00)
         || (segments[0] & 0xffc0 == 0xfe80)
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        || (segments[0] == 0x2001 && segments[1] <= 0x01ff)
+        || segments[0] == 0x2002
+        || (segments[0] == 0x3fff && (segments[1] & 0xf000) == 0))
 }
 
 fn summarize(records: &[CrawledPage]) -> CrawlMetrics {
