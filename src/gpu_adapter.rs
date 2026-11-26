@@ -829,8 +829,6 @@ pub struct GpuAdapterConfig {
     pub enabled: bool,
     /// Broker endpoint address (e.g. "127.0.0.1:9000").
     pub endpoint: String,
-    /// Refuse remote/plain TCP endpoints and require a local mTLS sidecar.
-    pub require_mtls_proxy: bool,
     /// Protocol version string.
     pub protocol_version: String,
     /// Timeout when opening a TCP connection to the broker.
@@ -839,9 +837,6 @@ pub struct GpuAdapterConfig {
     pub request_timeout: Duration,
     /// Maximum allowable message frame size in bytes.
     pub max_frame_size: usize,
-    /// Maximum number of single-flight persistent broker connections.
-    /// Requests are never multiplexed on a connection.
-    pub max_connections: usize,
     /// Maximum number of retries for retryable failures.
     pub max_retries: usize,
     /// Initial backoff delay between retries.
@@ -857,12 +852,10 @@ impl Default for GpuAdapterConfig {
         Self {
             enabled: false,
             endpoint: DEFAULT_GPU_BROKER_ENDPOINT.to_string(),
-            require_mtls_proxy: false,
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
             connect_timeout: DEFAULT_GPU_CONNECT_TIMEOUT,
             request_timeout: DEFAULT_GPU_REQUEST_TIMEOUT,
             max_frame_size: DEFAULT_GPU_MAX_FRAME_BYTES,
-            max_connections: DEFAULT_GPU_MAX_CONNECTIONS,
             max_retries: DEFAULT_GPU_MAX_RETRIES,
             retry_backoff: DEFAULT_GPU_RETRY_BACKOFF,
             quiesce_timeout: DEFAULT_GPU_QUIESCE_TIMEOUT,
@@ -901,13 +894,7 @@ impl GpuAdapterConfig {
             duration_from_env_ms("YUKKI_GPU_QUIESCE_TIMEOUT_MS", DEFAULT_GPU_QUIESCE_TIMEOUT)?;
         let max_frame_size =
             usize_from_env("YUKKI_GPU_MAX_FRAME_BYTES", DEFAULT_GPU_MAX_FRAME_BYTES)?;
-        let max_connections =
-            usize_from_env("YUKKI_GPU_MAX_CONNECTIONS", DEFAULT_GPU_MAX_CONNECTIONS)?;
         let max_retries = usize_from_env("YUKKI_GPU_MAX_RETRIES", DEFAULT_GPU_MAX_RETRIES)?;
-        let require_mtls_proxy = match env::var("YUKKI_GPU_REQUIRE_MTLS_PROXY") {
-            Ok(v) => matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"),
-            Err(_) => false,
-        };
         let use_wsm1 = match env::var("YUKKI_GPU_USE_WSM1") {
             Ok(v) => matches!(
                 v.trim().to_lowercase().as_str(),
@@ -919,12 +906,10 @@ impl GpuAdapterConfig {
         let config = Self {
             enabled,
             endpoint,
-            require_mtls_proxy,
             protocol_version: CURRENT_PROTOCOL_VERSION.to_string(),
             connect_timeout,
             request_timeout,
             max_frame_size,
-            max_connections,
             max_retries,
             retry_backoff: DEFAULT_GPU_RETRY_BACKOFF,
             quiesce_timeout,
@@ -940,16 +925,10 @@ impl GpuAdapterConfig {
                 "endpoint must not be empty".to_string(),
             ));
         }
-        if self.require_mtls_proxy {
-            let local_endpoint = self.endpoint.parse::<SocketAddr>()
-                .map(|address| address.ip().is_loopback())
-                .unwrap_or(false);
-            if !local_endpoint {
-                return Err(GpuAdapterError::InvalidConfig(
-                    "YUKKI_GPU_REQUIRE_MTLS_PROXY requires a numeric loopback endpoint served by a local mTLS proxy".to_string(),
-                ));
-            }
+        if mtls_proxy_required_from_env() {
+            validate_mtls_proxy_endpoint(&self.endpoint)?;
         }
+        let _ = max_connections_from_env()?;
         if self.connect_timeout.is_zero() {
             return Err(GpuAdapterError::InvalidConfig(
                 "connect_timeout must be greater than zero".to_string(),
@@ -1008,6 +987,45 @@ fn duration_from_env_ms(key: &str, default: Duration) -> Result<Duration, GpuAda
         }
         Err(_) => Ok(default),
     }
+}
+
+
+fn mtls_proxy_required_from_env() -> bool {
+    matches!(
+        env::var("YUKKI_GPU_REQUIRE_MTLS_PROXY")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn validate_mtls_proxy_endpoint(endpoint: &str) -> Result<(), GpuAdapterError> {
+    let local_endpoint = endpoint.parse::<SocketAddr>()
+        .map(|address| address.ip().is_loopback())
+        .unwrap_or(false);
+    if !local_endpoint {
+        return Err(GpuAdapterError::InvalidConfig(
+            "YUKKI_GPU_REQUIRE_MTLS_PROXY requires a numeric loopback endpoint served by a local mTLS proxy".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_max_connections(maximum: usize) -> Result<(), GpuAdapterError> {
+    if !(1..=MAX_GPU_BROKER_CONNECTIONS).contains(&maximum) {
+        return Err(GpuAdapterError::InvalidConfig(format!(
+            "max_connections must be between 1 and {MAX_GPU_BROKER_CONNECTIONS}"
+        )));
+    }
+    Ok(())
+}
+
+fn max_connections_from_env() -> Result<usize, GpuAdapterError> {
+    let maximum = usize_from_env("YUKKI_GPU_MAX_CONNECTIONS", DEFAULT_GPU_MAX_CONNECTIONS)?;
+    validate_max_connections(maximum)?;
+    Ok(maximum)
 }
 
 fn usize_from_env(key: &str, default: usize) -> Result<usize, GpuAdapterError> {
@@ -1177,8 +1195,7 @@ impl BrokerConnectionPool {
         Self {
             inner: Arc::new(BrokerConnectionPoolInner {
                 endpoint,
-                max_connections,
-                permits: Arc::new(Semaphore::new(max_connections)),
+                    permits: Arc::new(Semaphore::new(max_connections)),
                 idle: Mutex::new(VecDeque::with_capacity(max_connections)),
             }),
         }
@@ -1252,7 +1269,7 @@ impl GpuBrokerClient {
         config.validate()?;
         let connection_pool = BrokerConnectionPool::new(
             config.endpoint.clone(),
-            config.max_connections,
+            max_connections_from_env()?,
         );
         Ok(Self {
             config,
@@ -3765,20 +3782,13 @@ mod broker_connection_pool_tests {
 
     #[test]
     fn connection_limit_is_validated() {
-        let config = GpuAdapterConfig {
-            max_connections: MAX_GPU_BROKER_CONNECTIONS + 1,
-            ..GpuAdapterConfig::default()
-        };
-        assert!(config.validate().is_err());
+        assert!(validate_max_connections(MAX_GPU_BROKER_CONNECTIONS + 1).is_err());
+        assert!(validate_max_connections(1).is_ok());
     }
 
     #[test]
     fn strict_mtls_proxy_mode_requires_numeric_loopback() {
-        let mut config = GpuAdapterConfig::new("192.0.2.10:9090");
-        config.require_mtls_proxy = true;
-        assert!(config.validate().is_err());
-
-        config.endpoint = "127.0.0.1:19090".to_string();
-        assert!(config.validate().is_ok());
+        assert!(validate_mtls_proxy_endpoint("192.0.2.10:9090").is_err());
+        assert!(validate_mtls_proxy_endpoint("127.0.0.1:19090").is_ok());
     }
 }
