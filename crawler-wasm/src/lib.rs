@@ -135,9 +135,17 @@ fn find_title(input: &[u8]) -> Option<(usize, usize)> {
 fn find_href(input: &[u8], mut cursor: usize, end: usize) -> Option<(usize, usize)> {
     while cursor < end {
         while cursor < end && input[cursor].is_ascii_whitespace() { cursor += 1; }
+        if input[cursor] == b'>' { break; }
         let name_start = cursor;
-        while cursor < end && !input[cursor].is_ascii_whitespace() && input[cursor] != b'=' { cursor += 1; }
-        if cursor == name_start { cursor += 1; continue; }
+        while cursor < end && !input[cursor].is_ascii_whitespace()
+            && input[cursor] != b'=' && input[cursor] != b'>'
+        {
+            cursor += 1;
+        }
+        if cursor == name_start {
+            cursor += 1;
+            continue;
+        }
         let name_end = cursor;
         while cursor < end && input[cursor].is_ascii_whitespace() { cursor += 1; }
         if cursor >= end || input[cursor] != b'=' { continue; }
