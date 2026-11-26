@@ -29,6 +29,32 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The native browser runtime remains a separate workspace package at 0.1.0. Browser-WASM and WASI guest-worker package versions remain independently versioned at 0.1.0.
 
+## WASM Crawler Fabric
+
+YuKKi-OS now includes an opt-in bounded crawler CLI and library. Native async
+HTTP/HTTPS fetching is kept outside the sandbox; a no-std Wasm guest performs
+HTML title and link extraction with isolated linear memory, fuel limits and no
+WASI or host imports. Explicit DNS-domain allowlists, DNS pinning, private
+address rejection, robots.txt checks, no automatic redirects, per-host pacing,
+and page/crawl byte budgets constrain collection.
+
+Build the guest and run a crawl using the [crawler guide](docs/WASM_CRAWLER.md):
+
+~~~sh
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path crawler-wasm/Cargo.toml --target wasm32-unknown-unknown --release
+cargo run --release --bin yukki_crawl -- \
+  --seed https://example.org/ --allow-domain example.org \
+  --wasm crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm
+~~~
+
+This first slice handles static HTML/XHTML only. It does not execute JavaScript,
+follow redirects, crawl outside the allowlist, or automatically forward raw
+documents to Overhauled. Its JSON report records page provenance, hashes,
+bytes, links, and fetch/extraction timing. Persistent distributed frontiers,
+historical storage, browser-rendered extraction and signed plugin admission
+remain follow-up work.
+
 ## What's new in v6.19.0 (published)
 
 - **Native browser runtime:** add a native WebKit-based browser shell for Linux and macOS, with Linux X11, native Wayland and XWayland display paths. The browser runtime includes bounded graphics benchmark coverage and can delegate compatible work to Overhauled through explicit BRK2 device preferences; CPU fallback remains available. This native runtime is a separate workspace package and retains its own `0.1.0` version.
