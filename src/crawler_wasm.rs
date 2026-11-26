@@ -58,8 +58,7 @@ impl WasmHtmlExtractor {
         max_memory_bytes: usize,
     ) -> Result<Self, CrawlerWasmError> {
         if wasm.is_empty() || wasm.len() > 4 * 1024 * 1024 || fuel_per_call == 0
-            || max_memory_bytes < 64 * 1024
-            || max_memory_bytes > MAX_CRAWLER_WASM_MEMORY_BYTES
+            || !(64 * 1024..=MAX_CRAWLER_WASM_MEMORY_BYTES).contains(&max_memory_bytes)
         {
             return Err(CrawlerWasmError::ModuleSize { max: 4 * 1024 * 1024 });
         }
@@ -123,7 +122,7 @@ impl WasmHtmlExtractor {
         let output_ptr = (packed & 0xffff_ffff) as usize;
         let output_len = (packed >> 32) as usize;
         let memory_len = memory.data_size(&store);
-        if output_ptr == 0 || output_len < 12 || output_len > MAX_CRAWLER_OUTPUT_BYTES
+        if output_ptr == 0 || !(12..=MAX_CRAWLER_OUTPUT_BYTES).contains(&output_len)
             || output_ptr.checked_add(output_len).filter(|end| *end <= memory_len).is_none()
         {
             return Err(CrawlerWasmError::InvalidOutput("output pointer or length is out of bounds".into()));
