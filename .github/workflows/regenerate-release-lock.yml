@@ -1,0 +1,36 @@
+name: Regenerate release Cargo.lock
+
+on:
+  push:
+    branches: ["release/6.20.0"]
+    paths:
+      - "Cargo.toml"
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    if: github.actor == 'rakshas-oss'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate lockfile through Cargo
+        run: |
+          cargo metadata --format-version 1 >/dev/null
+          cargo metadata --format-version 1 --locked >/dev/null
+      - name: Commit generated lockfile
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already matches the manifests."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore(release): regenerate Cargo.lock with Cargo"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
