@@ -195,7 +195,7 @@ mod tests {
     fn rejects_unknown_versions_and_dimensions() {
         let mut decoder = NdjsonObservationDecoder::new(config()).unwrap();
         let unknown = br#"{"schema_version":2,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[1]}"#;
-        assert!(matches!(decoder.push(unknown).unwrap(), _));
+        assert!(decoder.push(unknown).unwrap().is_empty());
         assert!(matches!(decoder.finish(), Err(ObservationDecodeError::UnsupportedVersion(2))));
         let oversized = format!(r#"{{"schema_version":1,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[{}]}}"#, vec!["1"; 33].join(","));
         assert!(matches!(decoder.push(oversized.as_bytes()), Err(ObservationDecodeError::InvalidDimensions)));
