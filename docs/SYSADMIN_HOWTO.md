@@ -707,3 +707,12 @@ YUKKI_GPU_MAX_CONNECTIONS=32
 This pool is plain TCP. Keep the broker on a trusted private network or put
 both endpoints behind a mutually authenticated TLS 1.3 proxy. The pool itself
 does not provide encryption, peer authentication, or certificate pinning.
+
+
+For strict sidecar mode, also set `YUKKI_GPU_REQUIRE_MTLS_PROXY=true`.
+This makes configuration validation require a numeric loopback endpoint, for
+example `127.0.0.1:19090`, and rejects remote raw TCP endpoints. The local
+stunnel client configuration and server-side loopback binding are documented
+in the Overhauled repository's `deploy/mtls/` directory. The proxy establishes
+the TLS 1.3 session; this Rust client does not itself implement TLS or receive
+a certificate identity.
