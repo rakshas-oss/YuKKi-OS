@@ -33,6 +33,7 @@ pub mod worker_policy;
 #[rustfmt::skip]
 pub mod stream_gateway;
 pub mod stream_registry;
+pub mod stream_observation;
 pub mod stream_relay;
 pub mod wasm_composition;
 pub mod wasm_handoff;
