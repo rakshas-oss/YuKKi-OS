@@ -2,29 +2,28 @@
 
 ## Release state
 
-- **Latest published release:** v6.17.0 (2026-11-22).
-- **Next minor release candidate:** v6.19.0 (not tagged or published).
-- **Native Cargo package candidate:** 6.19.0.
-- **OCI image label candidate:** 6.19.0.
+- **Latest published release:** v6.19.0 (2026-11-24).
+- **Next minor release candidate:** v6.20.0 (not tagged or published).
+- **Native Cargo package candidate:** 6.20.0.
+- **OCI image label candidate:** 6.20.0.
 - **Rust toolchain pin:** 1.98.1 (unchanged).
 - **Runtime binary:** yukki_core_node (unchanged).
-- **Published v6.17.0 assets:** 10 GitHub Release assets, including native Linux/macOS binaries, browser-WASM, WASI and SHA256SUMS.
+- **Published v6.19.0 assets:** GitHub Release assets include native/browser/WASI deliverables and SHA256SUMS.
 - **External package publication:** crates.io is not claimed; GitHub Release publication and registry publication are separate.
 
-No 6.19.0 tag, GitHub Release or release archive is claimed by this candidate.
+No 6.20.0 tag, GitHub Release or release archive is claimed by this candidate.
 
 ## Version assessment
 
-The authenticated handoff and stream-flood controls in 6.18.0 established the previous candidate. The native browser runtime, display-backend coverage and explicit broker device-preference APIs merged in PR #173 justify advancing this candidate to 6.19.0:
+The published v6.19.0 release delivered the native browser runtime and explicit BRK2 device-preference integration. The additive persistent transport and strict sidecar routing work merged in YuKKi-OS PR #185, paired with Overhauled PR #93, justifies the next native package minor version, 6.20.0:
 
-- Add the yukkios::wasm_handoff sender API with pluggable HandoffSigner and receiver-receipt verifier interfaces.
-- Build canonical manifests and module digests, sign prepare/chunk/activation messages, preserve separate deployment-sender and artifact-publisher identities, and stream strictly sequential bounded chunks.
-- Keep key management and transport protection outside the sender library. The caller supplies the authenticated transport adapter; the client does not claim to provide mTLS or to make the existing raw broker listener secure.
-- Apply media retention hard ceilings: 64 MiB retained bytes, 256 streams, 16,384 chunks and 256 KiB maximum chunk size.
-- Add process-wide and per-stream ingestion token buckets for chunk and byte rates, plus stream-open churn limiting. Gateway and WebSocket paths also enforce global/per-peer request rates, connection caps, control limits, timeouts, quotas and acknowledgement backpressure.
-- Preserve untrusted stream ingestion and consumption without requiring executable-artifact publisher authorization.
+- Add endpoint-scoped persistent BRK1/BRK2 sessions with a configurable upper bound (default 16, range 1..256).
+- Keep one request/response exchange in flight per socket; recycle only successfully decoded responses and discard connections after uncertain outcomes.
+- Avoid automatic replay of non-idempotent operations after a transport error that may occur after broker admission.
+- Add a strict environment mode that requires a numeric loopback endpoint for a local mTLS sidecar.
+- Preserve independent browser-runtime, browser-WASM and WASI guest-worker package versions at 0.1.0.
 
-The corresponding receiver-side state machine is in Overhauled PR #86, now merged separately. These two APIs do not by themselves create a ready-to-expose network deployment endpoint: deployment still requires a protected authenticated transport, durable replay/staging for restart-safe semantics, and integration with the broker/runtime lifecycle.
+The matching Overhauled change bounds listener sessions, requires loopback binding in strict mTLS-proxy mode and can persist accepted replay nonces. The current sidecar protects traffic in transit but does not yet pass the verified certificate identity into signed handoff authorization. The optional journal does not persist artifact staging or activation state.
 
 ## Compatibility and security boundaries
 
@@ -36,22 +35,24 @@ The corresponding receiver-side state machine is in Overhauled PR #86, now merge
 - Discovery records are not execution authorization. Broker transport and the handoff transport must be authenticated independently.
 - The browser-WASM crate (yukki-browser-core) and WASI guest worker (yukki_guest_worker) are separate unpublished workspaces at 0.1.0; they are not implicitly bumped with the native yukkios package.
 
-## Release gate for 6.19.0
+## Release gate for 6.20.0
 
 Before tagging or publishing:
 
-1. Run cargo fmt --check, cargo test --locked, Clippy and the complete native Linux/macOS/Windows test matrix on the exact release candidate.
-2. Run Linux, aarch64, macOS, browser-WASM and WASI build/test jobs, including the browser verifier and guest-worker contracts.
-3. Build and test the native browser runtime on Linux and macOS; on Linux, exercise X11/Xvfb, native Wayland and XWayland startup, and run the bounded CPU graphics benchmark smoke test.
-4. Run the stream ingestion/gateway/WebSocket rate-limit tests, including global cross-stream budgets, per-stream budgets and stream-open churn cases.
-5. Run paired YuKKi-OS sender / Overhauled receiver conformance and negative tests for sender identity, publisher provenance, replay, expiry, digest, transfer bounds and failed activation.
-6. Confirm untrusted stream access still works without an executable publisher key and that its independent resource limits reject floods.
-7. Only after checks pass and the release commit is approved, create the 6.19.0 tag and GitHub Release. Verify external registry publication separately.
+1. Run Cargo formatting, `cargo test --locked`, Clippy, lockfile-integrity and package-validation checks on the exact candidate; confirm the generated root lockfile changes only as Cargo resolves the new workspace package version.
+2. Run the supported native Linux/macOS test/build matrix, browser-WASM and WASI build/test jobs, Docker validation, dependency/license audits, coverage and benchmark smoke tests.
+3. Exercise persistent-session reuse, pool saturation/backpressure, socket discard on timeout/cancellation/malformed responses, strict loopback-mode validation and paired BRK1/BRK2 live interoperability.
+4. Verify the Overhauled listener's client-session ceiling, strict loopback bind guard, mTLS sidecar configuration, and replay-journal restart/replay/corruption/capacity behavior.
+5. Run the stream ingestion/gateway/WebSocket rate-limit tests and confirm untrusted stream access remains available without executable-artifact publisher authorization.
+6. Review the separately reported low-severity transitive rand advisory; restoring the missing lockfile entry is not a security fix.
+7. Only after required checks pass and the release commit is approved, create the 6.20.0 tag and GitHub Release. Verify crates.io publication separately.
 
-PR #173 (native browser runtime and graphics delegation) is merged to main. The metadata candidate updates the native package, root lockfile, OCI label, README, changelog and versioning guide together; the browser-runtime package remains independently versioned at 0.1.0. Its release CI and approval remain separate.
+PR #185 (bounded BRK session pooling and strict mTLS-proxy endpoint enforcement) is merged to main alongside Overhauled PR #93. PR #184 restored the missing Cargo.lock dependency entry. This candidate updates only native yukkios release metadata; browser-runtime, browser-WASM and WASI package versions remain independent.
 
 ## Published release history
 
+- v6.19.0 — published 2026-11-24; native browser runtime, graphics smoke coverage and BRK2 device-preference delegation.
+- v6.18.0 — published 2026-11-22; authenticated WASM sender and untrusted-stream flood controls.
 - v6.17.0 — published 2026-11-22; conventional WASM import binding and the authenticated WASM handoff contract/schema.
 - v6.16.0 — published 2026-11-21; lease-based broker discovery and BRK2 locality intent/result codec support.
 - v6.15.0 — published 2026-11-21; resolver and benchmark concurrency improvements.
