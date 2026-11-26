@@ -135,7 +135,6 @@ struct CrawlerInner {
     clients: Mutex<HashMap<String, CachedClient>>,
     domain_gates: Mutex<HashMap<String, Arc<Mutex<Instant>>>>,
     robots: Mutex<HashMap<String, RobotsPolicy>>,
-    bytes_reserved: AtomicUsize,
     page_slots: Arc<Semaphore>,
 }
 
@@ -185,7 +184,6 @@ impl Crawler {
                 clients: Mutex::new(HashMap::new()),
                 domain_gates: Mutex::new(HashMap::new()),
                 robots: Mutex::new(HashMap::new()),
-                bytes_reserved: AtomicUsize::new(0),
             }),
         })
     }
@@ -206,6 +204,7 @@ impl Crawler {
             }
         }
 
+        let crawl_byte_budget = Arc::new(AtomicUsize::new(0));
         let mut tasks = JoinSet::new();
         let mut records = Vec::new();
         while records.len() < self.inner.config.max_pages && (!frontier.is_empty() || !tasks.is_empty()) {
@@ -214,8 +213,9 @@ impl Crawler {
             {
                 let Some((url, depth)) = frontier.pop_front() else { break; };
                 let crawler = self.clone();
+                let crawl_byte_budget = crawl_byte_budget.clone();
                 tasks.spawn(async move {
-                    let record = crawler.fetch_page(url, depth).await;
+                    let record = crawler.fetch_page(url, depth, crawl_byte_budget).await;
                     (depth, record)
                 });
             }
@@ -278,7 +278,12 @@ impl Crawler {
         })
     }
 
-    async fn fetch_page(&self, url: Url, depth: usize) -> CrawledPage {
+    async fn fetch_page(
+        &self,
+        url: Url,
+        depth: usize,
+        crawl_byte_budget: Arc<AtomicUsize>,
+    ) -> CrawledPage {
         let started = Instant::now();
         let url_text = url.as_str().to_string();
         let fetched_at_unix_ms = now_unix_ms();
@@ -303,7 +308,7 @@ impl Crawler {
                 return record;
             }
         };
-        let result = self.fetch_payload(&url).await;
+        let result = self.fetch_payload(&url, &crawl_byte_budget).await;
         drop(permit);
         record.fetched_at_unix_ms = now_unix_ms();
         record.fetch_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -325,7 +330,11 @@ impl Crawler {
         record
     }
 
-    async fn fetch_payload(&self, url: &Url) -> Result<FetchPayload, (Option<u16>, String)> {
+    async fn fetch_payload(
+        &self,
+        url: &Url,
+        crawl_byte_budget: &AtomicUsize,
+    ) -> Result<FetchPayload, (Option<u16>, String)> {
         let host = url.host_str().ok_or((None, "missing URL host".into()))?.to_string();
         let port = url.port_or_known_default().ok_or((None, "unknown URL port".into()))?;
         let client = self.client_for(&host, port).await.map_err(|error| (None, error.to_string()))?;
@@ -363,7 +372,7 @@ impl Crawler {
             if body.len().saturating_add(chunk.len()) > self.inner.config.max_page_bytes {
                 return Err((Some(status.as_u16()), CrawlerError::PageTooLarge.to_string()));
             }
-            self.reserve_bytes(chunk.len())
+            reserve_crawl_bytes(crawl_byte_budget, self.inner.config.max_total_bytes, chunk.len())
                 .map_err(|error| (Some(status.as_u16()), error.to_string()))?;
             body.extend_from_slice(&chunk);
         }
@@ -407,12 +416,6 @@ impl Crawler {
             fetch_ms,
             extraction_ms,
         })
-    }
-
-    fn reserve_bytes(&self, bytes: usize) -> Result<(), CrawlerError> {
-        self.inner.bytes_reserved.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-            current.checked_add(bytes).filter(|next| *next <= self.inner.config.max_total_bytes)
-        }).map(|_| ()).map_err(|_| CrawlerError::TotalBytesExceeded)
     }
 
     async fn client_for(&self, host: &str, port: u16) -> Result<Client, CrawlerError> {
@@ -576,6 +579,16 @@ fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
     }
 }
 
+fn reserve_crawl_bytes(
+    budget: &AtomicUsize,
+    max_total_bytes: usize,
+    bytes: usize,
+) -> Result<(), CrawlerError> {
+    budget.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        current.checked_add(bytes).filter(|next| *next <= max_total_bytes)
+    }).map(|_| ()).map_err(|_| CrawlerError::TotalBytesExceeded)
+}
+
 fn validate_config(config: &CrawlerConfig) -> Result<(), CrawlerError> {
     if config.allowed_domains.is_empty() || config.allowed_domains.len() > MAX_ALLOWED_DOMAINS {
         return Err(CrawlerError::InvalidConfig("provide 1..=256 allowed domains".into()));
@@ -713,6 +726,20 @@ mod tests {
         config.allowed_domains.push("example.com".into());
         config.max_concurrency = 129;
         assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn crawl_byte_budgets_are_independent_between_crawls() {
+        let first_crawl = AtomicUsize::new(0);
+        let second_crawl = AtomicUsize::new(0);
+        assert!(reserve_crawl_bytes(&first_crawl, 10, 8).is_ok());
+        assert!(matches!(
+            reserve_crawl_bytes(&first_crawl, 10, 3),
+            Err(CrawlerError::TotalBytesExceeded)
+        ));
+        assert!(reserve_crawl_bytes(&second_crawl, 10, 8).is_ok());
+        assert_eq!(first_crawl.load(Ordering::Acquire), 8);
+        assert_eq!(second_crawl.load(Ordering::Acquire), 8);
     }
 
     #[test]
