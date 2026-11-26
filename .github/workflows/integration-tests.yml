@@ -27,7 +27,7 @@ jobs:
     name: Cargo lockfile integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Validate checked-in dependency graphs without rewriting lockfiles
         run: bash scripts/check-cargo-lockfiles.sh
@@ -36,7 +36,7 @@ jobs:
     name: P2P Mesh & Network Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -53,7 +53,7 @@ jobs:
     name: Cryptography Integration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -70,7 +70,7 @@ jobs:
     name: ABI Stability & FFI Verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -87,7 +87,7 @@ jobs:
     name: WebAssembly Sandbox Isolation Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -104,7 +104,7 @@ jobs:
     name: ADI Hardware Calibration Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -121,7 +121,7 @@ jobs:
     name: GPU WASM Adapter & Lifecycle Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo
         uses: actions/cache@v4
@@ -138,9 +138,9 @@ jobs:
     name: Paired Overhauled BRK1/BRK2 live interoperability
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout paired Overhauled revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
@@ -194,9 +194,9 @@ jobs:
     name: Browser WASM to Overhauled broker smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout paired Overhauled revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
@@ -238,9 +238,9 @@ jobs:
     name: BRK2 simulated NPU execution and CPU fallback
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout paired Overhauled revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
