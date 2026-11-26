@@ -305,6 +305,7 @@ impl Crawler {
         };
         let result = self.fetch_payload(&url).await;
         drop(permit);
+        record.fetched_at_unix_ms = now_unix_ms();
         record.fetch_ms = started.elapsed().as_secs_f64() * 1000.0;
         match result {
             Ok(payload) => {
