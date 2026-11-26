@@ -101,7 +101,7 @@ impl NdjsonObservationDecoder {
                 return Err(ObservationDecodeError::RecordTooLarge);
             }
             self.pending.extend_from_slice(segment);
-            if self.pending.last() == Some(&b'\\r') {
+            if self.pending.last() == Some(&b'\r') {
                 self.pending.pop();
             }
             if !self.pending.is_empty() {
