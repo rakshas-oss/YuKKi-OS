@@ -44,7 +44,10 @@ The guest ABI is YCR1:
 
 The runtime compiles the module once per extractor, instantiates an isolated
 Store for each document, applies Wasmtime fuel and memory limits, and rejects
-all module imports. Only operator-provisioned guest artifacts should be loaded.
+all module imports. The initial guest uses a bounded byte scanner for ordinary
+HTML title and anchor tags; it is not a full HTML5 parser, does not decode
+entities, and does not execute scripts. Only operator-provisioned guest
+artifacts should be loaded.
 A future signed-plugin policy can build on the existing artifact-signature
 infrastructure; this initial crawler does not claim publisher verification.
 
