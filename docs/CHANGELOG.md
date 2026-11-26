@@ -1,4 +1,24 @@
-## v6.19.0 (release candidate; not published)
+## v6.20.0 (release candidate; not published)
+
+### Bounded persistent broker transport and strict sidecar routing
+
+- Add an endpoint-scoped persistent BRK1/BRK2 TCP connection pool with one request/response exchange per lease; retain existing framing and correlation semantics.
+- Bound active plus idle sessions with `YUKKI_GPU_MAX_CONNECTIONS` (default 16, maximum 256). Recycle only fully decoded successful exchanges; discard uncertain sockets and do not automatically replay non-idempotent requests.
+- Add `YUKKI_GPU_REQUIRE_MTLS_PROXY=true` strict mode to reject non-numeric or non-loopback endpoints and route traffic through a local mTLS sidecar.
+- Pair with Overhauled PR #93: bounded client sessions, loopback-only plaintext listener guard, TLS 1.3 stunnel profile and optional fsync-backed replay-nonce journal.
+
+### Compatibility, security and release boundaries
+
+- Preserve YKMC, BRK1/BRK2, NXR1 and WSM1 identities; no wire-format version change is introduced.
+- The Rust socket pool remains plain TCP. TLS is terminated by the documented sidecar; the client does not inspect the sidecar's negotiated certificate identity.
+- TLS peer identity is not yet passed into receiver authorization. Durable replay nonce records do not make staged artifact bytes, prepared deployments or active-release state restart-safe.
+- Non-idempotent operations are not automatically replayed after an ambiguous failure. Existing untrusted-stream paths remain independently available under their existing bounds.
+- PR #184 restored the missing `rand 0.9.5` Cargo.lock dependency entry; that repaired lockfile resolution but did not remediate the separately reported low-severity transitive rand advisory.
+- No `6.20.0` tag, GitHub Release or crates.io publication is claimed by this candidate.
+
+---
+
+## v6.19.0 (published 2026-11-24)
 
 ### Native browser runtime and graphics delegation
 
@@ -13,13 +33,13 @@
 - The browser shell is native desktop software, not the browser-WASM gateway or WASI guest worker. It does not make Windows/MSVC a supported native target.
 - GPU/NPU delegation remains broker-mediated and capability-dependent. A preference is not proof of accelerator execution; CPU fallback and exact-CPU policy remain authoritative.
 - Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
-- No `6.19.0` tag, GitHub Release or external registry publication is claimed.
+- The `6.19.0` Git tag and GitHub Release were published on 2026-11-24. This does not claim crates.io publication.
 
 ---
 
 # Changelog
 
-## v6.18.0 (release candidate; not published)
+## v6.18.0 (published 2026-11-22)
 
 ### Authenticated WASM handoff sender
 
@@ -40,7 +60,7 @@
 
 - Advance the native yukkios Cargo package, root lockfile, OCI image label, README, versioning guide and version assertion to 6.18.0.
 - Keep browser-WASM and WASI guest-worker workspace package versions independent at 0.1.0.
-- Preserve YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities. No external package registry upload or 6.18.0 GitHub Release is claimed before the release gate passes.
+- Preserve YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities. The 6.18.0 GitHub Release was subsequently published; no external package registry upload is implied.
 
 ---
 
