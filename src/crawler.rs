@@ -157,7 +157,7 @@ struct RobotsRule {
 
 struct FetchPayload {
     status: u16,
-    body: Vec<u8>,
+    document_bytes: u64,
     extraction: crate::crawler_wasm::HtmlExtraction,
     sha256: String,
     fetch_ms: f64,
@@ -315,7 +315,7 @@ impl Crawler {
         match result {
             Ok(payload) => {
                 record.status_code = Some(payload.status);
-                record.document_bytes = payload.body.len() as u64;
+                record.document_bytes = payload.document_bytes;
                 record.sha256 = payload.sha256;
                 record.title = payload.extraction.title;
                 record.links = payload.extraction.links;
@@ -377,10 +377,11 @@ impl Crawler {
             body.extend_from_slice(&chunk);
         }
         let fetch_ms = fetch_started.elapsed().as_secs_f64() * 1000.0;
+        let document_bytes = body.len() as u64;
         let sha256 = hex_digest(&body);
         let extraction_started = Instant::now();
         let extractor = self.inner.extractor.clone();
-        let input = body.clone();
+        let input = body;
         let extraction = tokio::task::spawn_blocking(move || extractor.extract(&input))
             .await
             .map_err(|error| (Some(status.as_u16()), error.to_string()))?
@@ -410,7 +411,7 @@ impl Crawler {
 
         Ok(FetchPayload {
             status: status.as_u16(),
-            body,
+            document_bytes,
             extraction,
             sha256,
             fetch_ms,
