@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.17.0 (2026-11-22). The v6.18.0 release candidate adds the authenticated WASM artifact sender API and bounded stream-ingestion controls; its tag and release archive have not been published. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.20.0 (2026-11-26). The v6.21.0 release candidate adds the bounded WASM crawler fabric and metriculation reports; its tag and release archive have not been published. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Authenticated artifact handoff
 
@@ -144,3 +144,18 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 
 The `6.18.0-rc` Docker tag above is a local candidate tag; it is not a registry publication. For a stable baseline, use the published `6.17.0` GitHub Release and its verified assets.
+
+
+## Bounded crawler deployment
+
+The `yukki_crawl` CLI performs native HTTP/HTTPS fetching and runs the
+separate no-std YCR1 extractor in Wasmtime. Provision the guest artifact from
+the reviewed repository build; specify allowed domains on every crawl and
+apply host/container egress filtering so private service networks and metadata
+endpoints are unreachable. The crawler does not follow redirects or execute
+JavaScript. See [WASM_CRAWLER.md](WASM_CRAWLER.md) for commands, defaults,
+hard ceilings and report semantics.
+
+Crawler reports are local JSON output with page provenance and aggregate
+metrics. Do not assume they are persisted, distributed, sent to Overhauled or
+used as a source of executable artifact trust.
