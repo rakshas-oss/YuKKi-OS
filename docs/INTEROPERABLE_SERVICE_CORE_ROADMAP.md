@@ -21,6 +21,18 @@ YuKKi-OS owns the Rust control plane: broker client lifecycle, authenticated pee
 - Existing documentation describes optional BRK2 worker directives and locality hints; a request hint is not proof of physical placement.
 - Current discovery is bounded lease-based gossip, not a Kademlia DHT.
 
+## Cargo resolution and reproducibility guard
+
+The November 26, 2026 lockfile incident is now repaired on canonical `main`:
+
+- The lockfile-only change removed the `rand 0.9.5` package record while `tungstenite 0.29.0` still referenced it.
+- This made locked Linux/macOS/MUSL builds, Docker, tests, Clippy and RustSec audit fail. The audit tool panicked because the dependency tree was incomplete.
+- PR [#184](https://github.com/rakshas-oss/YuKKi-OS/pull/184) restored the exact package record and was merged at `39bb428cb35e159e23c4a56fd345bcc185f1e89c`.
+
+The follow-on guard added here runs `cargo metadata --locked` against each checked-in, independently resolved lockfile (root, guest-worker, and browser-wasm) from both quality and integration workflows. It fails before downstream tests if the selected manifest graph would rewrite its lockfile. All changes to lockfiles must be produced by Cargo, reviewed as dependency-graph changes, and committed with the matching manifest updates; do not hand-delete package records or weaken `--locked` checks.
+
+**Security follow-up remains open:** Aikido reported low-severity `AIKIDO-2026-875754` on `rand 0.9.5`, involving deserialization validation of `UniformChar`. Restoring the missing stanza repairs dependency resolution; it does not remediate that advisory. The current transitive path comes from the older Axum WebSocket dependency chain (`tungstenite 0.29.0`). Upgrade only when a compatible Axum release moves that path to `tokio-tungstenite 0.30.x` / `rand 0.10.x`, then regenerate the lockfile with Cargo and rerun native, browser, package, audit, and paired interoperability validation. Do not suppress the advisory or hand-edit the lockfile to conceal it.
+
 ## Work packages
 
 ### YS0 — Reusable broker transport
