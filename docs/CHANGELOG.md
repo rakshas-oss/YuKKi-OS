@@ -1,4 +1,24 @@
-## v6.20.0 (release candidate; not published)
+## v6.21.0 (release candidate; not published)
+
+### Bounded WASM crawler fabric and metriculation
+
+- Add the opt-in native `yukki_crawl` CLI and crawler library with native asynchronous HTTP/HTTPS networking and a separate no-std YCR1 HTML extractor guest.
+- Isolate extraction in Wasmtime with no imports/WASI and explicit guest memory/fuel ceilings. The guest handles bounded static HTML title/link extraction only.
+- Require explicit allowed DNS domains, pin validated DNS answers, reject private/special-use destinations, disable inherited proxies, refuse redirects, fail closed on robots policy errors, and enforce per-host pacing, page/crawl byte budgets, request timeouts and bounded concurrency.
+- Emit JSON page records with retrieval time, HTTP status, byte count, SHA-256, title, normalized links, fetch/extraction timings and error provenance, plus crawl-level counts and means.
+- Add paired Overhauled v1.10.0 constant-memory aggregation for normalized numeric page observations. The C++ accumulator is a separate CPU library; it does not define a BRK message or accept raw HTML.
+- Merge the Aikido remediation and crawler validation fixes in PR #188. This is not a substitute for independent security review.
+
+### Boundaries and release gate
+
+- This is not a browser renderer, JavaScript engine, form/CAPTCHA automation system, distributed frontier, durable historical database or automatic accelerator pipeline.
+- No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format change is intended.
+- The crawler requires network egress controls at deployment level; application SSRF protections do not replace a restricted network namespace/firewall.
+- The release remains a candidate pending full CI, crawler-specific security tests, lockfile validation and paired Overhauled metrics checks. See [VERSIONING.md](VERSIONING.md) for the exact release gate.
+
+---
+
+## v6.20.0 (published 2026-11-26)
 
 ### Bounded persistent broker transport and strict sidecar routing
 
@@ -14,7 +34,7 @@
 - TLS peer identity is not yet passed into receiver authorization. Durable replay nonce records do not make staged artifact bytes, prepared deployments or active-release state restart-safe.
 - Non-idempotent operations are not automatically replayed after an ambiguous failure. Existing untrusted-stream paths remain independently available under their existing bounds.
 - PR #184 restored the missing `rand 0.9.5` Cargo.lock dependency entry; that repaired lockfile resolution but did not remediate the separately reported low-severity transitive rand advisory.
-- No `6.20.0` tag, GitHub Release or crates.io publication is claimed by this candidate.
+- The `v6.20.0` Git tag and GitHub Release were published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. This does not claim crates.io publication.
 
 ---
 
