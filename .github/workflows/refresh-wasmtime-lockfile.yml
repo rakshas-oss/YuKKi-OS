@@ -45,9 +45,20 @@ jobs:
       - name: Update Wasmtime to patched release using Cargo
         run: cargo update -p wasmtime --precise 50.0.3
 
+      - name: Update vulnerable URL parser to patched release
+        run: cargo update -p url --precise 2.5.9
+
+      - name: Verify rand serde attack surface
+        run: |
+          cargo tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-0.9.5-features.txt
+          if grep -F 'rand feature "serde"' /tmp/rand-0.9.5-features.txt; then
+            echo "rand 0.9.5 serde support is enabled; this Aikido finding must be remediated before merge." >&2
+            exit 1
+          fi
+          echo "rand 0.9.5 is present through Axum WebSocket support without the affected serde feature."
+
       - name: Regenerate canonical workspace lockfile from manifests
-        # The manifest removed an unused optional dependency. Resolve that removal
-        # with Cargo before any downstream --locked validation is run.
+        # Resolve manifest and security updates with Cargo before downstream --locked checks.
         run: cargo check --workspace
 
       - name: Confirm resolved Wasmtime version
