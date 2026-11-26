@@ -5,7 +5,7 @@
 
 use crate::crawler_wasm::{CrawlerWasmError, WasmHtmlExtractor, MAX_CRAWLER_INPUT_BYTES};
 use futures_util::StreamExt;
-use reqwest::{header::CONTENT_TYPE, Client, ClientBuilder, Response, StatusCode, Url};
+use reqwest::{header::CONTENT_TYPE, Client, ClientBuilder, StatusCode, Url};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -355,7 +355,6 @@ impl Crawler {
             return Err((Some(status.as_u16()), CrawlerError::PageTooLarge.to_string()));
         }
 
-        let mut response = response;
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
