@@ -537,10 +537,11 @@ fn parse_robots(text: &str, user_agent: &str) -> RobotsPolicy {
                 groups.push((std::mem::take(&mut agents), std::mem::take(&mut rules)));
             }
             agents.push(value.to_ascii_lowercase());
-        } else if name == "allow" || name == "disallow" {
-            if !value.is_empty() && !agents.is_empty() {
-                rules.push(RobotsRule { allow: name == "allow", pattern: value.to_string() });
-            }
+        } else if (name == "allow" || name == "disallow")
+            && !value.is_empty()
+            && !agents.is_empty()
+        {
+            rules.push(RobotsRule { allow: name == "allow", pattern: value.to_string() });
         }
     }
     if !agents.is_empty() { groups.push((agents, rules)); }
