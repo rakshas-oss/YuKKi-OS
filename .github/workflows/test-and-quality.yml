@@ -18,7 +18,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  cargo-lock-integrity:
+    name: Cargo lockfile integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate checked-in dependency graphs without rewriting lockfiles
+        run: bash scripts/check-cargo-lockfiles.sh
+
   test:
+    needs: [cargo-lock-integrity]
     name: Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:

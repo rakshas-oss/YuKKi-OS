@@ -23,6 +23,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  cargo-lock-integrity:
+    name: Cargo lockfile integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate checked-in dependency graphs without rewriting lockfiles
+        run: bash scripts/check-cargo-lockfiles.sh
+
   mesh-integration:
     name: P2P Mesh & Network Integration Tests
     runs-on: ubuntu-latest
@@ -280,7 +289,7 @@ jobs:
     name: Combined YuKKi-OS + Overhauled integration gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp, browser-wasm-live, npu-simulator-and-cpu-fallback]
+    needs: [cargo-lock-integrity, mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp, browser-wasm-live, npu-simulator-and-cpu-fallback]
     steps:
       - name: Require every integration lane
         env:
