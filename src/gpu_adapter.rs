@@ -3699,3 +3699,57 @@ impl ModuleLifecycleManager {
             .cloned()
     }
 }
+
+
+#[cfg(test)]
+mod broker_connection_pool_tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn bounded_pool_reuses_a_single_framed_session() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = listener.local_addr().unwrap().to_string();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            for expected in [b'a', b'b'] {
+                let mut prefix = [0u8; 4];
+                socket.read_exact(&mut prefix).await.unwrap();
+                assert_eq!(u32::from_be_bytes(prefix), 1);
+                let mut body = [0u8; 1];
+                socket.read_exact(&mut body).await.unwrap();
+                assert_eq!(body[0], expected);
+                socket.write_all(&1u32.to_be_bytes()).await.unwrap();
+                socket.write_all(&[expected]).await.unwrap();
+                socket.flush().await.unwrap();
+            }
+        });
+
+        let pool = BrokerConnectionPool::new(endpoint, 1);
+        let timeout_limit = Duration::from_secs(1);
+        for expected in [b'a', b'b'] {
+            let mut lease = pool.acquire(timeout_limit).await.unwrap();
+            let stream = lease.stream_mut();
+            stream.write_all(&1u32.to_be_bytes()).await.unwrap();
+            stream.write_all(&[expected]).await.unwrap();
+            stream.flush().await.unwrap();
+            let response = timeout(
+                timeout_limit,
+                read_raw_frame(stream, 16),
+            ).await.unwrap().unwrap();
+            assert_eq!(response, vec![expected]);
+            lease.recycle();
+        }
+        assert_eq!(pool.idle_len(), 1);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn connection_limit_is_validated() {
+        let config = GpuAdapterConfig {
+            max_connections: MAX_GPU_BROKER_CONNECTIONS + 1,
+            ..GpuAdapterConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+}
