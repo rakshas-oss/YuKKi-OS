@@ -3771,4 +3771,14 @@ mod broker_connection_pool_tests {
         };
         assert!(config.validate().is_err());
     }
+
+    #[test]
+    fn strict_mtls_proxy_mode_requires_numeric_loopback() {
+        let mut config = GpuAdapterConfig::new("192.0.2.10:9090");
+        config.require_mtls_proxy = true;
+        assert!(config.validate().is_err());
+
+        config.endpoint = "127.0.0.1:19090".to_string();
+        assert!(config.validate().is_ok());
+    }
 }
