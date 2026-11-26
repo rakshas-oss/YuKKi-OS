@@ -1,4 +1,16 @@
-# YuKKi-OS v6.18.0 — API and ABI Reference (release candidate)
+# YuKKi-OS v6.21.0 — API and ABI Reference (release candidate)
+
+## Bounded WASM crawler API
+
+The optional `yukkios::crawler` module exposes the native crawler library,
+and the `yukki_crawl` binary provides the operator-facing CLI. A standalone
+no-std `crawler-wasm` crate implements the YCR1 HTML title/link extraction
+ABI. Native networking and policy remain in the host; the guest has no
+WASI/imports or direct network/filesystem access. See
+[WASM_CRAWLER.md](WASM_CRAWLER.md) for the complete configuration, limits,
+JSON report fields and security boundary. This API does not provide JavaScript
+execution, general browser rendering, a persistent distributed frontier, or
+automatic transfer of page data to Overhauled.
 
 ## Broker service discovery and locality codec (v6.16.0 published baseline)
 

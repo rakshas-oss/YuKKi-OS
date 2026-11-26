@@ -148,15 +148,21 @@ follow-up work.
 
 ## Overhauled relationship
 
-Overhauled remains an optional numeric metric-computation tier. Its worker
-fabric can schedule CPU/GPU/NPU-eligible inference and throughput requests,
-but this first crawler release does not automatically send raw HTML or
-individual page observations to the broker. Raw web documents should not be
-forwarded to an accelerator by default. The paired Overhauled change adds a
-bounded streaming accumulator for page observations (bytes, links, fetch time,
-extraction time and HTTP status) that can be embedded by downstream metric
-services. It is not a GPU implementation; CPU reduction is deterministic and
-constant-memory.
+Overhauled v1.10.0 provides the optional C++17
+`Overhauled::crawler_metrics` library (public header `crawler_metrics.h`).
+It accepts normalized `PageObservation` values containing document bytes,
+link count, fetch/extraction durations and HTTP status. Each worker or NUMA
+shard can maintain its own fixed-memory `MetricAccumulator` and merge at a
+barrier; the accumulator rejects counter overflow without partial mutation.
+It reports counts, totals, min/max/mean/population-standard-deviation and
+approximate P50/P95/P99 upper bounds from fixed 64-bucket base-2 histograms.
+
+This is a separate CPU-side aggregation API. YuKKi-OS does not automatically
+send page records or raw HTML to the broker; the caller must explicitly map
+numeric observations into the library. It adds no BRK1/BRK2 operation and
+does not dispatch reductions to GPU/NPU. The percentile values are bucket
+upper bounds, not exact quantiles. See Overhauled
+[CRAWLER_METRICS.md](https://github.com/rakshas-oss/overhauled/blob/main/docs/CRAWLER_METRICS.md).
 
 ## Tests and qualification
 

@@ -1,11 +1,10 @@
-# YuKKi-OS v6.18.0 — System Administration How-to
+# YuKKi-OS v6.21.0 — System Administration How-to
 
-> Release candidate: v6.17.0 is the latest published baseline (2026-11-22).
-> This guide covers the v6.18.0 candidate, including the explicit authenticated
-> WASM artifact sender API and bounded stream-ingestion controls. The v6.18.0
-> tag and release assets have not been published. Broker discovery remains
-> bootstrap-relayed gossip rather than a DHT, and BRK2 locality intent does not
-> prove physical memory placement.
+> Release candidate: v6.20.0 is the latest published baseline (2026-11-26).
+> This guide covers the v6.21.0 candidate, including the bounded WASM crawler
+> and metriculation reports. The v6.21.0 tag and release assets are pending
+> release validation. Broker discovery remains bootstrap-relayed gossip,
+> and BRK2 locality intent does not prove physical memory placement.
 
 ## 1. Scope and deployment components
 
@@ -716,3 +715,39 @@ stunnel client configuration and server-side loopback binding are documented
 in the Overhauled repository's `deploy/mtls/` directory. The proxy establishes
 the TLS 1.3 session; this Rust client does not itself implement TLS or receive
 a certificate identity.
+
+## Opt-in bounded WASM crawler
+
+The `yukki_crawl` binary fetches public HTML/XHTML from explicitly allowed
+domains and delegates static title/link extraction to the separate
+`crawler-wasm` YCR1 guest. Build the guest and the native binary:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path crawler-wasm/Cargo.toml \
+  --target wasm32-unknown-unknown --release --locked
+cargo build --release --bin yukki_crawl --locked
+```
+
+Run only against sources you are authorized to crawl, with explicit domain
+allowlists:
+
+```bash
+cargo run --release --bin yukki_crawl -- \
+  --seed https://example.org/ --allow-domain example.org \
+  --wasm crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm \
+  --max-pages 100 --depth 2 --concurrency 8 --delay-ms 500 \
+  --output crawl-report.json
+```
+
+The default policy limits concurrency to 8, pages to 100, per-page HTML to
+1 MiB, total crawl bytes to 64 MiB, depth to 2 and per-host spacing to 500 ms.
+The hard limits and DNS/robots/redirect behavior are documented in
+[WASM_CRAWLER.md](WASM_CRAWLER.md). Keep host firewall/egress policy in place:
+application URL validation is not a replacement for network isolation.
+
+The JSON report contains per-page status, timestamp, digest, bytes, links and
+fetch/extraction timing, plus aggregate counts and means. It is an in-memory
+crawl result written to a file, not a durable frontier or historical database.
+The paired Overhauled metric accumulator is a separate CPU-side C++ library;
+it is not automatically called by the crawler or exposed as a broker operation.

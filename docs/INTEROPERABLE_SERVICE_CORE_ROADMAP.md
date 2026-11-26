@@ -21,6 +21,8 @@ YuKKi-OS owns the Rust control plane: broker client lifecycle, authenticated pee
 - Existing documentation describes optional BRK2 worker directives and locality hints; a request hint is not proof of physical placement.
 - Current discovery is bounded lease-based gossip, not a Kademlia DHT.
 
+- The opt-in native WASM Crawler Fabric is a separate capability: native host networking and URL policy plus a no-import YCR1 guest for static HTML extraction. Its JSON metriculation report is not part of BRK1/BRK2 or the authenticated artifact-handoff transport. Overhauled's C++ metric accumulator consumes normalized numeric observations only; it is not automatically wired into the crawler.
+
 ## Cargo resolution and reproducibility guard
 
 The November 26, 2026 lockfile incident is now repaired on canonical `main`:

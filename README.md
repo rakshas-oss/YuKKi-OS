@@ -1,25 +1,35 @@
-# YuKKi-OS v6.20.0 (release candidate)
+# YuKKi-OS v6.21.0 (release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.20.0 is the next minor release candidate after published v6.19.0 (2026-11-24). The 6.19.0 GitHub Release is published; the 6.20.0 tag and assets are pending release validation.
+> **Release status:** v6.21.0 is the next minor release candidate after published v6.20.0 (2026-11-26). The v6.20.0 GitHub Release and SHA256SUMS assets are published; the v6.21.0 tag and release assets await candidate validation.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Release candidate: v6.20.0. The latest published release is v6.19.0 (2026-11-24). This does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Release candidate: v6.21.0. The latest published GitHub release is v6.20.0 (2026-11-26). GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.20.0 candidate; latest published release v6.19.0 (2026-11-24).
+- **Release line:** v6.21.0 candidate; latest published release v6.20.0 (2026-11-26).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.19.0 GitHub Release is published with release assets and SHA256SUMS; v6.20.0 assets await the release gate.
+- **Status:** v6.20.0 GitHub Release is published with native/browser/WASI assets and SHA256SUMS; v6.21.0 assets await the release gate.
 
-## What's new in v6.20.0 (release candidate)
+## What's new in v6.21.0 (release candidate)
+
+- **Bounded WASM crawler fabric:** add the opt-in `yukki_crawl` CLI and Rust library with native asynchronous HTTP/HTTPS fetching and a separate no-std YCR1 WebAssembly HTML extractor. The guest has no WASI, imports, sockets, filesystem access or credentials.
+- **Crawl safety controls:** require explicit DNS-domain allowlists, pin validated DNS answers, reject private/special-use destinations, disable proxy environment inheritance, do not follow redirects, evaluate robots.txt fail-closed, and enforce per-host pacing, page/crawl byte budgets, timeouts, bounded concurrency and guest fuel/memory limits.
+- **Metriculation reports:** emit per-page status, timestamp, SHA-256, byte count, extracted title/links, fetch and extraction timings, plus aggregate crawl metrics. Reports are local JSON output; no raw HTML is forwarded to Overhauled.
+- **Security and CI maintenance:** merge the Aikido dependency/security remediation and crawler validation fixes. This does not constitute an independent external security audit.
+- **Paired C++ aggregation:** Overhauled v1.10.0 adds an optional CPU-only, constant-memory C++ accumulator for normalized page observations. It is a separate library, not a BRK operation or automatic GPU/NPU crawler path.
+
+The crawler is a bounded static-HTML vertical slice, not a general-purpose browser, distributed frontier, historical metrics database, or JavaScript execution environment. See [WASM Crawler Fabric](docs/WASM_CRAWLER.md) for the operator contract and limitations.
+
+## What's new in v6.20.0 (published 2026-11-26)
 
 - **Persistent BRK transport:** add an endpoint-scoped pool of persistent BRK1/BRK2 TCP sessions. Each checked-out connection carries one request/response exchange; it is recycled only after a complete, valid response is decoded. Timeouts, cancellation, disconnects and malformed responses discard the socket.
 - **Bounded connection admission:** configure the pool with `YUKKI_GPU_MAX_CONNECTIONS` (default 16, range 1..256). The pool applies backpressure when all connection permits are in use. Non-idempotent requests are not automatically replayed after an ambiguous transport failure.

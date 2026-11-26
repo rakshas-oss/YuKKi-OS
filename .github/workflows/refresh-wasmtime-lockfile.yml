@@ -41,8 +41,9 @@ jobs:
       - name: Ensure WASI and browser WebAssembly targets are installed
         run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
 
-      - name: Update Wasmtime to patched release using Cargo
-        run: cargo update -p wasmtime --precise 50.0.3
+      - name: Update Wasmtime to the manifest-compatible patched release using Cargo
+        # Cargo.toml requires the 51.x release line; 50.0.3 is incompatible and would downgrade the locked runtime.
+        run: cargo update -p wasmtime --precise 51.0.0
 
       - name: Update vulnerable URL parser to patched release
         run: cargo update -p url --precise 2.5.9

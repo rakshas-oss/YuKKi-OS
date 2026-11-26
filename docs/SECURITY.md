@@ -1,4 +1,4 @@
-# YuKKi-OS v6.18.0 — Security Notes (release candidate)
+# YuKKi-OS v6.21.0 — Security Notes (release candidate)
 
 > Research/demo software. Do not expose directly to untrusted networks.
 
@@ -101,3 +101,22 @@ Open a private security report with repository maintainers before public disclos
 ## Broker discovery records
 
 Overhauled broker service records are relayed only inside the existing PSK-protected peer mesh. The shared PSK admits every holder as a cluster participant; records are not individually signed identities and discovery does not grant execution authorization. BRK1/BRK2 broker transport remains unauthenticated, so advertise only a trusted private endpoint or an endpoint protected by an independent mTLS proxy. Records intentionally omit raw CPU/NUMA topology and tenant metadata. See [BROKER_SERVICE_DISCOVERY.md](BROKER_SERVICE_DISCOVERY.md).
+
+
+## Crawler network and sandbox boundary
+
+The optional crawler is designed for authorized public-web collection, not
+arbitrary network reachability. It requires explicit DNS-domain allowlists,
+pins validated DNS answers, rejects private/special-use destinations, disables
+system proxy inheritance, refuses redirects, and fails closed when robots.txt
+cannot be safely evaluated. Per-host pacing, request timeouts, bounded
+concurrency and page/crawl byte ceilings constrain resource use.
+
+The YCR1 guest receives a bounded document in isolated Wasmtime state and has
+no WASI, imports, sockets, filesystem or credentials. It extracts static HTML
+title/link data only; it does not execute JavaScript, submit forms, solve
+CAPTCHAs or bypass access controls. Load only operator-provisioned guest
+artifacts. These application controls do not replace an outbound firewall or
+restricted network namespace, and crawler output must not be treated as
+trusted executable content.
+
