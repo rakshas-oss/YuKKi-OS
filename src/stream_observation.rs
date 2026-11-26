@@ -84,11 +84,16 @@ impl NdjsonObservationDecoder {
     }
 
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<MultivariateObservation>, ObservationDecodeError> {
+        // Preflight the chunk so a record-count overflow cannot consume earlier
+        // records and then return an error with those observations lost.
+        if chunk.iter().filter(|byte| **byte == b'\\n').count() > self.config.max_records_per_push {
+            return Err(ObservationDecodeError::TooManyRecords);
+        }
         let mut output = Vec::new();
         let mut start = 0usize;
 
         for (index, byte) in chunk.iter().enumerate() {
-            if *byte != b'\\n' {
+            if *byte != b'\n' {
                 continue;
             }
             let segment = &chunk[start..index];
@@ -169,7 +174,7 @@ mod tests {
         let first = br#"{"schema_version":1,"source_id":"sensor-a","sequence":7,"timestamp_unix_ms":1000,"values":[1.5,null,3.0]}"#;
         assert!(decoder.push(&first[..20]).unwrap().is_empty());
         let mut tail = first[20..].to_vec();
-        tail.push(b'\\n');
+        tail.push(b'\n');
         tail.extend_from_slice(br#"{"schema_version":1,"source_id":"sensor-a","sequence":8,"timestamp_unix_ms":1100,"values":[2.5,4.0]}"#);
         let decoded = decoder.push(&tail).unwrap();
         assert_eq!(decoded.len(), 1);
