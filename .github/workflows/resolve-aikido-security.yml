@@ -35,22 +35,33 @@ jobs:
             exit 1
           fi
           echo "Aikido's UniformChar serde path is not compiled in this dependency graph."
-      - name: Verify dependency graph and native tests
+      - name: Apply canonical Rust formatting
+        run: |
+          cargo +1.98.1 fmt --all
+          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml
+      - name: Verify Rust formatting
+        run: |
+          cargo +1.98.1 fmt --all -- --check
+          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml -- --check
+      - name: Verify dependency graph and run Clippy
         run: |
           cargo +1.98.1 metadata --format-version 1 --locked
           cargo +1.98.1 check --workspace --all-targets --locked
-          cargo +1.98.1 test --all-targets --locked
+          cargo +1.98.1 clippy --all-targets --locked -- -D warnings
+      - name: Run complete native tests
+        run: cargo +1.98.1 test --all-targets --locked
       - name: Verify patched URL version
         run: |
           cargo +1.98.1 tree --locked -i url
           grep -A2 '^name = "url"$' Cargo.lock
       - name: Commit Cargo-generated lockfile
         run: |
-          if ! git diff --quiet -- Cargo.lock; then
+          if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -u
             git add Cargo.lock
-            git commit -m "security(deps): update url to patched 2.5.9"
+            git commit -m "fix(security): update url and format crawler code"
             git fetch origin fix/aikido-security-findings
             git rebase origin/fix/aikido-security-findings
             git push origin HEAD:fix/aikido-security-findings
