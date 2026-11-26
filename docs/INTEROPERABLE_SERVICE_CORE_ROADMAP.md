@@ -35,6 +35,9 @@ The follow-on guard added here runs `cargo metadata --locked` against each check
 
 ## Work packages
 
+**Implementation update (combined transport/handoff slice):** the Rust BRK1/BRK2 `LifecycleClient` now has a bounded endpoint-scoped single-flight persistent connection pool (`YUKKI_GPU_MAX_CONNECTIONS`, default 16, range 1..256). It reuses only fully decoded successful exchanges and discards uncertain connections. The TCP pool does not itself implement TLS. An optional strict mode, `YUKKI_GPU_REQUIRE_MTLS_PROXY=true`, rejects any configured endpoint that is not a numeric loopback socket, allowing deployments to force the path through a local mTLS client proxy. The matching Overhauled stunnel profile lives in its `deploy/mtls/` directory. It is still a sidecar security boundary, not native Rust TLS. The remaining YS0 work includes idle expiry/keepalive and production soak/benchmark qualification.
+
+
 ### YS0 — Reusable broker transport
 
 - Introduce a long-lived endpoint-scoped client connection pool with bounded parallel connections, bounded pending requests, keepalive/idle expiry, and reconnect backoff.

@@ -683,3 +683,36 @@ WebKit page rendering. Explicit GPU preference dispatch below the broker's
 automatic 1 MiB offload heuristic requires Overhauled PR #89. Until that
 dependency passes and is integrated, a bounded tile may legitimately be
 answered by CPU and will not be counted as GPU execution.
+
+
+### Broker connection reuse and bounds
+
+The BRK1/BRK2 `LifecycleClient` maintains an endpoint-scoped pool of persistent
+single-flight TCP sessions. Each request owns a connection from frame write
+through response decode; there is no pipelining or cross-request response
+multiplexing. The pool is shared by cloned lifecycle clients and is bounded by
+`YUKKI_GPU_MAX_CONNECTIONS` (default 16, permitted range 1..256).
+A request that times out, is cancelled, disconnects, or receives an invalid
+response drops its lease rather than returning an uncertain stream to the
+pool. Reconnection happens on the next request; non-idempotent requests are
+not automatically replayed because a transport error can occur after the
+broker has accepted the operation.
+
+Example:
+
+```sh
+YUKKI_GPU_MAX_CONNECTIONS=32
+```
+
+This pool is plain TCP. Keep the broker on a trusted private network or put
+both endpoints behind a mutually authenticated TLS 1.3 proxy. The pool itself
+does not provide encryption, peer authentication, or certificate pinning.
+
+
+For strict sidecar mode, also set `YUKKI_GPU_REQUIRE_MTLS_PROXY=true`.
+This makes configuration validation require a numeric loopback endpoint, for
+example `127.0.0.1:19090`, and rejects remote raw TCP endpoints. The local
+stunnel client configuration and server-side loopback binding are documented
+in the Overhauled repository's `deploy/mtls/` directory. The proxy establishes
+the TLS 1.3 session; this Rust client does not itself implement TLS or receive
+a certificate identity.
