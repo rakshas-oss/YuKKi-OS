@@ -23,7 +23,9 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 - **Bounded WASM crawler fabric:** add the opt-in `yukki_crawl` CLI and Rust library with native asynchronous HTTP/HTTPS fetching and a separate no-std YCR1 WebAssembly HTML extractor. The guest has no WASI, imports, sockets, filesystem access or credentials.
 - **Crawl safety controls:** require explicit DNS-domain allowlists, pin validated DNS answers, reject private/special-use destinations, disable proxy environment inheritance, do not follow redirects, evaluate robots.txt fail-closed, and enforce per-host pacing, page/crawl byte budgets, timeouts, bounded concurrency and guest fuel/memory limits.
-- **Metriculation reports:** emit per-page status, timestamp, SHA-256, byte count, extracted title/links, fetch and extraction timings, plus aggregate crawl metrics. Reports are local JSON output; no raw HTML is forwarded to Overhauled.
+- **Metriculation reports:** emit per-page status, timestamp, SHA-256, byte count, extracted title/links, fetch and extraction timings, plus aggregate crawl metrics. Reports are local JSON output; crawler data is not automatically forwarded to Overhauled.
+- **User-directed crawler processing:** the native CLI accepts an explicitly supplied YCE1 core-Wasm processor via `--execute-wasm`. It runs on successfully fetched page bytes, stores separate binary outputs and records processor/input/output digests in the report; omitting the flag disables this stage.
+- **Execution safeguards:** reject guest imports, use a fresh bounded Wasmtime Store per run, and cap processor concurrency, runs and aggregate output. Page content cannot supply or activate a processor.
 - **Security and CI maintenance:** merge the Aikido dependency/security remediation and crawler validation fixes. This does not constitute an independent external security audit.
 - **Paired C++ aggregation:** Overhauled v1.10.0 adds an optional CPU-only, constant-memory C++ accumulator for normalized page observations. It is a separate library, not a BRK operation or automatic GPU/NPU crawler path.
 
