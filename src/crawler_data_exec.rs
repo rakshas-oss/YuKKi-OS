@@ -4,6 +4,7 @@
 //! explicitly provide a reviewed WebAssembly processor; page content is passed
 //! as opaque bytes and is never interpreted as code by the host.
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder};
 
@@ -39,6 +40,7 @@ pub struct CrawlerDataExecutor {
     engine: Engine,
     module: Module,
     fuel_per_call: u64,
+    module_sha256: String,
 }
 
 struct ExecutionState {
@@ -68,7 +70,13 @@ impl CrawlerDataExecutor {
             engine,
             module,
             fuel_per_call,
+            module_sha256: digest_hex(wasm),
         })
+    }
+
+    /// SHA-256 of the exact core-Wasm artifact supplied by the caller.
+    pub fn module_sha256(&self) -> &str {
+        &self.module_sha256
     }
 
     pub fn with_defaults(wasm: &[u8]) -> Result<Self, CrawlerDataExecError> {
@@ -151,7 +159,21 @@ impl CrawlerDataExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::*;\n\n    fn digest_hex(bytes: &[u8]) -> String {\n        const HEX: &[u8; 16] = b"0123456789abcdef";\n        let digest = Sha256::digest(bytes);\n        let mut output = String::with_capacity(digest.len() * 2);\n        for byte in digest {\n            output.push(HEX[(byte >> 4) as usize] as char);\n            output.push(HEX[(byte & 0x0f) as usize] as char);\n        }\n        output\n    }
+
+    #[test]
+    fn exposes_stable_processor_artifact_digest() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        assert_eq!(executor.module_sha256().len(), 64);
+        assert!(executor.module_sha256().bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn executes_explicit_processor_in_fresh_sandbox() {
