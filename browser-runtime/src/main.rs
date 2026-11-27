@@ -909,8 +909,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                                                 }
                                             }
                                         }
-                                        if let Ok(Err(error)) = job.await {
-                                            let payload = serde_json::json!({"kind":"error","message":error.to_string()});
+                                        let failure = match job.await {
+                                            Ok(Ok(_)) => None,
+                                            Ok(Err(error)) => Some(error.to_string()),
+                                            Err(error) => Some(format!("Crawler task failed: {error}")),
+                                        };
+                                        if let Some(message) = failure {
+                                            let payload = serde_json::json!({"kind":"error","message":message});
                                             if let Ok(payload) = serde_json::to_string(&payload) {
                                                 let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
                                                 if event_proxy.send_event(RuntimeEvent::CrawlerUpdate {
