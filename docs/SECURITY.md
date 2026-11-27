@@ -115,8 +115,17 @@ concurrency and page/crawl byte ceilings constrain resource use.
 The YCR1 guest receives a bounded document in isolated Wasmtime state and has
 no WASI, imports, sockets, filesystem or credentials. It extracts static HTML
 title/link data only; it does not execute JavaScript, submit forms, solve
-CAPTCHAs or bypass access controls. Load only operator-provisioned guest
-artifacts. These application controls do not replace an outbound firewall or
-restricted network namespace, and crawler output must not be treated as
-trusted executable content.
+CAPTCHAs or bypass access controls. Load only operator-provisioned extractor
+artifacts.
+
+The separate YCE1 `CrawlerDataExecutor` lets an application explicitly run
+an approved, user-selected core-Wasm processor over ingested bytes. It rejects
+all imports and gives every invocation a fresh Store with bounded input,
+output, memory and fuel. Crawled content is always opaque data: it cannot
+install or select a processor, and it is never executed as code. Applications
+must authenticate/authorize users, verify processor provenance, apply job
+admission and rate limits, and audit execution. The library does not provide
+an HTTP execution route or durable job service. Neither Wasmtime fuel nor
+in-process memory limits replace OS process/container isolation and outbound
+network restrictions.
 
