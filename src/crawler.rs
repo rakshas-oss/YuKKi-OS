@@ -337,7 +337,9 @@ impl Crawler {
                 let mut browser_record = record.clone();
                 browser_record.links.retain(|link| link.len() <= 1024);
                 browser_record.links.truncate(8);
-                let _ = sender.send(CrawlEvent::PageCompleted(Box::new(browser_record))).await;
+                let _ = sender
+                    .send(CrawlEvent::PageCompleted(Box::new(browser_record)))
+                    .await;
             }
             if depth < self.inner.config.max_depth && record.error.is_none() {
                 for link in &record.links {
