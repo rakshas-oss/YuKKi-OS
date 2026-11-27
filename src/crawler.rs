@@ -129,6 +129,7 @@ pub struct CrawlerExecutionRecord {
 pub trait CrawlerExecutionOutputSink: Send + Sync {
     fn store(
         &self,
+        page_key_sha256: &str,
         input_sha256: &str,
         output_sha256: &str,
         output: &[u8],
@@ -435,6 +436,7 @@ impl Crawler {
                         execute_ingested_page(
                             processor,
                             output_sink,
+                            hex_digest(record.url.as_bytes()),
                             payload.sha256,
                             payload.document,
                             execution_output_budget,
@@ -827,6 +829,7 @@ fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
 async fn execute_ingested_page(
     processor: Arc<CrawlerDataExecutor>,
     output_sink: Arc<dyn CrawlerExecutionOutputSink>,
+    page_key_sha256: String,
     input_sha256: String,
     document: Vec<u8>,
     output_budget: Arc<AtomicUsize>,
@@ -925,7 +928,12 @@ async fn execute_ingested_page(
     let input_for_task = input_sha256.clone();
     let output_digest_for_task = output_sha256.clone();
     let stored = tokio::task::spawn_blocking(move || {
-        sink_for_task.store(&input_for_task, &output_digest_for_task, &output)
+        sink_for_task.store(
+            &page_key_sha256,
+            &input_for_task,
+            &output_digest_for_task,
+            &output,
+        )
     })
     .await;
     let (output_reference, error) = match stored {
