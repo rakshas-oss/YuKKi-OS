@@ -2,6 +2,12 @@
 
 ### Bounded WASM crawler fabric and metriculation
 
+### User-directed execution over ingested data
+
+- Add the native YCE1 `CrawlerDataExecutor` API for explicitly running user-selected, capability-free core-Wasm processors over ingested bytes.
+- Give each invocation a fresh Wasmtime Store/instance; reject all imports and bound module size, input/output bytes, guest memory and fuel.
+- Keep crawled content opaque: pages cannot install/select processors and page scripts are never implicitly executed. Applications retain responsibility for user authorization, processor provenance, job admission and audit logging.
+
 - Add the opt-in native `yukki_crawl` CLI and crawler library with native asynchronous HTTP/HTTPS networking and a separate no-std YCR1 HTML extractor guest.
 - Isolate extraction in Wasmtime with no imports/WASI and explicit guest memory/fuel ceilings. The guest handles bounded static HTML title/link extraction only.
 - Require explicit allowed DNS domains, pin validated DNS answers, reject private/special-use destinations, disable inherited proxies, refuse redirects, fail closed on robots policy errors, and enforce per-host pacing, page/crawl byte budgets, request timeouts and bounded concurrency.

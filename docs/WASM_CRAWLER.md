@@ -75,6 +75,52 @@ normalized in-allowlist links, fetch/extraction timings and an aggregate
 summary. Failed pages are retained as records with an error rather than
 silently disappearing.
 
+## Execute user-selected processors over ingested data
+
+Applications can opt in to a second, separate execution stage with
+`yukkios::crawler_data_exec::CrawlerDataExecutor`. This is for user-directed
+processing of crawler output (for example normalization, filtering, feature
+extraction or transformation). It does **not** execute JavaScript, scripts,
+WASM, or other instructions found inside crawled pages. Ingested page bytes
+remain opaque input data.
+
+The application must authenticate and authorize the user, select an approved
+processor artifact, and explicitly pass the desired record bytes to
+`execute`. The executor is a library API; the crawler CLI and gateway do not
+automatically expose an execution endpoint or execute every crawled page.
+
+The YCE1 processor ABI requires three core-Wasm exports:
+
+- `memory`: guest linear memory;
+- `alloc(i32) -> i32`: reserve a guest input buffer;
+- `execute(i32, i32) -> i64`: process the input and return a packed output
+  descriptor (output length in the high 32 bits, output pointer in the low
+  32 bits).
+
+The host rejects all module imports, creates a fresh Store and instance for
+each invocation, and validates all guest pointers and output lengths before
+copying results. Defaults and hard ceilings are 4 MiB per module, 1 MiB input,
+1 MiB output, 16 MiB guest memory and 10,000,000 fuel per call. Fuel is an
+instruction budget, not a wall-clock deadline. The processor has no WASI,
+filesystem, sockets, credentials, or host callbacks.
+
+Example host-side use:
+
+```rust
+use yukkios::crawler_data_exec::CrawlerDataExecutor;
+
+let processor = CrawlerDataExecutor::with_defaults(&reviewed_wasm_bytes)?;
+let transformed = processor.execute(page_record_bytes)?;
+```
+
+The application remains responsible for user authentication, processor
+provenance/signature policy, job admission, concurrency/rate limits, result
+persistence, cancellation and audit logging. Do not load a processor merely
+because a crawled page references it. This executor is capability-free but is
+not a substitute for process/container isolation against runtime or engine
+vulnerabilities. Keep crawler network access and processor execution as
+separate privileges.
+
 ## Default and hard limits
 
 | Resource | Default | Hard/configuration limit |

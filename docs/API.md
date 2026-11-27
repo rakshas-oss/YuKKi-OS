@@ -12,6 +12,22 @@ JSON report fields and security boundary. This API does not provide JavaScript
 execution, general browser rendering, a persistent distributed frontier, or
 automatic transfer of page data to Overhauled.
 
+### User-directed execution over crawler data
+
+The native-only `yukkios::crawler_data_exec::CrawlerDataExecutor` API runs an
+explicitly selected, capability-free core-Wasm processor over caller-supplied
+ingested bytes. It is separate from the YCR1 HTML extractor and does not
+interpret crawled page content as code. The YCE1 ABI exports `memory`,
+`alloc(i32) -> i32`, and `execute(i32, i32) -> i64`; the packed return value
+contains output length in the high 32 bits and output pointer in the low 32.
+
+Each call gets a fresh Wasmtime Store/instance, no imports are linked, and
+guest memory/fuel/input/output are bounded. Defaults: 4 MiB module, 1 MiB
+input, 1 MiB output, 16 MiB memory and 10,000,000 fuel. The caller owns
+authentication, artifact authorization/provenance, admission/rate limits,
+persistence and audit logging. No CLI or HTTP execution route is implied.
+See [WASM crawler](WASM_CRAWLER.md) for the full contract and example.
+
 ## Broker service discovery and locality codec (v6.16.0 published baseline)
 
 The optional broker discovery path uses the bounded `BrokerServiceRecord`
