@@ -111,6 +111,36 @@ or discovered link. A bounded 16-record event queue backpressures the crawl
 when the utility is not consuming updates. The browser feed sends at most
 eight links per page event, each no longer than 1,024 bytes.
 
+### Optional plug-and-play control-plane publishing
+
+The Crawler utility exposes a single opt-in checkbox to publish numeric crawl
+metrics for browser-WASM adoption. It reuses the native YuKKi node's existing
+gateway configuration; users do not enter a second URL or bearer token.
+
+The native browser uses `YUKKI_GATEWAY_TOKEN` and discovers the local address
+from `YUKKI_GATEWAY_LISTEN`, then `YUKKI_GATEWAY_ENDPOINT`, falling back to
+`127.0.0.1:7670`. Wildcard listen addresses are connected through loopback.
+Remote publishing requires an HTTPS `YUKKI_GATEWAY_URL`. The browser process
+must inherit the configured node environment. If the gateway is not configured
+or reachable, local crawling continues and publishing reports a non-fatal
+warning.
+
+Published data uses the existing schema-v1 multivariate observation envelope
+and the authenticated `POST /v1/data-streams/{source_id}/observations`
+endpoint. One observation is emitted per completed page, in batches of 16,
+with nine numeric dimensions: depth, HTTP status, document bytes, fetch
+milliseconds, extraction milliseconds, link count, title character count,
+preview character count, and failure flag. Missing HTTP status stays null.
+HTML, URL, title, excerpts, and page content never enter the data stream.
+
+The gateway's data-observation store is separate from YKMC media retention and
+is bounded to 128 streams, 512 observations per stream, and 16,384 total
+observations. It is currently node-local, in-memory retention; the new data
+stream surface is not yet replicated over the peer mesh. The browser-WASM
+workspace lists these data streams separately and validates selected records
+in the Rust WASM core before presenting them.
+
+
 ## Execute user-selected processors over ingested data
 
 Applications can opt in to a second, separate execution stage with
