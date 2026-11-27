@@ -19,6 +19,7 @@ YuKKi-OS brings together authenticated peer networking, workload coordination, b
 
 - **Coordinates:** authenticated peer sessions, broker discovery, workload directives, and runtime services.
 - **Processes:** bounded streams and spatial data; the optional crawler collects allowlisted static HTML and can pass results to an explicitly selected, resource-limited WebAssembly processor.
+- **Browses crawler discoveries:** the native browser has a dedicated Crawler utility tab with live result hyperlinks; selecting a result opens its extracted page summary in the main browsing tab, with a separate link to the original HTML.
 - **Hosts:** native Wasmtime composition and supported WebAssembly guest paths, with explicit resource limits and lifecycle boundaries.
 - **Interoperates:** BRK1/BRK2 broker requests connect YuKKi-OS policy to Overhauled execution and placement services.
 
