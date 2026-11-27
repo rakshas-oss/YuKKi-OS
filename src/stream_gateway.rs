@@ -38,7 +38,7 @@ use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
     stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
     stream_observation::{
-        DataStreamDescriptor, DataStreamRange, ObservationStore, ObservationStoreError,
+        ObservationStore, ObservationStoreError,
         MAX_DATA_STREAM_INGEST_BYTES, MAX_DATA_STREAM_READ_RECORDS,
     },
     stream_relay::{RelayError, StreamRelay},
