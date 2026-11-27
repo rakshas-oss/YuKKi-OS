@@ -23,6 +23,7 @@ jobs:
   build-linux:
     name: Linux (${{ matrix.target }})
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -247,6 +248,7 @@ jobs:
   build-browser-runtime:
     name: Native Browser Runtime — Wayland and X11/XWayland (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -329,6 +331,11 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Checkout exact release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
       - name: Verify release tag matches native package version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -368,6 +375,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build-linux, build-macos, build-wasm, build-browser-wasm, build-browser-runtime, test-library]
     if: always()
     steps:

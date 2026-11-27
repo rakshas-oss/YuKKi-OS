@@ -33,11 +33,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: crawler-workflow-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
-concurrency:
-  group: wasm-crawler
+  group: wasm-crawler-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
