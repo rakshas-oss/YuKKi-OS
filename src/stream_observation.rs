@@ -92,12 +92,7 @@ impl NdjsonObservationDecoder {
     ) -> Result<Vec<MultivariateObservation>, ObservationDecodeError> {
         // Preflight the chunk so a record-count overflow cannot consume earlier
         // records and then return an error with those observations lost.
-        if chunk
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count()
-            > self.config.max_records_per_push
-        {
+        if chunk.iter().filter(|byte| **byte == b'\n').count() > self.config.max_records_per_push {
             return Err(ObservationDecodeError::TooManyRecords);
         }
         let mut output = Vec::new();
