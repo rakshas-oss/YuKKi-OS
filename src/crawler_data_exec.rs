@@ -157,9 +157,20 @@ impl CrawlerDataExecutor {
     }
 }
 
+fn digest_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;\n\n    fn digest_hex(bytes: &[u8]) -> String {\n        const HEX: &[u8; 16] = b"0123456789abcdef";\n        let digest = Sha256::digest(bytes);\n        let mut output = String::with_capacity(digest.len() * 2);\n        for byte in digest {\n            output.push(HEX[(byte >> 4) as usize] as char);\n            output.push(HEX[(byte & 0x0f) as usize] as char);\n        }\n        output\n    }
+    use super::*;
 
     #[test]
     fn exposes_stable_processor_artifact_digest() {
