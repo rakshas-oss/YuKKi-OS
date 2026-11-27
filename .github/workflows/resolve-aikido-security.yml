@@ -1,65 +1,59 @@
-name: Resolve Aikido security dependency updates
+name: Aikido finding regression guard
 
 on:
   push:
     branches: ["fix/aikido-security-findings"]
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "crawler-wasm/**"
+      - "tests/**"
+      - ".github/workflows/resolve-aikido-security.yml"
+  workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: aikido-security-lock-${{ github.ref }}
+  group: aikido-security-regression-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  update-and-verify:
+  verify-security-regressions:
+    name: Verify dependency and parser security invariants
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Checkout security branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
         with:
-          ref: fix/aikido-security-findings
-          fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-      - name: Update URL parser to patched version
-        run: cargo +1.98.1 update -p url --precise 2.5.9
-      - name: Verify rand serde feature is not enabled
+      - name: Verify checked-in dependency graph
+        run: bash scripts/check-cargo-lockfiles.sh
+      - name: Verify affected dependency features and patched URL parser
         run: |
-          cargo +1.98.1 tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-0.9.5-features.txt
-          if grep -F 'rand feature "serde"' /tmp/rand-0.9.5-features.txt; then
-            echo "rand 0.9.5 serde support is enabled; do not classify this finding as not applicable." >&2
+          cargo +1.98.1 tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-features.txt
+          if grep -F 'rand feature "serde"' /tmp/rand-features.txt; then
+            echo "rand serde feature is enabled; do not dismiss the reported attack surface." >&2
             exit 1
           fi
-          echo "Aikido's UniformChar serde path is not compiled in this dependency graph."
-      - name: Apply canonical Rust formatting
-        run: |
-          cargo +1.98.1 fmt --all
-          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml
-      - name: Verify Rust formatting
-        run: |
-          cargo +1.98.1 fmt --all -- --check
-          cargo +1.98.1 fmt --manifest-path crawler-wasm/Cargo.toml -- --check
-      - name: Verify dependency graph and run Clippy
-        run: |
-          cargo +1.98.1 metadata --format-version 1 --locked
-          cargo +1.98.1 check --workspace --all-targets --locked
-          cargo +1.98.1 clippy --all-targets --locked -- -D warnings
-      - name: Run complete native tests
-        run: cargo +1.98.1 test --all-targets --locked
-      - name: Verify patched URL version
-        run: |
           cargo +1.98.1 tree --locked -i url
           grep -A2 '^name = "url"$' Cargo.lock
-      - name: Commit Cargo-generated lockfile
+      - name: Run locked tests and strict lint
         run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -u
-            git add Cargo.lock
-            git commit -m "fix(security): update url and format crawler code"
-            git push origin HEAD:fix/aikido-security-findings
-          fi
+          cargo +1.98.1 fmt --all -- --check
+          cargo +1.98.1 check --workspace --all-targets --locked
+          cargo +1.98.1 test --all-targets --locked
+          cargo +1.98.1 clippy --all-targets --locked -- -D warnings
+      - name: Run dependency vulnerability audit
+        run: |
+          cargo +1.98.1 install cargo-audit --locked
+          cargo +1.98.1 audit --deny warnings
+      - name: Validate crawler sandbox and user-selected processor tests
+        run: cargo +1.98.1 test --locked crawler
