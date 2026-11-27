@@ -103,6 +103,8 @@ pub struct CrawledPage {
     pub document_bytes: u64,
     pub sha256: String,
     pub title: String,
+    /// Plain-text preview for browser result summaries; never raw HTML.
+    pub summary: String,
     pub links: Vec<String>,
     pub fetch_ms: f64,
     pub extraction_ms: f64,
@@ -134,6 +136,12 @@ pub trait CrawlerExecutionOutputSink: Send + Sync {
         output_sha256: &str,
         output: &[u8],
     ) -> Result<String, String>;
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum CrawlEvent {
+    PageCompleted(CrawledPage),
+    Finished(CrawlMetrics),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -241,7 +249,16 @@ impl Crawler {
 
     /// Crawl allowlisted domains without executing the fetched documents.
     pub async fn crawl(&self, seeds: &[String]) -> Result<CrawlReport, CrawlerError> {
-        self.crawl_inner(seeds, None).await
+        self.crawl_inner(seeds, None, None).await
+    }
+
+    /// Crawl and publish page results as each fetch completes.
+    pub async fn crawl_with_events(
+        &self,
+        seeds: &[String],
+        events: tokio::sync::mpsc::UnboundedSender<CrawlEvent>,
+    ) -> Result<CrawlReport, CrawlerError> {
+        self.crawl_inner(seeds, None, Some(events)).await
     }
 
     /// Crawl and explicitly run a caller-selected processor against each
@@ -260,13 +277,14 @@ impl Crawler {
             run_budget: Arc::new(AtomicUsize::new(0)),
             slots: Arc::new(Semaphore::new(MAX_CRAWLER_PROCESSOR_CONCURRENCY)),
         });
-        self.crawl_inner(seeds, Some(execution)).await
+        self.crawl_inner(seeds, Some(execution), None).await
     }
 
     async fn crawl_inner(
         &self,
         seeds: &[String],
         execution: Option<Arc<CrawlerExecution>>,
+        events: Option<tokio::sync::mpsc::UnboundedSender<CrawlEvent>>,
     ) -> Result<CrawlReport, CrawlerError> {
         if seeds.is_empty() {
             return Err(CrawlerError::InvalidConfig(
@@ -315,6 +333,9 @@ impl Crawler {
                 Ok(value) => value,
                 Err(_) => continue,
             };
+            if let Some(sender) = &events {
+                let _ = sender.send(CrawlEvent::PageCompleted(record.clone()));
+            }
             if depth < self.inner.config.max_depth && record.error.is_none() {
                 for link in &record.links {
                     if seen.len() >= self.inner.config.max_pages.saturating_mul(8) {
@@ -333,6 +354,9 @@ impl Crawler {
         }
 
         let metrics = summarize(&records);
+        if let Some(sender) = &events {
+            let _ = sender.send(CrawlEvent::Finished(metrics.clone()));
+        }
         Ok(CrawlReport {
             schema_version: 1,
             crawler_abi: crate::crawler_wasm::CRAWLER_WASM_ABI,
@@ -392,6 +416,7 @@ impl Crawler {
             document_bytes: 0,
             sha256: String::new(),
             title: String::new(),
+            summary: String::new(),
             links: Vec::new(),
             fetch_ms: 0.0,
             extraction_ms: 0.0,
@@ -416,6 +441,7 @@ impl Crawler {
                 record.document_bytes = payload.document_bytes;
                 record.sha256 = payload.sha256.clone();
                 record.title = payload.extraction.title;
+                record.summary = summarize_html_text(&payload.document);
                 record.links = payload.extraction.links;
                 record.fetch_ms = payload.fetch_ms;
                 record.extraction_ms = payload.extraction_ms;
@@ -1040,6 +1066,74 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (segments[0] == 0x3fff && (segments[1] & 0xf000) == 0))
 }
 
+fn summarize_html_text(document: &[u8]) -> String {
+    let source = String::from_utf8_lossy(document);
+    let bytes = source.as_bytes();
+    let mut output = String::with_capacity(512);
+    let mut position = 0usize;
+    let mut skipped_element: Option<&str> = None;
+
+    while position < bytes.len() && output.len() < 2048 {
+        if bytes[position] == b'<' {
+            let Some(relative_end) = bytes[position..].iter().position(|byte| *byte == b'>') else {
+                break;
+            };
+            let end = position + relative_end;
+            let raw_tag = source[position + 1..end].trim();
+            let closing = raw_tag.starts_with('/');
+            let name = raw_tag
+                .trim_start_matches('/')
+                .trim_start()
+                .split(|character: char| character.is_ascii_whitespace() || character == '/' || character == '>')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if closing {
+                if skipped_element.as_deref() == Some(name.as_str()) {
+                    skipped_element = None;
+                }
+            } else if matches!(name.as_str(), "script" | "style" | "noscript" | "template" | "svg") {
+                skipped_element = Some(match name.as_str() {
+                    "script" => "script",
+                    "style" => "style",
+                    "noscript" => "noscript",
+                    "template" => "template",
+                    _ => "svg",
+                });
+            }
+            position = end.saturating_add(1);
+        } else {
+            let end = bytes[position..]
+                .iter()
+                .position(|byte| *byte == b'<')
+                .map(|relative| position + relative)
+                .unwrap_or(bytes.len());
+            if skipped_element.is_none() {
+                output.push_str(&source[position..end]);
+                output.push(' ');
+            }
+            position = end;
+        }
+    }
+
+    let normalized = output
+        .replace("&nbsp;", " ")
+        .replace("&#160;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'");
+    let mut compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.len() > 2048 {
+        compact.truncate(2048);
+        while !compact.is_char_boundary(compact.len()) {
+            compact.pop();
+        }
+    }
+    compact.chars().take(480).collect()
+}
+
 fn summarize(records: &[CrawledPage]) -> CrawlMetrics {
     let succeeded = records
         .iter()
@@ -1169,6 +1263,16 @@ mod tests {
     }
 
     #[test]
+    fn html_summary_is_plain_text_and_excludes_script_and_style_content() {
+        let summary = summarize_html_text(
+            br#"<html><head><style>private-style</style></head><body><h1>Hello</h1><p>Useful &amp; safe text.</p><script>secret()</script></body></html>"#,
+        );
+        assert_eq!(summary, "Hello Useful & safe text.");
+        assert!(!summary.contains("secret"));
+        assert!(!summary.contains("private-style"));
+    }
+
+    #[test]
     fn robots_longest_match_and_allow_override() {
         let policy = parse_robots(
             "User-agent: *\nDisallow: /private\nAllow: /private/public\n",
@@ -1242,6 +1346,7 @@ mod tests {
                 document_bytes: 100,
                 sha256: "a".into(),
                 title: "A".into(),
+                summary: "A short page summary".into(),
                 links: vec!["https://example.com/b".into()],
                 fetch_ms: 10.0,
                 extraction_ms: 2.0,
@@ -1256,6 +1361,7 @@ mod tests {
                 document_bytes: 0,
                 sha256: String::new(),
                 title: String::new(),
+                summary: String::new(),
                 links: vec![],
                 fetch_ms: 0.0,
                 extraction_ms: 0.0,
