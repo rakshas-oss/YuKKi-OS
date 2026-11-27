@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.21.0 (2026-11-26), including the bounded WASM crawler fabric and metriculation reports. The v6.22.0 candidate adds explicitly selected crawler processors and bounded multivariate NDJSON observation decoding; its tag and release archives are not yet published. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.22.0 (2026-11-26), which adds explicitly selected crawler processors and bounded multivariate NDJSON observation decoding. Its GitHub Release has no attached binary assets. The v6.22.1 candidate contains only post-release NDJSON test and Rust formatting maintenance; it does not change runtime behavior. A successful local build or candidate image label is not release qualification. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md) and the release checklist in [VERSIONING.md](VERSIONING.md).
 
 ## Authenticated artifact handoff
 

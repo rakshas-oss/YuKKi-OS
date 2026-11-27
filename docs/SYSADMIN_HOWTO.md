@@ -1,10 +1,11 @@
-# YuKKi-OS v6.22.0 — System Administration How-to
+# YuKKi-OS v6.22.1 — System Administration How-to
 
-> v6.21.0 is the latest published GitHub release (2026-11-26).
-> This guide also documents the v6.22.0 release candidate: user-selected YCE1
-> crawler processors and bounded incremental multivariate NDJSON parsing.
-> Candidate tags and release assets are not published until the full release
-> gate passes. Broker discovery remains bootstrap-relayed gossip, and BRK2
+> v6.22.0 is the latest published GitHub release (2026-11-26); its release
+> record has no attached binary assets.
+> This guide documents the v6.22.0 feature baseline and the v6.22.1 patch
+> candidate, which contains only NDJSON test and Rust formatting maintenance.
+> The v6.22.1 tag and release assets are not published until its release gate
+> passes. Broker discovery remains bootstrap-relayed gossip, and BRK2
 > locality intent does not prove physical memory placement.
 
 ## 1. Scope and deployment components

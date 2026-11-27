@@ -1,4 +1,4 @@
-# YuKKi-OS v6.22.0 — Architecture (release candidate)
+# YuKKi-OS v6.22.1 — Architecture (patch release candidate)
 
 ## System identity and scope
 
@@ -15,7 +15,7 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.22.0 minor-release candidate. The latest published baseline is v6.21.0 (2026-11-26); the v6.22.0 tag and release assets have not been published.
+This document describes the v6.22.1 patch-candidate baseline. The v6.22.0 tag and GitHub Release were published on 2026-11-26; that release has no attached binary assets. The v6.22.1 candidate is limited to test/formatting maintenance and makes no runtime architecture change.
 
 ## Bounded multivariate stream observation path
 

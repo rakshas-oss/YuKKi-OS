@@ -1,23 +1,23 @@
-# YuKKi-OS v6.22.0 (release candidate)
+# YuKKi-OS v6.22.1 (patch release candidate)
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.21.0 is the latest published GitHub Release (2026-11-26), including native, browser-WASM and WASI assets with SHA256SUMS. v6.22.0 is the next minor release candidate; its tag and assets are not published.
+> **Release status:** v6.22.0 is the latest published GitHub Release (2026-11-26). Its release record has no attached binary assets. v6.22.1 is the next patch release candidate; its tag and assets are not published.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Release candidate: v6.22.0. The latest published GitHub release is v6.21.0 (2026-11-26). GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> Release candidate: v6.22.1. The latest published GitHub release is v6.22.0 (2026-11-26); it has no attached binary assets. GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.22.0 candidate; latest published release v6.21.0 (2026-11-26).
+- **Release line:** v6.22.1 patch candidate; latest published release v6.22.0 (2026-11-26).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.21.0 GitHub Release is published with native/browser/WASI assets and SHA256SUMS; v6.22.0 assets await the release gate.
+- **Status:** v6.22.0 GitHub Release is published without attached binary assets; v6.22.1 awaits its release gate.
 
 ## What's new in v6.21.0 (published 2026-11-26)
 
@@ -29,12 +29,18 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The crawler is a bounded static-HTML vertical slice, not a general-purpose browser, distributed frontier, historical metrics database, or JavaScript execution environment. See [WASM Crawler Fabric](docs/WASM_CRAWLER.md) for the operator contract and limitations.
 
-## What's new in v6.22.0 (release candidate)
+## What's new in v6.22.1 (patch release candidate)
+
+- **NDJSON validation test correction:** verify that an unterminated final record remains buffered by `push()` and is validated by `finish()`, rather than expecting incomplete input to be emitted immediately.
+- **Toolchain formatting:** apply the pinned Rust 1.98.1 rustfmt layout to `guest-worker/src/lib.rs`.
+- **Scope:** test and formatting maintenance only. No decoder implementation, runtime behavior, public API, wire protocol, or independently versioned 0.1.0 workspace package is changed.
+
+## What's new in v6.22.0 (published 2026-11-26)
 
 - **User-selected crawler processing:** add the native YCE1 CrawlerDataExecutor, the Crawler::crawl_with_processor API and the explicit yukki_crawl --execute-wasm option. Only an operator-selected, import-free core-Wasm module runs; crawled page content cannot install or choose code, and page scripts are never executed.
 - **Bounded processor isolation:** use a fresh Wasmtime Store/instance per invocation; validate exports, pointers and lengths; cap module/input/output size, guest memory and fuel; limit concurrent instances, total executions and aggregate crawl output. Persist processor/input/output digests and output references.
 - **Incremental multivariate stream decoding:** expose NdjsonObservationDecoder for schema-v1 numeric observations. It retains at most one incomplete line (16 KiB by default), emits at most 256 records per push, accepts 1–32 dimensions and preserves null as missing data. It rejects unknown fields, unsupported versions, oversized records and non-finite numbers.
-- **Pairwise aggregation:** the paired Overhauled v1.11.0 candidate adds a CPU-only, fixed-memory online covariance/correlation accumulator for up to 32 dimensions. Missing values are omitted pairwise; sample counts are part of the result. This is a separate library, not an automatic network-to-broker path or GPU/NPU crawler dispatch.
+- **Pairwise aggregation:** the paired published Overhauled v1.11.0 release adds a CPU-only, fixed-memory online covariance/correlation accumulator for up to 32 dimensions. Missing values are omitted pairwise; sample counts are part of the result. This is a separate library, not an automatic network-to-broker path or GPU/NPU crawler dispatch.
 
 The decoder parses data but does not authenticate sources or authorize forwarding. Applications remain responsible for per-source/tenant admission, bounded queues, backpressure and audit policy. Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities are unchanged.
 
