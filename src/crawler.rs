@@ -1159,7 +1159,7 @@ mod tests {
         assert_eq!(execution.input_sha256, input_sha256);
         assert_eq!(execution.output_reference.as_deref(), Some("processed.bin"));
         assert_eq!(execution.output_bytes, Some(8));
-        let captured = sink.0.lock().unwrap().clone().unwrap();
+        let captured = sink.0.lock().unwrap().take().unwrap();
         assert_eq!(captured.page_key_sha256, "a".repeat(64));
         assert_eq!(captured.input_sha256, input_sha256);
         assert_eq!(captured.output_sha256, execution.output_sha256.unwrap());
