@@ -20,7 +20,7 @@ pub const MAX_DATA_EXEC_FUEL: u64 = 1_000_000_000;
 pub enum CrawlerDataExecError {
     #[error("processor module is empty or exceeds 4194304 bytes")]
     ModuleSize,
-    #[error("processor fuel must be in 1..={MAX_DATA_EXEC_FUEL}")]
+    #[error("processor fuel is outside the supported range")]
     InvalidFuel,
     #[error("processor compilation failed: {0}")]
     Compile(String),
@@ -207,6 +207,34 @@ mod tests {
         let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
         assert_eq!(executor.execute(b"untrusted page data").unwrap(), b"done");
         assert_eq!(executor.execute(b"another record").unwrap(), b"done");
+    }
+
+    #[test]
+    fn rejects_fuel_above_hard_ceiling() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            CrawlerDataExecutor::from_bytes(&wasm, MAX_DATA_EXEC_FUEL + 1),
+            Err(CrawlerDataExecError::InvalidFuel)
+        ));
+    }
+
+    #[test]
+    fn accepts_empty_processor_output() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        assert!(executor.execute(b"input").unwrap().is_empty());
     }
 
     #[test]
