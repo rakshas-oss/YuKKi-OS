@@ -3,7 +3,10 @@
 //! Network access stays in the host. The guest receives at most one bounded HTML
 //! document and has no imports, WASI, sockets, filesystem, or secrets.
 
-use crate::crawler_wasm::{CrawlerWasmError, WasmHtmlExtractor, MAX_CRAWLER_INPUT_BYTES};
+use crate::{
+    crawler_data_exec::CrawlerDataExecutor,
+    crawler_wasm::{CrawlerWasmError, WasmHtmlExtractor, MAX_CRAWLER_INPUT_BYTES},
+};
 use futures_util::StreamExt;
 use reqwest::{header::CONTENT_TYPE, Client, ClientBuilder, StatusCode, Url};
 use serde::Serialize;
@@ -27,6 +30,7 @@ use tokio::{
 
 const MAX_ROBOTS_BYTES: usize = 64 * 1024;
 const MAX_ALLOWED_DOMAINS: usize = 256;
+const MAX_CRAWLER_EXECUTION_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct CrawlerConfig {
@@ -101,6 +105,32 @@ pub struct CrawledPage {
     pub fetch_ms: f64,
     pub extraction_ms: f64,
     pub error: Option<String>,
+    /// Present only when the caller explicitly enabled a data processor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<CrawlerExecutionRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CrawlerExecutionRecord {
+    pub processor_sha256: String,
+    pub input_sha256: String,
+    pub output_sha256: Option<String>,
+    pub output_bytes: Option<u64>,
+    /// Caller-defined sink reference, never an implicit URL or broker address.
+    pub output_reference: Option<String>,
+    pub execution_ms: f64,
+    pub error: Option<String>,
+}
+
+/// Application-owned persistence boundary for processor results.
+/// Implementations should enforce their own filesystem/database quotas.
+pub trait CrawlerExecutionOutputSink: Send + Sync {
+    fn store(
+        &self,
+        input_sha256: &str,
+        output_sha256: &str,
+        output: &[u8],
+    ) -> Result<String, String>;
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +192,7 @@ struct FetchPayload {
     sha256: String,
     fetch_ms: f64,
     extraction_ms: f64,
+    document: Vec<u8>,
 }
 
 impl Crawler {
@@ -196,14 +227,41 @@ impl Crawler {
         })
     }
 
-    /// Crawl only the supplied allowlisted domains. Links are discovered from
-    /// the WASM guest and queued breadth-first up to max_depth/max_pages.
+    /// Crawl allowlisted domains without executing the fetched documents.
     pub async fn crawl(&self, seeds: &[String]) -> Result<CrawlReport, CrawlerError> {
+        self.crawl_inner(seeds, None, None).await
+    }
+
+    /// Crawl and explicitly run a caller-selected processor against each
+    /// successfully fetched page's raw HTML bytes. Processor outputs are sent
+    /// to the caller-owned sink and are not embedded in the JSON report.
+    pub async fn crawl_with_processor(
+        &self,
+        seeds: &[String],
+        processor: CrawlerDataExecutor,
+        output_sink: Arc<dyn CrawlerExecutionOutputSink>,
+    ) -> Result<CrawlReport, CrawlerError> {
+        self.crawl_inner(seeds, Some(Arc::new(processor)), Some(output_sink))
+            .await
+    }
+
+    async fn crawl_inner(
+        &self,
+        seeds: &[String],
+        processor: Option<Arc<CrawlerDataExecutor>>,
+        output_sink: Option<Arc<dyn CrawlerExecutionOutputSink>>,
+    ) -> Result<CrawlReport, CrawlerError> {
         if seeds.is_empty() {
             return Err(CrawlerError::InvalidConfig(
                 "at least one --seed URL is required".into(),
             ));
         }
+        if processor.is_some() != output_sink.is_some() {
+            return Err(CrawlerError::InvalidConfig(
+                "processor and output sink must be configured together".into(),
+            ));
+        }
+
         let mut frontier = VecDeque::new();
         let mut seen = HashSet::new();
         for seed in seeds {
@@ -217,6 +275,7 @@ impl Crawler {
         }
 
         let crawl_byte_budget = Arc::new(AtomicUsize::new(0));
+        let execution_output_budget = Arc::new(AtomicUsize::new(0));
         let mut tasks = JoinSet::new();
         let mut records = Vec::new();
         while records.len() < self.inner.config.max_pages
@@ -230,8 +289,20 @@ impl Crawler {
                 };
                 let crawler = self.clone();
                 let crawl_byte_budget = crawl_byte_budget.clone();
+                let execution_output_budget = execution_output_budget.clone();
+                let processor = processor.clone();
+                let output_sink = output_sink.clone();
                 tasks.spawn(async move {
-                    let record = crawler.fetch_page(url, depth, crawl_byte_budget).await;
+                    let record = crawler
+                        .fetch_page(
+                            url,
+                            depth,
+                            crawl_byte_budget,
+                            execution_output_budget,
+                            processor,
+                            output_sink,
+                        )
+                        .await;
                     (depth, record)
                 });
             }
@@ -307,6 +378,9 @@ impl Crawler {
         url: Url,
         depth: usize,
         crawl_byte_budget: Arc<AtomicUsize>,
+        execution_output_budget: Arc<AtomicUsize>,
+        processor: Option<Arc<CrawlerDataExecutor>>,
+        output_sink: Option<Arc<dyn CrawlerExecutionOutputSink>>,
     ) -> CrawledPage {
         let started = Instant::now();
         let url_text = url.as_str().to_string();
@@ -323,6 +397,7 @@ impl Crawler {
             fetch_ms: 0.0,
             extraction_ms: 0.0,
             error: None,
+            execution: None,
         };
 
         let permit = match self.inner.page_slots.clone().acquire_owned().await {
@@ -340,11 +415,23 @@ impl Crawler {
             Ok(payload) => {
                 record.status_code = Some(payload.status);
                 record.document_bytes = payload.document_bytes;
-                record.sha256 = payload.sha256;
+                record.sha256 = payload.sha256.clone();
                 record.title = payload.extraction.title;
                 record.links = payload.extraction.links;
                 record.fetch_ms = payload.fetch_ms;
                 record.extraction_ms = payload.extraction_ms;
+                if let (Some(processor), Some(output_sink)) = (processor, output_sink) {
+                    record.execution = Some(
+                        execute_ingested_page(
+                            processor,
+                            output_sink,
+                            payload.sha256,
+                            payload.document,
+                            execution_output_budget,
+                        )
+                        .await,
+                    );
+                }
             }
             Err((status, error)) => {
                 record.status_code = status;
@@ -451,8 +538,8 @@ impl Crawler {
         let sha256 = hex_digest(&body);
         let extraction_started = Instant::now();
         let extractor = self.inner.extractor.clone();
-        let input = body;
-        let extraction = tokio::task::spawn_blocking(move || extractor.extract(&input))
+        let extraction_input = body.clone();
+        let extraction = tokio::task::spawn_blocking(move || extractor.extract(&extraction_input))
             .await
             .map_err(|error| (Some(status.as_u16()), error.to_string()))?
             .map_err(|error| (Some(status.as_u16()), error.to_string()))?;
@@ -490,6 +577,7 @@ impl Crawler {
             sha256,
             fetch_ms,
             extraction_ms,
+            document: body,
         })
     }
 
@@ -721,6 +809,92 @@ fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
         path.ends_with(last) && cursor <= path.len()
     } else {
         true
+    }
+}
+
+async fn execute_ingested_page(
+    processor: Arc<CrawlerDataExecutor>,
+    output_sink: Arc<dyn CrawlerExecutionOutputSink>,
+    input_sha256: String,
+    document: Vec<u8>,
+    output_budget: Arc<AtomicUsize>,
+) -> CrawlerExecutionRecord {
+    let processor_sha256 = processor.module_sha256().to_string();
+    let started = Instant::now();
+    let processor_for_task = processor.clone();
+    let processed = tokio::task::spawn_blocking(move || processor_for_task.execute(&document)).await;
+    let execution_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+    let output = match processed {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            return CrawlerExecutionRecord {
+                processor_sha256,
+                input_sha256,
+                output_sha256: None,
+                output_bytes: None,
+                output_reference: None,
+                execution_ms,
+                error: Some(error.to_string()),
+            };
+        }
+        Err(error) => {
+            return CrawlerExecutionRecord {
+                processor_sha256,
+                input_sha256,
+                output_sha256: None,
+                output_bytes: None,
+                output_reference: None,
+                execution_ms,
+                error: Some(format!("processor worker failed: {error}")),
+            };
+        }
+    };
+
+    if output_budget
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current
+                .checked_add(output.len())
+                .filter(|next| *next <= MAX_CRAWLER_EXECUTION_OUTPUT_BYTES)
+        })
+        .is_err()
+    {
+        return CrawlerExecutionRecord {
+            processor_sha256,
+            input_sha256,
+            output_sha256: None,
+            output_bytes: None,
+            output_reference: None,
+            execution_ms,
+            error: Some(format!(
+                "crawl-wide processor output budget exceeded ({} bytes)",
+                MAX_CRAWLER_EXECUTION_OUTPUT_BYTES
+            )),
+        };
+    }
+
+    let output_sha256 = hex_digest(&output);
+    let sink_for_task = output_sink.clone();
+    let input_for_task = input_sha256.clone();
+    let output_digest_for_task = output_sha256.clone();
+    let stored = tokio::task::spawn_blocking(move || {
+        sink_for_task.store(&input_for_task, &output_digest_for_task, &output)
+    })
+    .await;
+    let (output_reference, error) = match stored {
+        Ok(Ok(reference)) => (Some(reference), None),
+        Ok(Err(error)) => (None, Some(format!("output sink failed: {error}"))),
+        Err(error) => (None, Some(format!("output sink worker failed: {error}"))),
+    };
+
+    CrawlerExecutionRecord {
+        processor_sha256,
+        input_sha256,
+        output_sha256: Some(output_sha256),
+        output_bytes: Some(output.len() as u64),
+        output_reference,
+        execution_ms,
+        error,
     }
 }
 
