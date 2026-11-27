@@ -481,6 +481,108 @@ impl ObservationStore {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Error)]
+pub enum ObservationPublishError {
+    #[error("control-plane target URL must be HTTPS, or HTTP on localhost, without credentials, query, or fragment")]
+    InvalidTarget,
+    #[error("control-plane bearer token must contain 1..=4096 bytes")]
+    InvalidToken,
+    #[error("observation batch is invalid or exceeds its record/byte limits")]
+    InvalidBatch,
+    #[error("could not encode observation batch: {0}")]
+    Encode(#[from] serde_json::Error),
+    #[error("control-plane request failed: {0}")]
+    Request(#[from] reqwest::Error),
+    #[error("control-plane rejected observation batch with HTTP {0}")]
+    HttpStatus(u16),
+}
+
+/// Publish one explicitly selected batch to the authenticated data-stream
+/// ingress API. Redirects are disabled so the bearer token cannot be forwarded
+/// to another origin. The function never sends page HTML or arbitrary payloads.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn publish_observation_batch(
+    gateway_base: &str,
+    bearer_token: &str,
+    source_id: &str,
+    records: &[MultivariateObservation],
+) -> Result<(), ObservationPublishError> {
+    use std::net::IpAddr;
+    use std::time::Duration;
+
+    if bearer_token.is_empty() || bearer_token.len() > 4096 {
+        return Err(ObservationPublishError::InvalidToken);
+    }
+    let safe_source = !source_id.is_empty()
+        && source_id.len() <= MAX_OBSERVATION_SOURCE_ID_BYTES
+        && source_id != "."
+        && source_id != ".."
+        && source_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    if !safe_source
+        || records.is_empty()
+        || records.len() > MAX_DATA_STREAM_INGEST_RECORDS
+        || records.iter().any(|record| {
+            record.schema_version != OBSERVATION_SCHEMA_VERSION
+                || record.source_id != source_id
+                || record.values.is_empty()
+                || record.values.len() > MAX_OBSERVATION_DIMENSIONS
+                || record.values.iter().flatten().any(|value| !value.is_finite())
+        })
+        || records.windows(2).any(|pair| pair[0].sequence >= pair[1].sequence)
+    {
+        return Err(ObservationPublishError::InvalidBatch);
+    }
+
+    let mut base = reqwest::Url::parse(gateway_base)
+        .map_err(|_| ObservationPublishError::InvalidTarget)?;
+    let host = base.host_str().ok_or(ObservationPublishError::InvalidTarget)?;
+    let local_host = host.eq_ignore_ascii_case("localhost")
+        || host.parse::<IpAddr>().is_ok_and(|address| address.is_loopback());
+    if (base.scheme() != "https" && !(base.scheme() == "http" && local_host))
+        || !base.username().is_empty()
+        || base.password().is_some()
+        || base.query().is_some()
+        || base.fragment().is_some()
+    {
+        return Err(ObservationPublishError::InvalidTarget);
+    }
+
+    let mut body = Vec::new();
+    for record in records {
+        serde_json::to_writer(&mut body, record)?;
+        body.push(b'\n');
+        if body.len() > MAX_DATA_STREAM_INGEST_BYTES {
+            return Err(ObservationPublishError::InvalidBatch);
+        }
+    }
+    let prefix = base.path().trim_end_matches('/');
+    base.set_path(&format!(
+        "{prefix}/v1/data-streams/{source_id}/observations"
+    ));
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    let response = client
+        .post(base)
+        .bearer_auth(bearer_token)
+        .header(reqwest::header::CONTENT_TYPE, "application/x-ndjson")
+        .body(body)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(ObservationPublishError::HttpStatus(
+            response.status().as_u16(),
+        ));
+    }
+    Ok(())
+}
+
 fn describe_observation_stream(
     source_id: &str,
     stream: &StoredObservationStream,
