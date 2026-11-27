@@ -280,7 +280,8 @@ function renderDataStreams() {
     card.className = "stream-card";
     const details = document.createElement("div");
     const name = document.createElement("strong");
-    name.textContent = stream.source_id;
+    const isCrawlerStream = stream.source_id.startsWith("crawler-");
+    name.textContent = isCrawlerStream ? "Crawler page metrics" : stream.source_id;
     const meta = document.createElement("p");
     meta.className = "chunk-meta";
     meta.textContent = [
@@ -290,7 +291,8 @@ function renderDataStreams() {
     ].join(" · ");
     const bounds = document.createElement("p");
     bounds.className = "muted";
-    bounds.textContent = "retained from " + (stream.first_retained_sequence ?? "none");
+    bounds.textContent = (isCrawlerStream ? stream.source_id + " · " : "") +
+      "retained from " + (stream.first_retained_sequence ?? "none");
     details.append(name, meta, bounds);
     const choose = document.createElement("button");
     choose.type = "button";
@@ -370,9 +372,13 @@ async function readDataObservations() {
       timestamp.textContent = "Observed " + validated.timestamp.toString() + " ms";
       const vector = document.createElement("p");
       vector.className = "chunk-meta";
-      vector.textContent = "Values: [" + validated.values.map((value) =>
-        value === null ? "missing" : String(value)
-      ).join(", ") + "]";
+      const dimensionNames = range.source_id.startsWith("crawler-")
+        ? ["depth", "http_status", "document_bytes", "fetch_ms", "extraction_ms",
+          "link_count", "title_chars", "preview_chars", "failed"]
+        : validated.values.map((_, index) => "dimension_" + index);
+      vector.textContent = validated.values.map((value, index) =>
+        dimensionNames[index] + ": " + (value === null ? "missing" : String(value))
+      ).join(" · ");
       const validatedLabel = document.createElement("p");
       validatedLabel.className = "muted";
       validatedLabel.textContent = "Rust WASM schema-v1 validation: passed";
