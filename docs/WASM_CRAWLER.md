@@ -75,6 +75,42 @@ normalized in-allowlist links, fetch/extraction timings and an aggregate
 summary. Failed pages are retained as records with an error rather than
 silently disappearing.
 
+## Native browser crawler utility
+
+The native Wry browser runtime exposes the crawler as a dedicated **Crawler**
+utility tab. It does not replace the active page tab or inject results into a
+website. Build the YCR1 guest as shown above, set `YUKKI_CRAWLER_WASM` to the
+compiled guest path, and launch the native browser:
+
+~~~sh
+export YUKKI_CRAWLER_WASM="$PWD/crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm"
+cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.org/
+~~~
+
+In the utility tab, enter seed URLs and their allowed DNS domains. Domain
+allowlisting is required; the UI may infer domain names from the seed URLs
+when the allowlist field is empty, but users should review the resulting
+allowlist before starting. The browser UI permits up to 16 seeds and 1,000
+pages per run. The crawler's existing robots policy, DNS pinning, private
+address rejection, redirect refusal, pacing, timeouts, concurrency and byte
+budgets remain in force.
+
+The utility receives a bounded event stream as each page finishes. Result
+hyperlinks open a **YuKKi page summary in the last active main browsing tab**.
+The summary contains the extracted title, a plain-text excerpt (up to 480
+characters), source URL, fetch status/time, document size, content digest and
+up to eight validated discovered links. Its **Open original HTML** hyperlink
+navigates the same main tab to the remote source page. The Crawler utility tab
+remains open for selecting other results.
+
+The excerpt is derived from visible text in the fetched HTML; it is not an
+AI-generated semantic summary. Raw HTML is not broadcast to the browser UI or
+embedded in the summary page. The native host retains fetch authority and the
+browser's top-level navigation policy still applies when a user opens a source
+or discovered link. A bounded 16-record event queue backpressures the crawl
+when the utility is not consuming updates. The browser feed sends at most
+eight links per page event, each no longer than 1,024 bytes.
+
 ## Execute user-selected processors over ingested data
 
 Applications can opt in to a second, separate execution stage with
