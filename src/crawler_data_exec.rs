@@ -4,6 +4,7 @@
 //! explicitly provide a reviewed WebAssembly processor; page content is passed
 //! as opaque bytes and is never interpreted as code by the host.
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use wasmtime::{Config, Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder};
 
@@ -13,11 +14,14 @@ pub const MAX_DATA_EXEC_INPUT_BYTES: usize = 1_048_576;
 pub const MAX_DATA_EXEC_OUTPUT_BYTES: usize = 1_048_576;
 pub const MAX_DATA_EXEC_MEMORY_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_DATA_EXEC_FUEL: u64 = 10_000_000;
+pub const MAX_DATA_EXEC_FUEL: u64 = 1_000_000_000;
 
 #[derive(Debug, Error)]
 pub enum CrawlerDataExecError {
     #[error("processor module is empty or exceeds 4194304 bytes")]
     ModuleSize,
+    #[error("processor fuel is outside the supported range")]
+    InvalidFuel,
     #[error("processor compilation failed: {0}")]
     Compile(String),
     #[error("processor imports are forbidden; YCE1 modules must be capability-free")]
@@ -39,6 +43,7 @@ pub struct CrawlerDataExecutor {
     engine: Engine,
     module: Module,
     fuel_per_call: u64,
+    module_sha256: String,
 }
 
 struct ExecutionState {
@@ -49,8 +54,11 @@ impl CrawlerDataExecutor {
     /// Compile a user-selected processor. Only modules reviewed/authorized by
     /// the caller should be supplied; compilation is not publisher validation.
     pub fn from_bytes(wasm: &[u8], fuel_per_call: u64) -> Result<Self, CrawlerDataExecError> {
-        if wasm.is_empty() || wasm.len() > MAX_DATA_EXEC_MODULE_BYTES || fuel_per_call == 0 {
+        if wasm.is_empty() || wasm.len() > MAX_DATA_EXEC_MODULE_BYTES {
             return Err(CrawlerDataExecError::ModuleSize);
+        }
+        if fuel_per_call == 0 || fuel_per_call > MAX_DATA_EXEC_FUEL {
+            return Err(CrawlerDataExecError::InvalidFuel);
         }
 
         let mut config = Config::new();
@@ -68,7 +76,13 @@ impl CrawlerDataExecutor {
             engine,
             module,
             fuel_per_call,
+            module_sha256: digest_hex(wasm),
         })
+    }
+
+    /// SHA-256 of the exact core-Wasm artifact supplied by the caller.
+    pub fn module_sha256(&self) -> &str {
+        &self.module_sha256
     }
 
     pub fn with_defaults(wasm: &[u8]) -> Result<Self, CrawlerDataExecError> {
@@ -128,13 +142,14 @@ impl CrawlerDataExecutor {
         let output_ptr = (packed & 0xffff_ffff) as usize;
         let output_len = (packed >> 32) as usize;
         let memory_len = memory.data_size(&store);
-        if output_ptr == 0
-            || output_len == 0
-            || output_len > MAX_DATA_EXEC_OUTPUT_BYTES
-            || output_ptr
-                .checked_add(output_len)
-                .filter(|end| *end <= memory_len)
-                .is_none()
+        if output_len > MAX_DATA_EXEC_OUTPUT_BYTES
+            || (output_len == 0 && output_ptr != 0)
+            || (output_len > 0
+                && (output_ptr == 0
+                    || output_ptr
+                        .checked_add(output_len)
+                        .filter(|end| *end <= memory_len)
+                        .is_none()))
         {
             return Err(CrawlerDataExecError::InvalidOutput(
                 "output pointer or length is outside the permitted range".into(),
@@ -149,9 +164,44 @@ impl CrawlerDataExecutor {
     }
 }
 
+fn digest_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exposes_stable_processor_artifact_digest() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        assert_eq!(executor.module_sha256().len(), 64);
+        assert!(executor.module_sha256().bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn checked_in_byte_count_processor_runs_through_yce1() {
+        let wasm = wat::parse_str(include_str!("../examples/crawler-processors/byte-count.wat"))
+            .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        let output = executor.execute(b"sample payload").unwrap();
+        let count = u64::from_le_bytes(output.try_into().unwrap());
+        assert_eq!(count, 14);
+    }
 
     #[test]
     fn executes_explicit_processor_in_fresh_sandbox() {
@@ -167,6 +217,34 @@ mod tests {
         let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
         assert_eq!(executor.execute(b"untrusted page data").unwrap(), b"done");
         assert_eq!(executor.execute(b"another record").unwrap(), b"done");
+    }
+
+    #[test]
+    fn rejects_fuel_above_hard_ceiling() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            CrawlerDataExecutor::from_bytes(&wasm, MAX_DATA_EXEC_FUEL + 1),
+            Err(CrawlerDataExecError::InvalidFuel)
+        ));
+    }
+
+    #[test]
+    fn accepts_empty_processor_output() {
+        let wasm = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1 256)
+                (func (export "alloc") (param i32) (result i32) (i32.const 1024))
+                (func (export "execute") (param i32 i32) (result i64) (i64.const 0)))"#,
+        )
+        .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        assert!(executor.execute(b"input").unwrap().is_empty());
     }
 
     #[test]
