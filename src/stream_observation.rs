@@ -4,7 +4,11 @@
 //! fetch URLs, or authorize sources. Callers must apply their own source and
 //! tenant admission policy before forwarding observations.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
 
 pub const OBSERVATION_SCHEMA_VERSION: u16 = 1;
@@ -13,7 +17,7 @@ pub const MAX_OBSERVATION_SOURCE_ID_BYTES: usize = 128;
 pub const DEFAULT_MAX_RECORD_BYTES: usize = 16 * 1024;
 pub const DEFAULT_MAX_RECORDS_PER_PUSH: usize = 256;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MultivariateObservation {
     pub schema_version: u16,
     pub source_id: String,
@@ -230,5 +234,263 @@ mod tests {
             dimensions_decoder.finish(),
             Err(ObservationDecodeError::InvalidDimensions)
         ));
+    }
+}
+
+
+pub const MAX_DATA_STREAMS: usize = 128;
+pub const MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM: usize = 512;
+pub const MAX_DATA_STREAM_OBSERVATIONS_TOTAL: usize = 16_384;
+pub const MAX_DATA_STREAM_INGEST_RECORDS: usize = 64;
+pub const MAX_DATA_STREAM_INGEST_BYTES: usize = 1024 * 1024;
+pub const MAX_DATA_STREAM_READ_RECORDS: usize = 128;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DataStreamDescriptor {
+    pub source_id: String,
+    pub retained_observations: usize,
+    pub dimensions: usize,
+    pub first_retained_sequence: Option<u64>,
+    pub latest_sequence: Option<u64>,
+    pub updated_at_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DataStreamRange {
+    pub source_id: String,
+    pub first_retained_sequence: Option<u64>,
+    pub latest_sequence: Option<u64>,
+    pub records: Vec<MultivariateObservation>,
+}
+
+#[derive(Debug, Error)]
+pub enum ObservationStoreError {
+    #[error("observation batch exceeds the configured byte limit")]
+    BatchTooLarge,
+    #[error("observation batch is empty")]
+    EmptyBatch,
+    #[error("observation batch contains too many records")]
+    TooManyRecords,
+    #[error("observation source ID does not match the target data stream")]
+    SourceMismatch,
+    #[error("observation dimensions changed within a data stream")]
+    DimensionsChanged,
+    #[error("observation sequence numbers must increase strictly")]
+    SequenceNotIncreasing,
+    #[error("data stream capacity reached")]
+    StreamLimit,
+    #[error("data stream was not found")]
+    StreamNotFound,
+    #[error("data stream read limit must be 1..={MAX_DATA_STREAM_READ_RECORDS}")]
+    InvalidReadLimit,
+    #[error(transparent)]
+    Decode(#[from] ObservationDecodeError),
+}
+
+struct StoredObservationStream {
+    records: VecDeque<MultivariateObservation>,
+    dimensions: usize,
+    latest_sequence: u64,
+    updated_at_unix_ms: u64,
+}
+
+#[derive(Default)]
+struct ObservationStoreState {
+    streams: HashMap<String, StoredObservationStream>,
+    total_records: usize,
+}
+
+/// Bounded, in-memory retention for validated multivariate data streams.
+/// This is separate from the YKMC media store: data observations do not
+/// masquerade as audio/video chunks and are never decoded as media.
+#[derive(Clone, Default)]
+pub struct ObservationStore {
+    state: Arc<Mutex<ObservationStoreState>>,
+}
+
+impl ObservationStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Validate and append one bounded schema-v1 NDJSON batch. All records
+    /// are validated before the store is mutated, so malformed batches are
+    /// rejected atomically.
+    pub fn ingest_ndjson(
+        &self,
+        source_id: &str,
+        bytes: &[u8],
+    ) -> Result<DataStreamDescriptor, ObservationStoreError> {
+        if bytes.len() > MAX_DATA_STREAM_INGEST_BYTES {
+            return Err(ObservationStoreError::BatchTooLarge);
+        }
+        if source_id.is_empty() || source_id.len() > MAX_OBSERVATION_SOURCE_ID_BYTES {
+            return Err(ObservationStoreError::SourceMismatch);
+        }
+
+        let mut decoder = NdjsonObservationDecoder::new(ObservationDecoderConfig {
+            max_record_bytes: DEFAULT_MAX_RECORD_BYTES,
+            max_records_per_push: MAX_DATA_STREAM_INGEST_RECORDS,
+        })?;
+        let mut records = decoder.push(bytes)?;
+        if let Some(last) = decoder.finish()? {
+            records.push(last);
+        }
+        if records.is_empty() {
+            return Err(ObservationStoreError::EmptyBatch);
+        }
+        if records.len() > MAX_DATA_STREAM_INGEST_RECORDS {
+            return Err(ObservationStoreError::TooManyRecords);
+        }
+        if records.iter().any(|record| record.source_id != source_id) {
+            return Err(ObservationStoreError::SourceMismatch);
+        }
+        let dimensions = records[0].values.len();
+        if records.iter().any(|record| record.values.len() != dimensions) {
+            return Err(ObservationStoreError::DimensionsChanged);
+        }
+        if records
+            .windows(2)
+            .any(|pair| pair[0].sequence >= pair[1].sequence)
+        {
+            return Err(ObservationStoreError::SequenceNotIncreasing);
+        }
+
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ObservationStoreError::StreamLimit)?;
+        if !state.streams.contains_key(source_id) && state.streams.len() >= MAX_DATA_STREAMS {
+            return Err(ObservationStoreError::StreamLimit);
+        }
+        if let Some(existing) = state.streams.get(source_id) {
+            if existing.dimensions != dimensions {
+                return Err(ObservationStoreError::DimensionsChanged);
+            }
+            if records[0].sequence <= existing.latest_sequence {
+                return Err(ObservationStoreError::SequenceNotIncreasing);
+            }
+        }
+
+        for record in records {
+            let record_sequence = record.sequence;
+            let record_timestamp = record.timestamp_unix_ms;
+            let evicted_per_stream = {
+                let stream = state
+                    .streams
+                    .entry(source_id.to_owned())
+                    .or_insert_with(|| StoredObservationStream {
+                        records: VecDeque::new(),
+                        dimensions,
+                        latest_sequence: record_sequence,
+                        updated_at_unix_ms: record_timestamp,
+                    });
+                stream.latest_sequence = record_sequence;
+                stream.updated_at_unix_ms = record_timestamp;
+                stream.records.push_back(record);
+                if stream.records.len() > MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM {
+                    stream.records.pop_front().is_some()
+                } else {
+                    false
+                }
+            };
+            state.total_records += 1;
+            if evicted_per_stream {
+                state.total_records = state.total_records.saturating_sub(1);
+            }
+            while state.total_records > MAX_DATA_STREAM_OBSERVATIONS_TOTAL {
+                let oldest_source = state
+                    .streams
+                    .iter()
+                    .filter_map(|(id, stream)| {
+                        stream
+                            .records
+                            .front()
+                            .map(|record| (id.clone(), record.timestamp_unix_ms))
+                    })
+                    .min_by_key(|(_, timestamp)| *timestamp)
+                    .map(|(id, _)| id);
+                let Some(oldest_source) = oldest_source else {
+                    state.total_records = 0;
+                    break;
+                };
+                let removed = state
+                    .streams
+                    .get_mut(&oldest_source)
+                    .and_then(|stream| stream.records.pop_front())
+                    .is_some();
+                if removed {
+                    state.total_records = state.total_records.saturating_sub(1);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let stream = state
+            .streams
+            .get(source_id)
+            .ok_or(ObservationStoreError::StreamNotFound)?;
+        Ok(describe_observation_stream(source_id, stream))
+    }
+
+    pub fn list(&self) -> Result<Vec<DataStreamDescriptor>, ObservationStoreError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| ObservationStoreError::StreamLimit)?;
+        let mut streams = state
+            .streams
+            .iter()
+            .map(|(source_id, stream)| describe_observation_stream(source_id, stream))
+            .collect::<Vec<_>>();
+        streams.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+        Ok(streams)
+    }
+
+    pub fn read(
+        &self,
+        source_id: &str,
+        from_sequence: u64,
+        limit: usize,
+    ) -> Result<DataStreamRange, ObservationStoreError> {
+        if limit == 0 || limit > MAX_DATA_STREAM_READ_RECORDS {
+            return Err(ObservationStoreError::InvalidReadLimit);
+        }
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| ObservationStoreError::StreamLimit)?;
+        let stream = state
+            .streams
+            .get(source_id)
+            .ok_or(ObservationStoreError::StreamNotFound)?;
+        let records = stream
+            .records
+            .iter()
+            .filter(|record| record.sequence >= from_sequence)
+            .take(limit)
+            .cloned()
+            .collect();
+        Ok(DataStreamRange {
+            source_id: source_id.to_owned(),
+            first_retained_sequence: stream.records.front().map(|record| record.sequence),
+            latest_sequence: Some(stream.latest_sequence),
+            records,
+        })
+    }
+}
+
+fn describe_observation_stream(
+    source_id: &str,
+    stream: &StoredObservationStream,
+) -> DataStreamDescriptor {
+    DataStreamDescriptor {
+        source_id: source_id.to_owned(),
+        retained_observations: stream.records.len(),
+        dimensions: stream.dimensions,
+        first_retained_sequence: stream.records.front().map(|record| record.sequence),
+        latest_sequence: Some(stream.latest_sequence),
+        updated_at_unix_ms: stream.updated_at_unix_ms,
     }
 }
