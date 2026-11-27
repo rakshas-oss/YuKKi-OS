@@ -8,6 +8,7 @@ use std::{
 use axum::extract::connect_info::Connected;
 use axum::serve::{IncomingStream, Listener};
 use axum::{
+    body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, DefaultBodyLimit, Path, Query, State,
@@ -15,7 +16,7 @@ use axum::{
     http::{header, HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,10 @@ use tracing::warn;
 use crate::{
     media_codec::{LiveMediaStreams, MediaChunk, MediaError},
     stream_registry::{RegistryError, StreamRegistry, Subscription, SubscriptionRead},
+    stream_observation::{
+        DataStreamDescriptor, DataStreamRange, ObservationStore, ObservationStoreError,
+        MAX_DATA_STREAM_INGEST_BYTES, MAX_DATA_STREAM_READ_RECORDS,
+    },
     stream_relay::{RelayError, StreamRelay},
 };
 
@@ -336,6 +341,7 @@ struct GatewayState {
     auth: GatewayAuth,
     relay: Option<Arc<StreamRelay>>,
     flood_limiter: Arc<GatewayFloodLimiter>,
+    observations: ObservationStore,
     #[cfg(feature = "mesh_dashboard")]
     mesh: Arc<MeshStore>,
 }
@@ -344,6 +350,12 @@ struct GatewayState {
 struct ChunkQuery {
     from: u64,
     limit: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct DataObservationQuery {
+    from: Option<u64>,
+    limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -403,6 +415,7 @@ pub async fn serve_with_relay(
         auth,
         relay,
         flood_limiter: Arc::new(GatewayFloodLimiter::new()),
+        observations: ObservationStore::new(),
         #[cfg(feature = "mesh_dashboard")]
         mesh,
     };
@@ -413,7 +426,14 @@ pub async fn serve_with_relay(
         .route("/v1/streams", get(list_streams))
         .route("/v1/streams/{id}", get(describe_stream))
         .route("/v1/streams/{id}/chunks", get(read_chunks))
-        .route("/v1/streams/{id}/ws", get(websocket_tune_in));
+        .route("/v1/streams/{id}/ws", get(websocket_tune_in))
+        .route("/v1/data-streams", get(list_data_streams))
+        .route(
+            "/v1/data-streams/{id}/observations",
+            get(read_data_observations)
+                .post(ingest_data_observations)
+                .layer(DefaultBodyLimit::max(MAX_DATA_STREAM_INGEST_BYTES)),
+        );
     #[cfg(feature = "mesh_dashboard")]
     let app = app
         .route("/v1/mesh", get(mesh_state))
@@ -496,8 +516,9 @@ async fn cors_preflight_and_headers(
                     "" | "authorization" | "content-type"
                 )
             });
-        if !requested_method.is_some_and(|method| method.eq_ignore_ascii_case("GET"))
-            || !requested_headers_allowed
+        if !requested_method.is_some_and(|method| {
+            method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("POST")
+        }) || !requested_headers_allowed
         {
             return StatusCode::FORBIDDEN.into_response();
         }
@@ -507,7 +528,7 @@ async fn cors_preflight_and_headers(
         let headers = response.headers_mut();
         headers.insert(
             "access-control-allow-methods",
-            "GET, OPTIONS".parse().expect("static header is valid"),
+            "GET, POST, OPTIONS".parse().expect("static header is valid"),
         );
         headers.insert(
             "access-control-allow-headers",
@@ -706,6 +727,78 @@ async fn describe_drone(State(state): State<GatewayState>, Path(id): Path<String
         }))
         .into_response(),
         Err(RegistryError::StreamNotFound(_)) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::BAD_REQUEST.into_response(),
+    }
+}
+
+
+
+async fn list_data_streams(
+    State(state): State<GatewayState>,
+    ConnectInfo(peer): ConnectInfo<PeerAddr>,
+) -> Response {
+    match state.observations.list() {
+        Ok(streams) => {
+            let bytes = serde_json::to_vec(&streams).map_or(0, |body| body.len());
+            if !state.flood_limiter.allow_egress_bytes(peer.0.ip(), bytes) {
+                return StatusCode::TOO_MANY_REQUESTS.into_response();
+            }
+            Json(streams).into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn read_data_observations(
+    State(state): State<GatewayState>,
+    ConnectInfo(peer): ConnectInfo<PeerAddr>,
+    Path(id): Path<String>,
+    Query(query): Query<DataObservationQuery>,
+) -> Response {
+    let limit = query.limit.unwrap_or(64);
+    if limit == 0 || limit > MAX_DATA_STREAM_READ_RECORDS {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match state.observations.read(&id, query.from.unwrap_or(0), limit) {
+        Ok(range) => {
+            let bytes = serde_json::to_vec(&range).map_or(0, |body| body.len());
+            if !state.flood_limiter.allow_egress_bytes(peer.0.ip(), bytes) {
+                return StatusCode::TOO_MANY_REQUESTS.into_response();
+            }
+            Json(range).into_response()
+        }
+        Err(ObservationStoreError::StreamNotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(ObservationStoreError::InvalidReadLimit) => StatusCode::BAD_REQUEST.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn ingest_data_observations(
+    State(state): State<GatewayState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if content_type != "application/x-ndjson" && content_type != "application/ndjson" {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+    }
+    if body.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match state.observations.ingest_ndjson(&id, &body) {
+        Ok(stream) => (StatusCode::ACCEPTED, Json(stream)).into_response(),
+        Err(ObservationStoreError::BatchTooLarge) => StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        Err(ObservationStoreError::StreamLimit) => StatusCode::INSUFFICIENT_STORAGE.into_response(),
+        Err(ObservationStoreError::TooManyRecords) => StatusCode::TOO_MANY_REQUESTS.into_response(),
         Err(_) => StatusCode::BAD_REQUEST.into_response(),
     }
 }
