@@ -1,4 +1,18 @@
-## v6.22.0 (release candidate; not published)
+## v6.22.1 (patch release candidate; not published)
+
+### Post-release validation maintenance
+
+- Correct the NDJSON streaming regression test to reflect the incremental decoder contract: a final record without a newline remains buffered by `push()` and is validated by `finish()`.
+- Apply the pinned Rust 1.98.1 rustfmt formatting to `guest-worker/src/lib.rs`.
+
+### Scope
+
+- No decoder implementation, runtime behavior, public API, protocol framing or independently versioned browser/WASI workspace package is changed.
+- The patch candidate must pass the exact-commit CI/release gate before a v6.22.1 tag or release is created.
+
+---
+
+## v6.22.0 (published 2026-11-26)
 
 ### User-selected crawler processing
 
@@ -18,7 +32,7 @@
 
 ### Cross-repository aggregation
 
-- Pair with Overhauled v1.11.0's candidate fixed-memory multivariate_stats library for online pairwise covariance and Pearson correlation across up to 32 dimensions. Missing dimensions are omitted pairwise; each matrix cell carries its own sample count.
+- Pair with the published Overhauled v1.11.0 fixed-memory multivariate_stats library for online pairwise covariance and Pearson correlation across up to 32 dimensions. Missing dimensions are omitted pairwise; each matrix cell carries its own sample count.
 - Aggregation remains CPU-only and caller-driven. It does not introduce a BRK message, raw-page transfer, automatic broker route or GPU/NPU dispatch.
 
 ### Boundaries and release gate
@@ -26,7 +40,7 @@
 - Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
 - The NDJSON decoder parses data; it does not authenticate sources or authorize forwarding.
 - The YCE1 processor runs only when an application or operator explicitly selects a module. It does not execute instructions supplied by crawled content.
-- The release remains a candidate pending full native, WASM, security, package, paired-repository and adversarial validation. See [VERSIONING.md](VERSIONING.md) for the exact release gate.
+- The v6.22.0 tag and GitHub Release were published on 2026-11-26. The release currently has no attached binary assets; GitHub Release publication does not imply crates.io availability. See [VERSIONING.md](VERSIONING.md) for the v6.22.1 patch-candidate gate.
 
 ---
 
@@ -46,7 +60,7 @@
 - This is not a browser renderer, JavaScript engine, form/CAPTCHA automation system, distributed frontier, durable historical database or automatic accelerator pipeline.
 - No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format change is intended.
 - The crawler requires network egress controls at deployment level; application SSRF protections do not replace a restricted network namespace/firewall.
-- The v6.21.0 GitHub Release was published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. See [VERSIONING.md](VERSIONING.md) for the subsequent v6.22.0 candidate gate.
+- The v6.21.0 GitHub Release was published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. See [VERSIONING.md](VERSIONING.md) for v6.22.0 release history and the v6.22.1 patch-candidate gate.
 
 ---
 

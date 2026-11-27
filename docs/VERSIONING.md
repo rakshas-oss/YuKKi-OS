@@ -20,16 +20,6 @@ The published v6.22.0 release added user-selected YCE1 crawler processing and bo
 - Apply the repository-pinned Rust 1.98.1 rustfmt layout to `guest-worker/src/lib.rs`, restoring the repo-wide formatting gate.
 - Preserve the existing decoder implementation and public contract. No new code path, API, schema, wire identity, or backend behavior is introduced.
 
-## Version assessment
-
-The published v6.21.0 release delivered the bounded WASM crawler fabric, static HTML extraction, crawl provenance/metriculation reports, and the Aikido dependency/security remediation. The additive changes merged after that tag justify the next minor version:
-
-- Add the native YCE1 CrawlerDataExecutor API and Crawler::crawl_with_processor, plus the explicit yukki_crawl --execute-wasm operator path for user-selected core-Wasm processors.
-- Keep the YCR1 HTML extractor separate from YCE1 processors. Each processor invocation receives a fresh Wasmtime Store/instance, rejects imports, validates guest memory ranges, and is bounded by module/input/output limits, fuel, concurrency, execution-count and aggregate-output ceilings.
-- Add NdjsonObservationDecoder, an incremental parser for schema-v1 untrusted numeric observations. Defaults retain at most one 16 KiB incomplete record and return at most 256 records per push; records support 1–32 dimensions and preserve missing values as None.
-- Reject unsupported schema versions, unknown fields, oversized records, invalid source IDs/dimensions and non-finite numeric values. The decoder does not authenticate publishers or authorize forwarding; applications still apply source/tenant policy and backpressure.
-- Pair with Overhauled v1.11.0's candidate multivariate_stats library for fixed-memory, pairwise online covariance/correlation over normalized numeric observations. This integration remains caller-driven.
-
 ## Compatibility and security boundaries
 
 - Existing YKMC, BRK1, BRK2, NXR1 and WSM1 wire identities remain unchanged; the v6.22.1 maintenance patch introduces no protocol or framing change.
