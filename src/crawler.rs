@@ -140,7 +140,7 @@ pub trait CrawlerExecutionOutputSink: Send + Sync {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum CrawlEvent {
-    PageCompleted(CrawledPage),
+    PageCompleted(Box<CrawledPage>),
     Finished(CrawlMetrics),
 }
 
@@ -337,7 +337,7 @@ impl Crawler {
                 let mut browser_record = record.clone();
                 browser_record.links.retain(|link| link.len() <= 1024);
                 browser_record.links.truncate(8);
-                let _ = sender.send(CrawlEvent::PageCompleted(browser_record)).await;
+                let _ = sender.send(CrawlEvent::PageCompleted(Box::new(browser_record))).await;
             }
             if depth < self.inner.config.max_depth && record.error.is_none() {
                 for link in &record.links {
@@ -1094,7 +1094,7 @@ fn summarize_html_text(document: &[u8]) -> String {
                 .unwrap_or("")
                 .to_ascii_lowercase();
             if closing {
-                if skipped_element.as_deref() == Some(name.as_str()) {
+                if skipped_element == Some(name.as_str()) {
                     skipped_element = None;
                 }
             } else if matches!(
