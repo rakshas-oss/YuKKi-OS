@@ -924,6 +924,7 @@ async fn execute_ingested_page(
     }
 
     let output_sha256 = hex_digest(&output);
+    let output_bytes = output.len() as u64;
     let sink_for_task = output_sink.clone();
     let input_for_task = input_sha256.clone();
     let output_digest_for_task = output_sha256.clone();
@@ -946,7 +947,7 @@ async fn execute_ingested_page(
         processor_sha256,
         input_sha256,
         output_sha256: Some(output_sha256),
-        output_bytes: Some(output.len() as u64),
+        output_bytes: Some(output_bytes),
         output_reference,
         execution_ms,
         error,
