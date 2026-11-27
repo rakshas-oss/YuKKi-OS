@@ -194,6 +194,16 @@ mod tests {
     }
 
     #[test]
+    fn checked_in_byte_count_processor_runs_through_yce1() {
+        let wasm = wat::parse_str(include_str!("../examples/crawler-processors/byte-count.wat"))
+            .unwrap();
+        let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
+        let output = executor.execute(b"sample payload").unwrap();
+        let count = u64::from_le_bytes(output.try_into().unwrap());
+        assert_eq!(count, 14);
+    }
+
+    #[test]
     fn executes_explicit_processor_in_fresh_sandbox() {
         let wasm = wat::parse_str(
             r#"(module
