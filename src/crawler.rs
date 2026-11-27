@@ -198,6 +198,15 @@ struct FetchPayload {
     document: Vec<u8>,
 }
 
+#[derive(Clone)]
+struct CrawlerExecution {
+    processor: Arc<CrawlerDataExecutor>,
+    output_sink: Arc<dyn CrawlerExecutionOutputSink>,
+    output_budget: Arc<AtomicUsize>,
+    run_budget: Arc<AtomicUsize>,
+    slots: Arc<Semaphore>,
+}
+
 impl Crawler {
     pub fn new(config: CrawlerConfig, wasm_plugin: &[u8]) -> Result<Self, CrawlerError> {
         validate_config(&config)?;
@@ -232,7 +241,7 @@ impl Crawler {
 
     /// Crawl allowlisted domains without executing the fetched documents.
     pub async fn crawl(&self, seeds: &[String]) -> Result<CrawlReport, CrawlerError> {
-        self.crawl_inner(seeds, None, None).await
+        self.crawl_inner(seeds, None).await
     }
 
     /// Crawl and explicitly run a caller-selected processor against each
@@ -244,27 +253,26 @@ impl Crawler {
         processor: CrawlerDataExecutor,
         output_sink: Arc<dyn CrawlerExecutionOutputSink>,
     ) -> Result<CrawlReport, CrawlerError> {
-        self.crawl_inner(seeds, Some(Arc::new(processor)), Some(output_sink))
-            .await
+        let execution = Arc::new(CrawlerExecution {
+            processor: Arc::new(processor),
+            output_sink,
+            output_budget: Arc::new(AtomicUsize::new(0)),
+            run_budget: Arc::new(AtomicUsize::new(0)),
+            slots: Arc::new(Semaphore::new(MAX_CRAWLER_PROCESSOR_CONCURRENCY)),
+        });
+        self.crawl_inner(seeds, Some(execution)).await
     }
 
     async fn crawl_inner(
         &self,
         seeds: &[String],
-        processor: Option<Arc<CrawlerDataExecutor>>,
-        output_sink: Option<Arc<dyn CrawlerExecutionOutputSink>>,
+        execution: Option<Arc<CrawlerExecution>>,
     ) -> Result<CrawlReport, CrawlerError> {
         if seeds.is_empty() {
             return Err(CrawlerError::InvalidConfig(
                 "at least one --seed URL is required".into(),
             ));
         }
-        if processor.is_some() != output_sink.is_some() {
-            return Err(CrawlerError::InvalidConfig(
-                "processor and output sink must be configured together".into(),
-            ));
-        }
-
         let mut frontier = VecDeque::new();
         let mut seen = HashSet::new();
         for seed in seeds {
@@ -278,9 +286,6 @@ impl Crawler {
         }
 
         let crawl_byte_budget = Arc::new(AtomicUsize::new(0));
-        let execution_output_budget = Arc::new(AtomicUsize::new(0));
-        let execution_run_budget = Arc::new(AtomicUsize::new(0));
-        let execution_slots = Arc::new(Semaphore::new(MAX_CRAWLER_PROCESSOR_CONCURRENCY));
         let mut tasks = JoinSet::new();
         let mut records = Vec::new();
         while records.len() < self.inner.config.max_pages
@@ -294,22 +299,14 @@ impl Crawler {
                 };
                 let crawler = self.clone();
                 let crawl_byte_budget = crawl_byte_budget.clone();
-                let execution_output_budget = execution_output_budget.clone();
-                let execution_run_budget = execution_run_budget.clone();
-                let execution_slots = execution_slots.clone();
-                let processor = processor.clone();
-                let output_sink = output_sink.clone();
+                let execution = execution.clone();
                 tasks.spawn(async move {
                     let record = crawler
                         .fetch_page(
                             url,
                             depth,
                             crawl_byte_budget,
-                            execution_output_budget,
-                            execution_run_budget,
-                            execution_slots,
-                            processor,
-                            output_sink,
+                            execution,
                         )
                         .await;
                     (depth, record)
@@ -387,11 +384,7 @@ impl Crawler {
         url: Url,
         depth: usize,
         crawl_byte_budget: Arc<AtomicUsize>,
-        execution_output_budget: Arc<AtomicUsize>,
-        execution_run_budget: Arc<AtomicUsize>,
-        execution_slots: Arc<Semaphore>,
-        processor: Option<Arc<CrawlerDataExecutor>>,
-        output_sink: Option<Arc<dyn CrawlerExecutionOutputSink>>,
+        execution: Option<Arc<CrawlerExecution>>,
     ) -> CrawledPage {
         let started = Instant::now();
         let url_text = url.as_str().to_string();
@@ -431,17 +424,13 @@ impl Crawler {
                 record.links = payload.extraction.links;
                 record.fetch_ms = payload.fetch_ms;
                 record.extraction_ms = payload.extraction_ms;
-                if let (Some(processor), Some(output_sink)) = (processor, output_sink) {
+                if let Some(execution) = execution {
                     record.execution = Some(
                         execute_ingested_page(
-                            processor,
-                            output_sink,
+                            execution,
                             hex_digest(record.url.as_bytes()),
                             payload.sha256,
                             payload.document,
-                            execution_output_budget,
-                            execution_run_budget,
-                            execution_slots,
                         )
                         .await,
                     );
@@ -827,17 +816,13 @@ fn robots_pattern_matches(pattern: &str, path: &str) -> bool {
 }
 
 async fn execute_ingested_page(
-    processor: Arc<CrawlerDataExecutor>,
-    output_sink: Arc<dyn CrawlerExecutionOutputSink>,
+    execution: Arc<CrawlerExecution>,
     page_key_sha256: String,
     input_sha256: String,
     document: Vec<u8>,
-    output_budget: Arc<AtomicUsize>,
-    run_budget: Arc<AtomicUsize>,
-    execution_slots: Arc<Semaphore>,
 ) -> CrawlerExecutionRecord {
-    let processor_sha256 = processor.module_sha256().to_string();
-    if run_budget
+    let processor_sha256 = execution.processor.module_sha256().to_string();
+    if execution.run_budget
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current.checked_add(1).filter(|next| *next <= MAX_CRAWLER_PROCESSOR_RUNS)
         })
@@ -856,7 +841,7 @@ async fn execute_ingested_page(
             )),
         };
     }
-    let _permit = match execution_slots.acquire_owned().await {
+    let _permit = match execution.slots.clone().acquire_owned().await {
         Ok(permit) => permit,
         Err(error) => {
             return CrawlerExecutionRecord {
@@ -871,7 +856,7 @@ async fn execute_ingested_page(
         }
     };
     let started = Instant::now();
-    let processor_for_task = processor.clone();
+    let processor_for_task = execution.processor.clone();
     let processed = tokio::task::spawn_blocking(move || processor_for_task.execute(&document)).await;
     let execution_ms = started.elapsed().as_secs_f64() * 1000.0;
 
@@ -901,7 +886,7 @@ async fn execute_ingested_page(
         }
     };
 
-    if output_budget
+    if execution.output_budget
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current
                 .checked_add(output.len())
@@ -925,7 +910,7 @@ async fn execute_ingested_page(
 
     let output_sha256 = hex_digest(&output);
     let output_bytes = output.len() as u64;
-    let sink_for_task = output_sink.clone();
+    let sink_for_task = execution.output_sink.clone();
     let input_for_task = input_sha256.clone();
     let output_digest_for_task = output_sha256.clone();
     let stored = tokio::task::spawn_blocking(move || {
@@ -1117,9 +1102,15 @@ mod tests {
     use super::*;
 
     #[derive(Default)]
-    struct CapturingOutputSink(
-        std::sync::Mutex<Option<(String, String, String, Vec<u8>)>>,
-    );
+    struct CapturedOutput {
+        page_key_sha256: String,
+        input_sha256: String,
+        output_sha256: String,
+        output: Vec<u8>,
+    }
+
+    #[derive(Default)]
+    struct CapturingOutputSink(std::sync::Mutex<Option<CapturedOutput>>);
 
     impl CrawlerExecutionOutputSink for CapturingOutputSink {
         fn store(
@@ -1130,12 +1121,12 @@ mod tests {
             output: &[u8],
         ) -> Result<String, String> {
             let mut captured = self.0.lock().map_err(|error| error.to_string())?;
-            *captured = Some((
-                page_key_sha256.to_string(),
-                input_sha256.to_string(),
-                output_sha256.to_string(),
-                output.to_vec(),
-            ));
+            *captured = Some(CapturedOutput {
+                page_key_sha256: page_key_sha256.to_string(),
+                input_sha256: input_sha256.to_string(),
+                output_sha256: output_sha256.to_string(),
+                output: output.to_vec(),
+            });
             Ok("processed.bin".into())
         }
     }
@@ -1148,15 +1139,18 @@ mod tests {
         let sink = Arc::new(CapturingOutputSink::default());
         let input = b"<html>hello</html>".to_vec();
         let input_sha256 = hex_digest(&input);
+        let execution_context = Arc::new(CrawlerExecution {
+            processor: processor.clone(),
+            output_sink: sink.clone(),
+            output_budget: Arc::new(AtomicUsize::new(0)),
+            run_budget: Arc::new(AtomicUsize::new(0)),
+            slots: Arc::new(Semaphore::new(1)),
+        });
         let execution = execute_ingested_page(
-            processor.clone(),
-            sink.clone(),
+            execution_context,
             "a".repeat(64),
             input_sha256.clone(),
             input,
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(Semaphore::new(1)),
         )
         .await;
 
@@ -1166,10 +1160,10 @@ mod tests {
         assert_eq!(execution.output_reference.as_deref(), Some("processed.bin"));
         assert_eq!(execution.output_bytes, Some(8));
         let captured = sink.0.lock().unwrap().clone().unwrap();
-        assert_eq!(captured.0, "a".repeat(64));
-        assert_eq!(captured.1, input_sha256);
-        assert_eq!(captured.2, execution.output_sha256.unwrap());
-        assert_eq!(u64::from_le_bytes(captured.3.try_into().unwrap()), 18);
+        assert_eq!(captured.page_key_sha256, "a".repeat(64));
+        assert_eq!(captured.input_sha256, input_sha256);
+        assert_eq!(captured.output_sha256, execution.output_sha256.unwrap());
+        assert_eq!(u64::from_le_bytes(captured.output.try_into().unwrap()), 18);
     }
 
     #[test]
