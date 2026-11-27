@@ -1127,13 +1127,7 @@ fn summarize_html_text(document: &[u8]) -> String {
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'");
-    let mut compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.len() > 2048 {
-        compact.truncate(2048);
-        while !compact.is_char_boundary(compact.len()) {
-            compact.pop();
-        }
-    }
+    let compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
     compact.chars().take(480).collect()
 }
 
