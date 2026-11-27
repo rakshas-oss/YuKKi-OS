@@ -12,22 +12,27 @@ not as generic host crates.
 
 ### Consumer commands
 
-Install the runtime CLI:
+The GitHub Release includes native runtime archives; the root crate has not
+yet been published to crates.io. To install the CLI from the latest published
+source tag:
 
 ```sh
-cargo install yukkios --version 6.21.0 --locked --bin yukki_core_node
+cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.21.0 \
+  --locked --bin yukki_core_node
 ```
 
-Add the library as a dependency:
+Until the first crates.io publication, depend on the published source tag:
 
 ```toml
 [dependencies]
-yukkios = "6.21.0"
+yukkios = { git = "https://github.com/rakshas-oss/YuKKi-OS", tag = "v6.21.0" }
 ```
 
-Cargo's platform and native build prerequisites still apply. The optional
-`native-crypto` feature links system mbed TLS libraries; it is not enabled by
-default.
+After crates.io accepts the first upload, consumers can use a registry
+dependency such as `yukkios = "6.22.0"`. Do not use that form before the
+version is visible in crates.io. Cargo's platform and native build
+prerequisites still apply. The optional `native-crypto` feature links system
+mbed TLS libraries; it is not enabled by default.
 
 ### First publication
 
