@@ -31,13 +31,13 @@ use wry::{
     WebView, WebViewBuilder,
 };
 
-use yukkios::crawler::{Crawler, CrawlerConfig, CrawlEvent};
 use yukki_browser_runtime::{
     accelerator::{rgba_gain_cpu, BrowserAcceleratorScheduler},
     policy::{resolve_address, validate_navigation},
     store::{self, BrowserState},
     EngineAdapter, MAX_TABS,
 };
+use yukkios::crawler::{CrawlEvent, Crawler, CrawlerConfig};
 
 const DEFAULT_URL: &str = "https://example.com";
 const TOOLBAR_HEIGHT: f64 = 122.0;
@@ -429,8 +429,10 @@ fn build_crawler_utility(
                 return;
             }
             if let Ok(message) = serde_json::from_str::<CrawlerUiMessage>(request.body()) {
-                if matches!(message.action.as_str(), "ready" | "start_crawl" | "open_summary")
-                    && message.action.len() <= 32
+                if matches!(
+                    message.action.as_str(),
+                    "ready" | "start_crawl" | "open_summary"
+                ) && message.action.len() <= 32
                 {
                     let _ = ipc_proxy.send_event(RuntimeEvent::CrawlerUi { tab_id, message });
                 }
@@ -653,13 +655,19 @@ fn html_escape(value: &str) -> String {
 }
 
 fn crawler_summary_html(message: &CrawlerUiMessage) -> Result<String, String> {
-    let source = message.url.as_deref().ok_or("summary is missing its source URL")?;
+    let source = message
+        .url
+        .as_deref()
+        .ok_or("summary is missing its source URL")?;
     if source.len() > 2048 {
         return Err("summary source URL exceeds 2,048 bytes".to_owned());
     }
     let source = validate_navigation(source).map_err(|error| error.to_string())?;
     let title = message.title.as_deref().unwrap_or("Untitled page");
-    let summary = message.summary.as_deref().unwrap_or("No text preview was extracted.");
+    let summary = message
+        .summary
+        .as_deref()
+        .unwrap_or("No text preview was extracted.");
     if title.len() > 256 || summary.len() > 480 {
         return Err("summary title or preview exceeds its size limit".to_owned());
     }
@@ -682,7 +690,8 @@ fn crawler_summary_html(message: &CrawlerUiMessage) -> Result<String, String> {
     } else {
         format!("<ul>{discovered}</ul>")
     };
-    let status = message.status_code
+    let status = message
+        .status_code
         .map(|code| format!("HTTP {code}"))
         .unwrap_or_else(|| "Fetch failed".to_owned());
     let timestamp = message.fetched_at_unix_ms.unwrap_or_default();
@@ -691,8 +700,16 @@ fn crawler_summary_html(message: &CrawlerUiMessage) -> Result<String, String> {
     let digest = html_escape(message.sha256.as_deref().unwrap_or(""));
     Ok(format!(
         r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';"><title>Page summary</title><style>body{{font:16px system-ui,sans-serif;line-height:1.55;max-width:820px;margin:36px auto;padding:0 20px;color:#1d2930}}.eyebrow{{color:#55717e;font-size:12px;letter-spacing:.08em;font-weight:700}}h1{{line-height:1.2}}.summary{{font-size:18px;white-space:pre-wrap}}a{{color:#075f83;overflow-wrap:anywhere}}.meta{{color:#52636c;font-size:13px}}li{{margin:8px 0}}</style></head><body><p class="eyebrow">YUKKI-OS · CRAWLER PAGE SUMMARY</p><h1>{}</h1><p class="meta">{}</p><p class="summary">{}</p><p><a href="{}" rel="noopener noreferrer">Open original HTML</a></p><h2>Discovered links</h2>{}<hr><p class="meta">{} · {} bytes · depth {} · fetched {} Unix ms</p><p class="meta">SHA-256: {}</p></body></html>"#,
-        html_escape(title), original, html_escape(summary), original,
-        links_section, status, bytes, depth, timestamp, digest
+        html_escape(title),
+        original,
+        html_escape(summary),
+        original,
+        links_section,
+        status,
+        bytes,
+        depth,
+        timestamp,
+        digest
     ))
 }
 
