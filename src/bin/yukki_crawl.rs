@@ -7,6 +7,8 @@ use std::{
     sync::Arc,
 };
 
+use uuid::Uuid;
+
 use yukkios::{
     crawler::{Crawler, CrawlerConfig, CrawlerExecutionOutputSink},
     crawler_data_exec::{CrawlerDataExecutor, DEFAULT_DATA_EXEC_FUEL},
@@ -14,13 +16,17 @@ use yukkios::{
 
 struct DirectoryOutputSink {
     directory: PathBuf,
+    run_id: String,
 }
 
 impl DirectoryOutputSink {
     fn new(directory: impl AsRef<Path>) -> Result<Self, Box<dyn Error>> {
         let directory = directory.as_ref().to_path_buf();
         fs::create_dir_all(&directory)?;
-        Ok(Self { directory })
+        Ok(Self {
+            directory,
+            run_id: Uuid::new_v4().simple().to_string(),
+        })
     }
 }
 
@@ -34,7 +40,7 @@ impl CrawlerExecutionOutputSink for DirectoryOutputSink {
     ) -> Result<String, String> {
         // Both names are host-generated lowercase SHA-256 values, not guest
         // strings or URLs. create_new prevents following/replacing a symlink.
-        let filename = format!("{page_key_sha256}-{output_sha256}.bin");
+        let filename = format!("{}-{page_key_sha256}-{output_sha256}.bin", self.run_id);
         let path = self.directory.join(&filename);
         let mut file = OpenOptions::new()
             .write(true)
