@@ -90,7 +90,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut wasm_path = None;
     let mut execute_wasm_path = None;
     let mut execution_output_dir = "crawler-execution-output".to_string();
+    let mut execution_output_dir_supplied = false;
     let mut execution_fuel = DEFAULT_DATA_EXEC_FUEL;
+    let mut execution_fuel_supplied = false;
     let mut output = "crawl-report.json".to_string();
     let mut config = CrawlerConfig::default();
     let mut args = env::args().skip(1);
@@ -106,10 +108,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "--wasm" => wasm_path = Some(value(&mut args, "--wasm")?),
             "--execute-wasm" => execute_wasm_path = Some(value(&mut args, "--execute-wasm")?),
             "--execution-output-dir" => {
-                execution_output_dir = value(&mut args, "--execution-output-dir")?
+                execution_output_dir = value(&mut args, "--execution-output-dir")?;
+                execution_output_dir_supplied = true;
             }
             "--execution-fuel" => {
-                execution_fuel = value(&mut args, "--execution-fuel")?.parse()?
+                execution_fuel = value(&mut args, "--execution-fuel")?.parse()?;
+                execution_fuel_supplied = true;
             }
             "--output" => output = value(&mut args, "--output")?,
             "--max-pages" => config.max_pages = value(&mut args, "--max-pages")?.parse()?,
@@ -142,6 +146,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err("--wasm is required".into());
         }
     };
+    if execute_wasm_path.is_none()
+        && (execution_output_dir_supplied || execution_fuel_supplied)
+    {
+        return Err(
+            "--execution-output-dir and --execution-fuel require --execute-wasm".into(),
+        );
+    }
     if execute_wasm_path.is_some() && !(1..=1_000_000_000).contains(&execution_fuel) {
         return Err("--execution-fuel must be in 1..=1000000000".into());
     }
