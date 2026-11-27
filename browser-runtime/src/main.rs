@@ -987,6 +987,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                         Ok(config) => (config, None),
                                         Err(error) => (None, Some(error)),
                                     };
+                                    let startup_publish_warning = publish_warning.clone();
                                     let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(8);
                                     let event_proxy = proxy.clone();
                                     let running = Arc::clone(&crawler_running);
@@ -1061,10 +1062,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                                                 ).await;
                                             }
                                         } else if publish_enabled {
-                                            let message = if publisher.is_some() {
-                                                format!("Published {published_records} numeric crawl observation(s) to the control plane.")
-                                            } else {
-                                                "Control-plane publishing was not requested.".to_owned()
+                                            let message = match publisher.as_ref() {
+                                                Some((_, _, source_id)) if published_records > 0 => {
+                                                    format!("Published {published_records} numeric crawl observation(s) to data stream {source_id}.")
+                                                }
+                                                Some(_) => {
+                                                    "No page metrics were produced; no control-plane data stream was created.".to_owned()
+                                                }
+                                                None => {
+                                                    "Control-plane publishing was enabled but no publisher was configured.".to_owned()
+                                                }
                                             };
                                             send_crawler_update(
                                                 &event_proxy,
@@ -1086,10 +1093,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                                         }
                                         running.store(false, Ordering::Release);
                                     });
-                                    let message = if publish_enabled {
-                                        "Crawl started. Results will stream here; numeric metrics will be sent to the configured control plane."
+                                    let message = if let Some(warning) = startup_publish_warning.as_deref() {
+                                        format!("Crawl started. Publishing is unavailable: {warning}")
+                                    } else if publish_enabled {
+                                        "Crawl started. Results stream here; numeric metrics are being sent to the configured control plane.".to_owned()
                                     } else {
-                                        "Crawl started. Results will stream here."
+                                        "Crawl started. Results will stream here.".to_owned()
                                     };
                                     let payload = serde_json::json!({"kind":"status","message":message});
                                     if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
