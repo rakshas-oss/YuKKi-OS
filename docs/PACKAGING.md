@@ -43,10 +43,17 @@ build-verifies the exact crate and enforces the published 10 MB archive limit.
 The first crates.io publication needs a crates.io account with a verified
 email and a publish-capable API token. Add that token as the repository Actions
 secret `CRATES_IO_API_TOKEN`, then run **Actions → Publish yukkios to
-crates.io**, selecting the `v6.22.0` release tag after it is created and validated. The workflow checks that the tag is an
-ancestor of main, that the package version matches, and that no Rust runtime
-or native source paths changed after the tag. It then runs `cargo package`
-before publishing. The workflow now requires an exact v-prefixed tag match, unchanged packaged source after the tag, a successful locked package build, and a crates.io ownership/version check. The v6.22.0 candidate must not be published until its release gate is green. Do not add the token to a workflow file or commit it.
+crates.io**, selecting the `v6.22.0` release tag after it is created and
+validated. For this first publication, explicitly choose
+`auth_method=token`; the workflow will fail closed if the secret is absent.
+The workflow checks that the tag is an ancestor of main, that the package
+version matches, that packaged source files have not changed after the tag,
+and that the crates.io package identity belongs to this repository and the
+version is unused. It then runs a locked `cargo package` before publishing.
+After the first publication, configure the crates.io Trusted Publisher and
+subsequent runs may select `auth_method=trusted` to use short-lived OIDC
+credentials. The v6.22.0 candidate must not be published until its release
+gate is green. Do not add the token to a workflow file or commit it.
 
 After the initial crate exists, configure a GitHub Actions trusted publisher in
 the crates.io crate settings:
