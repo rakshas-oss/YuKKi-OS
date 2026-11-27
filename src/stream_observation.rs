@@ -207,19 +207,27 @@ mod tests {
 
     #[test]
     fn rejects_unknown_versions_and_dimensions() {
-        let mut decoder = NdjsonObservationDecoder::new(config()).unwrap();
+        let mut version_decoder = NdjsonObservationDecoder::new(config()).unwrap();
         let unknown = br#"{"schema_version":2,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[1]}"#;
-        assert!(decoder.push(unknown).unwrap().is_empty());
+        assert!(version_decoder.push(unknown).unwrap().is_empty());
         assert!(matches!(
-            decoder.finish(),
+            version_decoder.finish(),
             Err(ObservationDecodeError::UnsupportedVersion(2))
         ));
+
+        // A final NDJSON record may omit its trailing newline. It is validated
+        // at end-of-stream by finish(), not during push().
+        let mut dimensions_decoder = NdjsonObservationDecoder::new(config()).unwrap();
         let oversized = format!(
             r#"{{"schema_version":1,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[{}]}}"#,
             vec!["1"; 33].join(",")
         );
+        assert!(dimensions_decoder
+            .push(oversized.as_bytes())
+            .unwrap()
+            .is_empty());
         assert!(matches!(
-            decoder.push(oversized.as_bytes()),
+            dimensions_decoder.finish(),
             Err(ObservationDecodeError::InvalidDimensions)
         ));
     }
