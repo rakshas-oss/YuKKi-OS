@@ -45,7 +45,7 @@ use crate::{
 };
 
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
-const MAX_HTTP_BODY_BYTES: usize = 1024;
+const MAX_HTTP_BODY_BYTES: usize = crate::stream_observation::MAX_DATA_STREAM_INGEST_BYTES;
 const MAX_RANGE_CHUNKS: u64 = 8;
 const MAX_CONNECTIONS: usize = 128;
 const MAX_WS_FRAME_BYTES: usize = crate::media_codec::MEDIA_CHUNK_HEADER_LEN
