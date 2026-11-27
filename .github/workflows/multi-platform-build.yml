@@ -40,6 +40,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -62,11 +64,12 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/yukki_core_node*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   build-macos:
     name: macOS (${{ matrix.target }})
     runs-on: macos-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +81,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -102,8 +107,11 @@ jobs:
   build-wasm:
     name: WebAssembly guest worker (WASI Preview 1)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
@@ -125,8 +133,11 @@ jobs:
   build-browser-wasm:
     name: Browser application (wasm32-unknown-unknown)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -248,6 +259,8 @@ jobs:
             artifact: yukki-browser-runtime-macos
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Install WebKitGTK development libraries
         if: matrix.os == 'ubuntu-latest'
@@ -290,14 +303,18 @@ jobs:
   test-library:
     name: Library tests (including gateway CORS)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Run library unit tests
         run: cargo test --lib --locked
 
   publish-release-assets:
     name: Publish versioned release archives
+    timeout-minutes: 20
     if: >-
       github.event_name == 'release' &&
       needs.build-linux.result == 'success' &&
@@ -312,6 +329,20 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Verify release tag matches native package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import os, tomllib
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["package"]["version"]
+          expected = f"v{version}"
+          tag = os.environ["RELEASE_TAG"]
+          if tag != expected:
+              raise SystemExit(f"Refusing artifact publication: release tag {tag!r} != {expected!r}")
+          print(f"Release tag {tag} matches yukkios {version}")
+          PY
       - name: Download qualified build artifacts
         uses: actions/download-artifact@v8
         with:

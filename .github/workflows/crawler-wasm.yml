@@ -5,6 +5,10 @@ on:
     branches: ["main"]
     paths:
       - "src/crawler.rs"
+      - "src/crawler_data_exec.rs"
+      - "src/stream_observation.rs"
+      - "tests/**"
+      - "examples/crawler-processors/**"
       - "src/crawler_wasm.rs"
       - "src/bin/yukki_crawl.rs"
       - "crawler-wasm/**"
@@ -15,6 +19,10 @@ on:
     branches: ["main"]
     paths:
       - "src/crawler.rs"
+      - "src/crawler_data_exec.rs"
+      - "src/stream_observation.rs"
+      - "tests/**"
+      - "examples/crawler-processors/**"
       - "src/crawler_wasm.rs"
       - "src/bin/yukki_crawl.rs"
       - "crawler-wasm/**"
@@ -23,6 +31,10 @@ on:
       - ".github/workflows/crawler-wasm.yml"
 
 permissions: {}
+
+concurrency:
+  group: crawler-workflow-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 concurrency:
   group: wasm-crawler
@@ -34,6 +46,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -57,6 +70,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
