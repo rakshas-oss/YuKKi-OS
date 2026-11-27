@@ -190,6 +190,7 @@ enum RuntimeEvent {
     CrawlerUpdate {
         tab_id: u64,
         payload: String,
+        acknowledgement: tokio::sync::oneshot::Sender<()>,
     },
     Visited {
         tab_id: u64,
@@ -835,11 +836,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(RuntimeEvent::Notice(message)) => {
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
             }
-            Event::UserEvent(RuntimeEvent::CrawlerUpdate { tab_id, payload }) => {
+            Event::UserEvent(RuntimeEvent::CrawlerUpdate { tab_id, payload, acknowledgement }) => {
                 if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id && tab.kind == TabKind::CrawlerUtility) {
                     let script = format!("window.yukkiCrawler && window.yukkiCrawler.append({payload});");
                     let _ = tab.engine.view.evaluate_script(&script);
                 }
+                let _ = acknowledgement.send(());
             }
             Event::UserEvent(RuntimeEvent::CrawlerUi { message, .. }) if message.action == "ready" => {}
             Event::UserEvent(RuntimeEvent::CrawlerUi { tab_id, message }) => {
@@ -884,7 +886,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 });
                             match setup {
                                 Ok(crawler) => {
-                                    let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(16);
+                                    let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(8);
                                     let event_proxy = proxy.clone();
                                     let running = Arc::clone(&crawler_running);
                                     async_runtime.spawn(async move {
@@ -897,13 +899,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                                                 CrawlEvent::Finished(metrics) => serde_json::json!({"kind":"finished","metrics":metrics}),
                                             };
                                             if let Ok(payload) = serde_json::to_string(&payload) {
-                                                let _ = event_proxy.send_event(RuntimeEvent::CrawlerUpdate { tab_id, payload });
+                                                let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
+                                                if event_proxy.send_event(RuntimeEvent::CrawlerUpdate {
+                                                    tab_id,
+                                                    payload,
+                                                    acknowledgement,
+                                                }).is_ok() {
+                                                    let _ = acknowledged.await;
+                                                }
                                             }
                                         }
                                         if let Ok(Err(error)) = job.await {
                                             let payload = serde_json::json!({"kind":"error","message":error.to_string()});
                                             if let Ok(payload) = serde_json::to_string(&payload) {
-                                                let _ = event_proxy.send_event(RuntimeEvent::CrawlerUpdate { tab_id, payload });
+                                                let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
+                                                if event_proxy.send_event(RuntimeEvent::CrawlerUpdate {
+                                                    tab_id,
+                                                    payload,
+                                                    acknowledgement,
+                                                }).is_ok() {
+                                                    let _ = acknowledged.await;
+                                                }
                                             }
                                         }
                                         running.store(false, Ordering::Release);
