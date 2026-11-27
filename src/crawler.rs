@@ -31,6 +31,8 @@ use tokio::{
 const MAX_ROBOTS_BYTES: usize = 64 * 1024;
 const MAX_ALLOWED_DOMAINS: usize = 256;
 const MAX_CRAWLER_EXECUTION_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CRAWLER_PROCESSOR_RUNS: usize = 1_024;
+const MAX_CRAWLER_PROCESSOR_CONCURRENCY: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct CrawlerConfig {
@@ -276,6 +278,8 @@ impl Crawler {
 
         let crawl_byte_budget = Arc::new(AtomicUsize::new(0));
         let execution_output_budget = Arc::new(AtomicUsize::new(0));
+        let execution_run_budget = Arc::new(AtomicUsize::new(0));
+        let execution_slots = Arc::new(Semaphore::new(MAX_CRAWLER_PROCESSOR_CONCURRENCY));
         let mut tasks = JoinSet::new();
         let mut records = Vec::new();
         while records.len() < self.inner.config.max_pages
@@ -290,6 +294,8 @@ impl Crawler {
                 let crawler = self.clone();
                 let crawl_byte_budget = crawl_byte_budget.clone();
                 let execution_output_budget = execution_output_budget.clone();
+                let execution_run_budget = execution_run_budget.clone();
+                let execution_slots = execution_slots.clone();
                 let processor = processor.clone();
                 let output_sink = output_sink.clone();
                 tasks.spawn(async move {
@@ -299,6 +305,8 @@ impl Crawler {
                             depth,
                             crawl_byte_budget,
                             execution_output_budget,
+                            execution_run_budget,
+                            execution_slots,
                             processor,
                             output_sink,
                         )
@@ -379,6 +387,8 @@ impl Crawler {
         depth: usize,
         crawl_byte_budget: Arc<AtomicUsize>,
         execution_output_budget: Arc<AtomicUsize>,
+        execution_run_budget: Arc<AtomicUsize>,
+        execution_slots: Arc<Semaphore>,
         processor: Option<Arc<CrawlerDataExecutor>>,
         output_sink: Option<Arc<dyn CrawlerExecutionOutputSink>>,
     ) -> CrawledPage {
@@ -428,6 +438,8 @@ impl Crawler {
                             payload.sha256,
                             payload.document,
                             execution_output_budget,
+                            execution_run_budget,
+                            execution_slots,
                         )
                         .await,
                     );
@@ -818,8 +830,43 @@ async fn execute_ingested_page(
     input_sha256: String,
     document: Vec<u8>,
     output_budget: Arc<AtomicUsize>,
+    run_budget: Arc<AtomicUsize>,
+    execution_slots: Arc<Semaphore>,
 ) -> CrawlerExecutionRecord {
     let processor_sha256 = processor.module_sha256().to_string();
+    if run_budget
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_add(1).filter(|next| *next <= MAX_CRAWLER_PROCESSOR_RUNS)
+        })
+        .is_err()
+    {
+        return CrawlerExecutionRecord {
+            processor_sha256,
+            input_sha256,
+            output_sha256: None,
+            output_bytes: None,
+            output_reference: None,
+            execution_ms: 0.0,
+            error: Some(format!(
+                "crawl-wide processor run limit exceeded ({} runs)",
+                MAX_CRAWLER_PROCESSOR_RUNS
+            )),
+        };
+    }
+    let _permit = match execution_slots.acquire_owned().await {
+        Ok(permit) => permit,
+        Err(error) => {
+            return CrawlerExecutionRecord {
+                processor_sha256,
+                input_sha256,
+                output_sha256: None,
+                output_bytes: None,
+                output_reference: None,
+                execution_ms: 0.0,
+                error: Some(format!("processor admission failed: {error}")),
+            };
+        }
+    };
     let started = Instant::now();
     let processor_for_task = processor.clone();
     let processed = tokio::task::spawn_blocking(move || processor_for_task.execute(&document)).await;
