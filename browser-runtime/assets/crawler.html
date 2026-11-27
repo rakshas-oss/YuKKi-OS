@@ -54,17 +54,13 @@
       </div>
     </form>
     <details class="panel" style="margin-top:14px">
-      <summary>Optional control-plane publishing</summary>
-      <p class="muted">Publish only numeric crawl metrics as a schema-v1 multivariate data stream. Page HTML, titles, URLs and text summaries stay out of this stream.</p>
+      <summary>Control-plane publishing</summary>
+      <p class="muted">Optional. Publish numeric crawl metrics to the control plane already configured for this YuKKi node. No separate gateway URL or credentials are needed. Page HTML, titles, URLs and text summaries are never published.</p>
       <label for="publish-control-plane" style="display:flex;align-items:center;gap:9px">
         <input id="publish-control-plane" type="checkbox" style="width:auto">
-        Publish crawl metrics to a YuKKi control-plane gateway
+        Publish this crawl's metrics for browser-WASM adoption
       </label>
-      <label for="control-plane-url">Gateway base URL</label>
-      <input id="control-plane-url" type="url" maxlength="2048" placeholder="https://gateway.example.org">
-      <label for="control-plane-token">Gateway bearer token</label>
-      <input id="control-plane-token" type="password" maxlength="4096" autocomplete="off" placeholder="Required only when publishing is enabled">
-      <p class="muted">The token is sent to the native host for this crawl only and is not saved to browser storage.</p>
+      <p class="muted">Uses the node's existing YUKKI_GATEWAY_TOKEN and gateway endpoint. Without an available configured gateway, crawling continues locally and the utility explains why publishing was skipped.</p>
     </details>
     <p id="status" class="status" role="status" aria-live="polite">Ready. Crawling is limited to the domains you allow.</p>
   </section>
@@ -119,43 +115,13 @@
         status.textContent = "Maximum pages must be between 1 and 1,000.";
         return;
       }
-      const publish = $("publish-control-plane").checked;
-      let control_plane_url = "";
-      let control_plane_token = "";
-      if (publish) {
-        control_plane_url = $("control-plane-url").value.trim();
-        control_plane_token = $("control-plane-token").value;
-        if (!control_plane_url || !control_plane_token || control_plane_token.length > 4096) {
-          status.textContent = "Enter a gateway URL and bearer token to publish metrics.";
-          return;
-        }
-        try {
-          const target = new URL(control_plane_url);
-          const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
-          if ((target.protocol !== "https:" && !(target.protocol === "http:" && loopback)) ||
-              target.username || target.password || target.search || target.hash) {
-            throw new Error("Use HTTPS (or localhost HTTP), without embedded credentials, query or fragment.");
-          }
-        } catch (error) {
-          status.textContent = error.message || "Control-plane URL is invalid.";
-          return;
-        }
-      }
+      const publish_to_control_plane = $("publish-control-plane").checked;
       received = 0;
       results.replaceChildren();
       metrics.textContent = "Waiting for first page…";
       start.disabled = true;
       status.textContent = "Starting crawl…";
-      send({
-        action: "start_crawl",
-        seeds,
-        allowed_domains,
-        max_pages,
-        publish_to_control_plane: publish,
-        control_plane_url,
-        control_plane_token
-      });
-      $("control-plane-token").value = "";
+      send({action: "start_crawl", seeds, allowed_domains, max_pages, publish_to_control_plane});
     });
 
     function makeResult(page) {
