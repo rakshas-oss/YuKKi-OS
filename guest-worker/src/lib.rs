@@ -119,7 +119,11 @@ pub const fn clamp_timeout(timeout_ms: u32) -> u32 {
 }
 
 /// Validate raw pointer/length arguments without dereferencing anything.
-pub fn validate_args(channel_addr: usize, tensor_addr: usize, tensor_len: usize) -> Result<(), WorkerError> {
+pub fn validate_args(
+    channel_addr: usize,
+    tensor_addr: usize,
+    tensor_len: usize,
+) -> Result<(), WorkerError> {
     if channel_addr == 0 || tensor_addr == 0 {
         return Err(WorkerError::InvalidPointer);
     }
@@ -132,7 +136,9 @@ pub fn validate_args(channel_addr: usize, tensor_addr: usize, tensor_len: usize)
     if tensor_len > MAX_TENSOR_BYTES {
         return Err(WorkerError::TensorTooLarge);
     }
-    tensor_addr.checked_add(tensor_len).ok_or(WorkerError::InvalidPointer)?;
+    tensor_addr
+        .checked_add(tensor_len)
+        .ok_or(WorkerError::InvalidPointer)?;
     channel_addr
         .checked_add(size_of::<Nxr1StateChannel>())
         .ok_or(WorkerError::InvalidPointer)?;
@@ -231,11 +237,14 @@ pub extern "C" fn execute_inference_pipeline(
         return e.code();
     }
     let (channel, tensor) = unsafe {
-        (channel_from_raw(channel_ptr), tensor_from_raw(tensor_data_ptr, tensor_len))
+        (
+            channel_from_raw(channel_ptr),
+            tensor_from_raw(tensor_data_ptr, tensor_len),
+        )
     };
     let raw = channel_ptr;
-    let result = run_pipeline(channel, tensor, DEFAULT_TIMEOUT_MS, |timeout| {
-        unsafe { host::wasmtime_yield_xpu(raw, timeout) }
+    let result = run_pipeline(channel, tensor, DEFAULT_TIMEOUT_MS, |timeout| unsafe {
+        host::wasmtime_yield_xpu(raw, timeout)
     });
     match result {
         Ok(()) => 0,
@@ -281,8 +290,14 @@ mod tests {
         assert_eq!(validate_args(16, 0, 1), Err(WorkerError::InvalidPointer));
         assert_eq!(validate_args(24, 16, 1), Err(WorkerError::Misaligned));
         assert_eq!(validate_args(16, 16, 0), Err(WorkerError::EmptyTensor));
-        assert_eq!(validate_args(16, 16, MAX_TENSOR_BYTES + 1), Err(WorkerError::TensorTooLarge));
-        assert_eq!(validate_args(16, usize::MAX, 1), Err(WorkerError::InvalidPointer));
+        assert_eq!(
+            validate_args(16, 16, MAX_TENSOR_BYTES + 1),
+            Err(WorkerError::TensorTooLarge)
+        );
+        assert_eq!(
+            validate_args(16, usize::MAX, 1),
+            Err(WorkerError::InvalidPointer)
+        );
         assert_eq!(validate_args(16, 32, 4), Ok(()));
     }
 
@@ -304,7 +319,13 @@ mod tests {
     #[test]
     fn pipeline_success_releases_lock() {
         let c = chan();
-        assert_eq!(run_pipeline(&c, b"tensor", u32::MAX, |t| { assert_eq!(t, MAX_TIMEOUT_MS); 0 }), Ok(()));
+        assert_eq!(
+            run_pipeline(&c, b"tensor", u32::MAX, |t| {
+                assert_eq!(t, MAX_TIMEOUT_MS);
+                0
+            }),
+            Ok(())
+        );
         assert_eq!(unsafe { *c.bitmask.get() }, 1);
         assert_eq!(unsafe { *c.payload_hash.get() }, hash128(b"tensor"));
         assert_eq!(c.lock.load(Ordering::SeqCst), 0);
@@ -314,19 +335,31 @@ mod tests {
     fn pipeline_contention_and_host_errors() {
         let c = chan();
         c.lock.store(1, Ordering::SeqCst);
-        assert_eq!(run_pipeline(&c, b"x", 1, |_| 0), Err(WorkerError::LockContention));
+        assert_eq!(
+            run_pipeline(&c, b"x", 1, |_| 0),
+            Err(WorkerError::LockContention)
+        );
         assert_eq!(c.lock.load(Ordering::SeqCst), 1, "foreign lock untouched");
         c.lock.store(0, Ordering::SeqCst);
-        assert_eq!(run_pipeline(&c, b"x", 1, |_| -6), Err(WorkerError::XpuTimeout));
+        assert_eq!(
+            run_pipeline(&c, b"x", 1, |_| -6),
+            Err(WorkerError::XpuTimeout)
+        );
         assert_eq!(c.lock.load(Ordering::SeqCst), 0);
-        assert_eq!(run_pipeline(&c, &[], 1, |_| 0), Err(WorkerError::EmptyTensor));
+        assert_eq!(
+            run_pipeline(&c, &[], 1, |_| 0),
+            Err(WorkerError::EmptyTensor)
+        );
     }
 
     #[test]
     fn host_stealing_lock_is_contention() {
         let c = chan();
         let lockp: *const AtomicU32 = &c.lock;
-        let r = run_pipeline(&c, b"x", 1, |_| { unsafe { (*lockp).store(0, Ordering::SeqCst) }; 0 });
+        let r = run_pipeline(&c, b"x", 1, |_| {
+            unsafe { (*lockp).store(0, Ordering::SeqCst) };
+            0
+        });
         assert_eq!(r, Err(WorkerError::LockContention));
     }
 }
