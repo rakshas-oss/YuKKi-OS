@@ -14,6 +14,10 @@ pub const MAX_PAYLOAD_BYTES: usize = 256 * 1024;
 pub const MAX_FRAME_BYTES: usize =
     YKMC_HEADER_LEN + MAX_STREAM_ID_BYTES + MAX_CODEC_BYTES + MAX_PAYLOAD_BYTES;
 
+pub const MAX_OBSERVATION_DIMENSIONS: usize = 32;
+const ERR_OBSERVATION_DIMENSIONS: i32 = -20;
+const ERR_OBSERVATION_VALUE: i32 = -21;
+
 const VALID: i32 = 0;
 const ERR_TRUNCATED: i32 = -1;
 const ERR_MAGIC: i32 = -2;
@@ -38,6 +42,20 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
         bytes[offset + 2],
         bytes[offset + 3],
     ])
+}
+
+
+/// Validate one schema-v1 multivariate observation after its numeric values
+/// have been copied into the fixed browser-WASM input buffer. Missing values
+/// are represented by bits set in `missing_mask`; all other values must be finite.
+pub fn validate_observation_values(values: &[Option<f64>]) -> i32 {
+    if values.is_empty() || values.len() > MAX_OBSERVATION_DIMENSIONS {
+        return ERR_OBSERVATION_DIMENSIONS;
+    }
+    if values.iter().flatten().any(|value| !value.is_finite()) {
+        return ERR_OBSERVATION_VALUE;
+    }
+    VALID
 }
 
 /// Validate one exact YKMC v1 frame. Returns zero on success and a stable
@@ -114,6 +132,60 @@ pub extern "C" fn yukki_input_ptr() -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn yukki_input_capacity() -> u32 {
     MAX_FRAME_BYTES as u32
+}
+
+
+#[cfg(target_arch = "wasm32")]
+static mut OBSERVATION_BUFFER: [f64; MAX_OBSERVATION_DIMENSIONS] =
+    [0.0; MAX_OBSERVATION_DIMENSIONS];
+
+/// Pointer to the fixed numeric input buffer used by
+/// `yukki_validate_observation`.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn yukki_observation_input_ptr() -> *mut f64 {
+    core::ptr::addr_of_mut!(OBSERVATION_BUFFER).cast::<f64>()
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn yukki_observation_input_capacity() -> u32 {
+    MAX_OBSERVATION_DIMENSIONS as u32
+}
+
+/// Validate a single schema-v1 observation. `sequence` and
+/// `timestamp_unix_ms` are exact u64 values supplied by the NDJSON decoder;
+/// the data plane retains them unchanged while this function validates the
+/// dimensions and finite numeric values in WASM memory.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn yukki_validate_observation(
+    dimensions: u32,
+    missing_mask: u32,
+    _sequence: u64,
+    _timestamp_unix_ms: u64,
+) -> i32 {
+    let dimensions = dimensions as usize;
+    if dimensions == 0 || dimensions > MAX_OBSERVATION_DIMENSIONS {
+        return ERR_OBSERVATION_DIMENSIONS;
+    }
+    let valid_mask = if dimensions == 32 {
+        u32::MAX
+    } else {
+        (1u32 << dimensions) - 1
+    };
+    if missing_mask & !valid_mask != 0 {
+        return ERR_OBSERVATION_DIMENSIONS;
+    }
+    let ptr = core::ptr::addr_of!(OBSERVATION_BUFFER).cast::<f64>();
+    // SAFETY: the caller supplies a dimension count bounded by the fixed buffer.
+    let values = unsafe { core::slice::from_raw_parts(ptr, dimensions) };
+    if values.iter().enumerate().any(|(index, value)| {
+        missing_mask & (1u32 << index) == 0 && !value.is_finite()
+    }) {
+        return ERR_OBSERVATION_VALUE;
+    }
+    VALID
 }
 
 /// Validate bytes previously copied into the fixed input area.
@@ -206,6 +278,26 @@ mod tests {
         frame = valid_frame();
         frame[27..31].copy_from_slice(&((MAX_PAYLOAD_BYTES as u32) + 1).to_be_bytes());
         assert_eq!(validate_ykmc(&frame), ERR_PAYLOAD_LENGTH);
+    }
+
+    #[test]
+    fn validates_schema_v1_data_observations_and_preserves_missing_values() {
+        assert_eq!(
+            validate_observation_values(&[Some(1.0), None, Some(-2.5)]),
+            VALID
+        );
+        assert_eq!(
+            validate_observation_values(&[]),
+            ERR_OBSERVATION_DIMENSIONS
+        );
+        assert_eq!(
+            validate_observation_values(&[Some(f64::NAN)]),
+            ERR_OBSERVATION_VALUE
+        );
+        assert_eq!(
+            validate_observation_values(&vec![Some(1.0); MAX_OBSERVATION_DIMENSIONS + 1]),
+            ERR_OBSERVATION_DIMENSIONS
+        );
     }
 
     #[test]
