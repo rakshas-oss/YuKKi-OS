@@ -69,6 +69,38 @@ pending records; each result event includes at most eight links of at most
 therefore backpressures event delivery rather than accumulating an unbounded
 queue.
 
+#### Optional browser-WASM data-stream publishing
+
+The Crawler utility includes one **Publish this crawl's metrics for
+browser-WASM adoption** checkbox. This is plug-and-play with the node's
+existing control-plane configuration; the utility does not ask for a second
+gateway URL or token.
+
+The native browser reads `YUKKI_GATEWAY_TOKEN` from its process environment.
+It discovers the local gateway using `YUKKI_GATEWAY_LISTEN`, then
+`YUKKI_GATEWAY_ENDPOINT`, defaulting to `127.0.0.1:7670`. Wildcard listen
+addresses are converted to loopback for the local client. For a remote HTTPS
+gateway, configure `YUKKI_GATEWAY_URL` (and keep the same existing token
+available to the browser process). A remote plain-HTTP endpoint is rejected.
+The browser process must inherit the node's existing gateway environment.
+Without usable gateway configuration or a reachable gateway, the crawl still
+runs locally and the utility reports that publishing was skipped.
+
+When enabled, the browser host publishes batches of 16 schema-v1 numeric
+observations to the authenticated `/v1/data-streams/{id}/observations`
+endpoint. Each page contributes depth, HTTP status, document bytes, fetch and
+extraction time, link count, title/preview lengths, and a failure flag. URL,
+title text, extracted text, raw HTML and page contents are not sent. Publishing
+failure stops the publish attempt but does not cancel the crawl or local result
+feed.
+
+The gateway retains at most 128 data streams, 512 observations per stream,
+and 16,384 observations total in bounded in-memory storage. The browser-WASM
+workspace lists these separately from YKMC media streams and adopts selected
+ranges through the Rust WASM schema-v1 validator. This data-observation surface
+is node-local and in-memory; it does not imply peer-mesh replication or durable
+storage.
+
 ### Linux display selection
 
 By default, `YUKKI_BROWSER_DISPLAY_BACKEND=auto` leaves display selection to GTK/GDK. In a Wayland desktop session GTK normally selects the native Wayland display; on an Xorg session it selects X11. An explicit `GDK_BACKEND` setting is preserved in auto mode.
