@@ -44,7 +44,6 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     ])
 }
 
-
 /// Validate one schema-v1 multivariate observation after its numeric values
 /// have been copied into the fixed browser-WASM input buffer. Missing values
 /// are represented by bits set in `missing_mask`; all other values must be finite.
@@ -134,7 +133,6 @@ pub extern "C" fn yukki_input_capacity() -> u32 {
     MAX_FRAME_BYTES as u32
 }
 
-
 #[cfg(target_arch = "wasm32")]
 static mut OBSERVATION_BUFFER: [f64; MAX_OBSERVATION_DIMENSIONS] =
     [0.0; MAX_OBSERVATION_DIMENSIONS];
@@ -180,9 +178,11 @@ pub extern "C" fn yukki_validate_observation(
     let ptr = core::ptr::addr_of!(OBSERVATION_BUFFER).cast::<f64>();
     // SAFETY: the caller supplies a dimension count bounded by the fixed buffer.
     let values = unsafe { core::slice::from_raw_parts(ptr, dimensions) };
-    if values.iter().enumerate().any(|(index, value)| {
-        missing_mask & (1u32 << index) == 0 && !value.is_finite()
-    }) {
+    if values
+        .iter()
+        .enumerate()
+        .any(|(index, value)| missing_mask & (1u32 << index) == 0 && !value.is_finite())
+    {
         return ERR_OBSERVATION_VALUE;
     }
     VALID
@@ -286,10 +286,7 @@ mod tests {
             validate_observation_values(&[Some(1.0), None, Some(-2.5)]),
             VALID
         );
-        assert_eq!(
-            validate_observation_values(&[]),
-            ERR_OBSERVATION_DIMENSIONS
-        );
+        assert_eq!(validate_observation_values(&[]), ERR_OBSERVATION_DIMENSIONS);
         assert_eq!(
             validate_observation_values(&[Some(f64::NAN)]),
             ERR_OBSERVATION_VALUE
