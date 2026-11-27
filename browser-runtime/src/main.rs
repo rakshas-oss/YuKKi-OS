@@ -37,7 +37,10 @@ use yukki_browser_runtime::{
     store::{self, BrowserState},
     EngineAdapter, MAX_TABS,
 };
-use yukkios::crawler::{CrawlEvent, Crawler, CrawlerConfig};
+use yukkios::{
+    crawler::{CrawlEvent, Crawler, CrawlerConfig},
+    stream_observation::{publish_observation_batch, MultivariateObservation, OBSERVATION_SCHEMA_VERSION},
+};
 
 const DEFAULT_URL: &str = "https://example.com";
 const TOOLBAR_HEIGHT: f64 = 122.0;
@@ -163,6 +166,7 @@ struct CrawlerUiMessage {
     seeds: Option<Vec<String>>,
     allowed_domains: Option<Vec<String>>,
     max_pages: Option<usize>,
+    publish_to_control_plane: Option<bool>,
     url: Option<String>,
     title: Option<String>,
     summary: Option<String>,
@@ -654,6 +658,75 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+
+fn crawler_publish_config(
+    enabled: bool,
+) -> Result<Option<(String, String, String)>, String> {
+    if !enabled {
+        return Ok(None);
+    }
+    let token = env::var("YUKKI_GATEWAY_TOKEN")
+        .map_err(|_| "Control-plane publishing is unavailable: this YuKKi process has no YUKKI_GATEWAY_TOKEN configured.".to_owned())?;
+    if token.is_empty() || token.len() > 4096 {
+        return Err("Control-plane publishing is unavailable: the configured gateway token is invalid.".to_owned());
+    }
+
+    let base = if let Ok(url) = env::var("YUKKI_GATEWAY_URL") {
+        let parsed = Url::parse(&url)
+            .map_err(|_| "YUKKI_GATEWAY_URL is not a valid gateway URL.".to_owned())?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| "YUKKI_GATEWAY_URL is missing a host.".to_owned())?;
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
+        if (parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback))
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err("YUKKI_GATEWAY_URL must use HTTPS (or localhost HTTP) and contain no credentials, query, or fragment.".to_owned());
+        }
+        parsed
+    } else {
+        let address = env::var("YUKKI_GATEWAY_LISTEN")
+            .or_else(|_| env::var("YUKKI_GATEWAY_ENDPOINT"))
+            .unwrap_or_else(|_| "127.0.0.1:7670".to_owned());
+        let address = address
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| "YUKKI_GATEWAY_LISTEN/YUKKI_GATEWAY_ENDPOINT must be a socket address.".to_owned())?;
+        if !address.ip().is_loopback() {
+            return Err("A non-local gateway requires YUKKI_GATEWAY_URL with HTTPS.".to_owned());
+        }
+        Url::parse(&format!("http://{address}"))
+            .map_err(|_| "Could not construct the local gateway URL.".to_owned())?
+    };
+
+    let source_id = format!("crawler-{}", uuid::Uuid::new_v4());
+    Ok(Some((base.to_string(), token, source_id)))
+}
+
+async fn send_crawler_update(
+    proxy: &EventLoopProxy<RuntimeEvent>,
+    tab_id: u64,
+    payload: serde_json::Value,
+) {
+    let Ok(payload) = serde_json::to_string(&payload) else {
+        return;
+    };
+    let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
+    if proxy
+        .send_event(RuntimeEvent::CrawlerUpdate {
+            tab_id,
+            payload,
+            acknowledgement,
+        })
+        .is_ok()
+    {
+        let _ = acknowledged.await;
+    }
+}
+
 fn crawler_summary_html(message: &CrawlerUiMessage) -> Result<String, String> {
     let source = message
         .url
@@ -903,6 +976,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 });
                             match setup {
                                 Ok(crawler) => {
+                                    let publish_enabled = message.publish_to_control_plane.unwrap_or(false);
+                                    let (publisher, publish_warning) = match crawler_publish_config(publish_enabled) {
+                                        Ok(config) => (config, None),
+                                        Err(error) => (None, Some(error)),
+                                    };
                                     let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(8);
                                     let event_proxy = proxy.clone();
                                     let running = Arc::clone(&crawler_running);
@@ -910,21 +988,83 @@ fn main() -> Result<(), Box<dyn Error>> {
                                         let job = tokio::spawn(async move {
                                             crawler.crawl_with_events(&seeds, event_sender).await
                                         });
+                                        let mut publish_batch = Vec::with_capacity(16);
+                                        let mut publish_sequence = 0_u64;
+                                        let mut published_records = 0_usize;
+                                        let mut publish_error = publish_warning;
                                         while let Some(event) = event_receiver.recv().await {
                                             let payload = match event {
-                                                CrawlEvent::PageCompleted(page) => serde_json::json!({"kind":"page","page":page}),
+                                                CrawlEvent::PageCompleted(page) => {
+                                                    if let Some((_, _, source_id)) = publisher.as_ref() {
+                                                        if publish_error.is_none() {
+                                                            let timestamp = u64::try_from(page.fetched_at_unix_ms)
+                                                                .unwrap_or(u64::MAX);
+                                                            publish_batch.push(MultivariateObservation {
+                                                                schema_version: OBSERVATION_SCHEMA_VERSION,
+                                                                source_id: source_id.clone(),
+                                                                sequence: publish_sequence,
+                                                                timestamp_unix_ms: timestamp,
+                                                                values: vec![
+                                                                    Some(page.depth as f64),
+                                                                    page.status_code.map(f64::from),
+                                                                    Some(page.document_bytes as f64),
+                                                                    Some(page.fetch_ms),
+                                                                    Some(page.extraction_ms),
+                                                                    Some(page.links.len() as f64),
+                                                                    Some(page.title.chars().count() as f64),
+                                                                    Some(page.summary.chars().count() as f64),
+                                                                    Some(if page.error.is_some() { 1.0 } else { 0.0 }),
+                                                                ],
+                                                            });
+                                                            publish_sequence = publish_sequence.saturating_add(1);
+                                                            if publish_batch.len() >= 16 {
+                                                                let (gateway, token, source) = publisher.as_ref().expect("publisher is present");
+                                                                match publish_observation_batch(gateway, token, source, &publish_batch).await {
+                                                                    Ok(()) => {
+                                                                        published_records += publish_batch.len();
+                                                                        publish_batch.clear();
+                                                                    }
+                                                                    Err(error) => {
+                                                                        publish_error = Some(format!("Control-plane publishing stopped after {published_records} record(s): {error}"));
+                                                                        publish_batch.clear();
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    serde_json::json!({"kind":"page","page":page})
+                                                }
                                                 CrawlEvent::Finished(metrics) => serde_json::json!({"kind":"finished","metrics":metrics}),
                                             };
-                                            if let Ok(payload) = serde_json::to_string(&payload) {
-                                                let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
-                                                if event_proxy.send_event(RuntimeEvent::CrawlerUpdate {
-                                                    tab_id,
-                                                    payload,
-                                                    acknowledgement,
-                                                }).is_ok() {
-                                                    let _ = acknowledged.await;
+                                            send_crawler_update(&event_proxy, tab_id, payload).await;
+                                        }
+                                        if publish_error.is_none() && !publish_batch.is_empty() {
+                                            if let Some((gateway, token, source)) = publisher.as_ref() {
+                                                match publish_observation_batch(gateway, token, source, &publish_batch).await {
+                                                    Ok(()) => published_records += publish_batch.len(),
+                                                    Err(error) => publish_error = Some(format!("Control-plane publishing stopped after {published_records} record(s): {error}")),
                                                 }
                                             }
+                                        }
+                                        if let Some(message) = publish_error {
+                                            if publish_enabled {
+                                                send_crawler_update(
+                                                    &event_proxy,
+                                                    tab_id,
+                                                    serde_json::json!({"kind":"publish","message":message}),
+                                                ).await;
+                                            }
+                                        } else if publish_enabled {
+                                            let message = if publisher.is_some() {
+                                                format!("Published {published_records} numeric crawl observation(s) to the control plane.")
+                                            } else {
+                                                "Control-plane publishing was not requested.".to_owned()
+                                            };
+                                            send_crawler_update(
+                                                &event_proxy,
+                                                tab_id,
+                                                serde_json::json!({"kind":"publish","message":message}),
+                                            ).await;
                                         }
                                         let failure = match job.await {
                                             Ok(Ok(_)) => None,
@@ -932,21 +1072,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                                             Err(error) => Some(format!("Crawler task failed: {error}")),
                                         };
                                         if let Some(message) = failure {
-                                            let payload = serde_json::json!({"kind":"error","message":message});
-                                            if let Ok(payload) = serde_json::to_string(&payload) {
-                                                let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
-                                                if event_proxy.send_event(RuntimeEvent::CrawlerUpdate {
-                                                    tab_id,
-                                                    payload,
-                                                    acknowledgement,
-                                                }).is_ok() {
-                                                    let _ = acknowledged.await;
-                                                }
-                                            }
+                                            send_crawler_update(
+                                                &event_proxy,
+                                                tab_id,
+                                                serde_json::json!({"kind":"error","message":message}),
+                                            ).await;
                                         }
                                         running.store(false, Ordering::Release);
                                     });
-                                    let payload = serde_json::json!({"kind":"status","message":"Crawl started. Results will stream in as pages are extracted."});
+                                    let message = if publish_enabled {
+                                        "Crawl started. Results will stream here; numeric metrics will be sent to the configured control plane."
+                                    } else {
+                                        "Crawl started. Results will stream here."
+                                    };
+                                    let payload = serde_json::json!({"kind":"status","message":message});
                                     if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
                                         let _ = tab.engine.view.evaluate_script(&format!(
                                             "window.yukkiCrawler && window.yukkiCrawler.append({});", payload
