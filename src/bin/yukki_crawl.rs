@@ -27,13 +27,14 @@ impl DirectoryOutputSink {
 impl CrawlerExecutionOutputSink for DirectoryOutputSink {
     fn store(
         &self,
-        input_sha256: &str,
+        page_key_sha256: &str,
+        _input_sha256: &str,
         output_sha256: &str,
         output: &[u8],
     ) -> Result<String, String> {
         // Both names are host-generated lowercase SHA-256 values, not guest
         // strings or URLs. create_new prevents following/replacing a symlink.
-        let filename = format!("{input_sha256}-{output_sha256}.bin");
+        let filename = format!("{page_key_sha256}-{output_sha256}.bin");
         let path = self.directory.join(&filename);
         let mut file = OpenOptions::new()
             .write(true)
