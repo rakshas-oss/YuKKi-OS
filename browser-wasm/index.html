@@ -78,9 +78,40 @@
         </ol>
       </section>
 
+      <section class="panel data-streams-panel" id="data-streams" aria-labelledby="data-streams-heading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">04 · DATA ADOPTION</p><h2 id="data-streams-heading">Multivariate data streams</h2></div>
+          <span id="data-stream-count" class="muted">Not connected</span>
+        </div>
+        <p class="hint">Discover authenticated control-plane data streams and explicitly adopt a bounded observation range into the Rust WASM validator. Null dimensions remain missing; crawler HTML is not sent to this surface.</p>
+        <div class="actions">
+          <button id="data-stream-refresh" type="button" class="secondary" disabled>Refresh data streams</button>
+        </div>
+        <div id="data-stream-list" class="stream-list" aria-live="polite">
+          <p class="muted">Connect to a gateway that exposes the data-stream API.</p>
+        </div>
+        <div class="tool-details">
+          <div class="panel-heading">
+            <h3 id="selected-data-stream">No data stream selected</h3>
+            <span class="muted">WASM validation</span>
+          </div>
+          <form id="data-observation-form" class="chunk-form">
+            <label for="data-from-sequence">Start sequence</label>
+            <input id="data-from-sequence" type="text" inputmode="numeric" value="0" pattern="[0-9]+" required>
+            <label for="data-observation-limit">Record limit (1–128)</label>
+            <input id="data-observation-limit" type="number" min="1" max="128" value="64" required>
+            <div class="actions"><button id="data-observation-load" type="submit" disabled>Adopt into WASM</button></div>
+          </form>
+          <p id="data-stream-status" class="status" role="status" aria-live="polite">Select a data stream to load observations.</p>
+          <ol id="data-observation-list" class="chunk-list">
+            <li class="muted">No data observations adopted.</li>
+          </ol>
+        </div>
+      </section>
+
       <section class="panel spatial-panel" id="spatial-tools" aria-labelledby="mmo-heading">
         <div class="panel-heading">
-          <div><p class="panel-kicker">04 · LOCAL COMPUTE</p><h2 id="mmo-heading">MMO spatial resolver</h2></div>
+          <div><p class="panel-kicker">05 · LOCAL COMPUTE</p><h2 id="mmo-heading">MMO spatial resolver</h2></div>
           <span class="muted">WASM · 512 entity limit</span>
         </div>
         <p class="hint">Add WGS84 observations and resolve the nearest eligible entity using location, observation time, freshness, and distance. This runs in the browser WASM core; sample entities are not sent to a gateway.</p>
