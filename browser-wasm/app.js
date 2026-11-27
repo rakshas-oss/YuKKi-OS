@@ -15,12 +15,24 @@ const autoRefreshInput = $("auto-refresh");
 const chunkStatus = $("chunk-status");
 const chunkList = $("chunk-list");
 const selectedLabel = $("selected-stream");
+const dataStreamList = $("data-stream-list");
+const dataStreamCount = $("data-stream-count");
+const dataStreamRefresh = $("data-stream-refresh");
+const dataStreamStatus = $("data-stream-status");
+const selectedDataStreamLabel = $("selected-data-stream");
+const dataObservationForm = $("data-observation-form");
+const dataFromInput = $("data-from-sequence");
+const dataObservationLimit = $("data-observation-limit");
+const dataObservationLoad = $("data-observation-load");
+const dataObservationList = $("data-observation-list");
 
 let wasm = null;
 let gatewayBase = "";
 let bearerToken = "";
 let streams = [];
 let selectedStream = null;
+let dataStreams = [];
+let selectedDataStream = null;
 let pollHandle = null;
 let readInFlight = false;
 
@@ -56,7 +68,7 @@ async function loadWasm() {
   const bytes = await response.arrayBuffer();
   const result = await WebAssembly.instantiate(bytes, {});
   wasm = result.instance.exports;
-  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc", "adi_mmo_reset", "adi_mmo_entity_count", "adi_mmo_upsert_entity", "adi_mmo_entity_id", "adi_mmo_entity_lat", "adi_mmo_entity_lon", "adi_mmo_entity_alt", "adi_mmo_entity_timestamp_ns", "adi_mmo_resolve_nearest", "adi_mmo_wgs84_to_ecef", "adi_mmo_simplify_reset", "adi_mmo_simplify_push_wgs84", "adi_mmo_simplify_run", "adi_mmo_simplify_output_count", "adi_mmo_simplify_output_index", "adi_mmo_simplify_output_lat", "adi_mmo_simplify_output_lon", "adi_mmo_simplify_output_alt"]) {
+  for (const name of ["memory", "yukki_input_ptr", "yukki_input_capacity", "yukki_validate_ykmc", "yukki_observation_input_ptr", "yukki_observation_input_capacity", "yukki_validate_observation", "adi_mmo_reset", "adi_mmo_entity_count", "adi_mmo_upsert_entity", "adi_mmo_entity_id", "adi_mmo_entity_lat", "adi_mmo_entity_lon", "adi_mmo_entity_alt", "adi_mmo_entity_timestamp_ns", "adi_mmo_resolve_nearest", "adi_mmo_wgs84_to_ecef", "adi_mmo_simplify_reset", "adi_mmo_simplify_push_wgs84", "adi_mmo_simplify_run", "adi_mmo_simplify_output_count", "adi_mmo_simplify_output_index", "adi_mmo_simplify_output_lat", "adi_mmo_simplify_output_lon", "adi_mmo_simplify_output_alt"]) {
     if (!(name in wasm)) throw new Error("Browser verifier is missing export: " + name);
   }
 }
@@ -123,7 +135,7 @@ function verifyChunkWithWasm(chunk) {
 }
 
 function quoteLargeProtocolIntegers(raw) {
-  const targetKeys = new Set(["latest_seq", "sequence_no", "timestamp_ms"]);
+  const targetKeys = new Set(["latest_seq", "sequence_no", "timestamp_ms", "sequence", "timestamp_unix_ms"]);
   let out = "";
   let i = 0;
   while (i < raw.length) {
@@ -192,6 +204,196 @@ async function gatewayFetch(path) {
     throw error;
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+
+const U64_MAX = 18446744073709551615n;
+
+function exactU64(value, label) {
+  let parsed;
+  if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value)) {
+    parsed = BigInt(value);
+  } else if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    parsed = BigInt(value);
+  } else {
+    throw new Error(label + " is not an exact unsigned 64-bit integer.");
+  }
+  if (parsed > U64_MAX) throw new Error(label + " exceeds the u64 range.");
+  return parsed;
+}
+
+function validateDataObservation(record, expectedSourceId) {
+  if (!record || typeof record !== "object" || record.schema_version !== 1) {
+    throw new Error("Unsupported multivariate observation schema.");
+  }
+  if (record.source_id !== expectedSourceId || !Array.isArray(record.values) ||
+      record.values.length < 1 || record.values.length > 32) {
+    throw new Error("Observation source or dimension count is invalid.");
+  }
+  const sequence = exactU64(record.sequence, "Observation sequence");
+  const timestamp = exactU64(record.timestamp_unix_ms, "Observation timestamp");
+  const pointer = wasm.yukki_observation_input_ptr();
+  const capacity = wasm.yukki_observation_input_capacity();
+  if (record.values.length > capacity) throw new Error("Observation exceeds the Rust WASM dimension limit.");
+  const target = new Float64Array(wasm.memory.buffer, pointer, capacity);
+  let missingMask = 0;
+  const values = [];
+  for (let index = 0; index < record.values.length; index += 1) {
+    const value = record.values[index];
+    if (value === null) {
+      missingMask |= (1 << index);
+      target[index] = 0;
+      values.push(null);
+    } else {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error("Observation contains a non-finite or non-numeric value.");
+      }
+      target[index] = value;
+      values.push(value);
+    }
+  }
+  const status = wasm.yukki_validate_observation(
+    record.values.length,
+    missingMask >>> 0,
+    sequence,
+    timestamp
+  );
+  if (status !== 0) {
+    throw new Error("Rust WASM rejected observation (validation code " + status + ").");
+  }
+  return { sequence, timestamp, values };
+}
+
+function renderDataStreams() {
+  dataStreamList.replaceChildren();
+  dataStreamCount.textContent = dataStreams.length + " data stream(s)";
+  if (dataStreams.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No multivariate data streams are retained on this gateway.";
+    dataStreamList.append(empty);
+    return;
+  }
+  for (const stream of dataStreams) {
+    const card = document.createElement("article");
+    card.className = "stream-card";
+    const details = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = stream.source_id;
+    const meta = document.createElement("p");
+    meta.className = "chunk-meta";
+    meta.textContent = [
+      stream.retained_observations + " retained observations",
+      stream.dimensions + " dimensions",
+      "latest seq: " + (stream.latest_sequence ?? "none")
+    ].join(" · ");
+    const bounds = document.createElement("p");
+    bounds.className = "muted";
+    bounds.textContent = "retained from " + (stream.first_retained_sequence ?? "none");
+    details.append(name, meta, bounds);
+    const choose = document.createElement("button");
+    choose.type = "button";
+    choose.textContent = "Adopt";
+    choose.addEventListener("click", () => selectDataStream(stream));
+    card.append(details, choose);
+    dataStreamList.append(card);
+  }
+}
+
+async function refreshDataStreams() {
+  if (!bearerToken) return;
+  dataStreamRefresh.disabled = true;
+  setStatus(dataStreamStatus, "Loading control-plane data stream descriptors…");
+  try {
+    const data = await gatewayFetch("/v1/data-streams");
+    if (!Array.isArray(data)) throw new Error("Gateway returned an invalid data stream list.");
+    dataStreams = data;
+    renderDataStreams();
+    setStatus(dataStreamStatus, dataStreams.length + " data stream(s) available for WASM adoption.");
+  } catch (error) {
+    dataStreams = [];
+    renderDataStreams();
+    setStatus(
+      dataStreamStatus,
+      "This gateway does not expose the optional data-stream API, or the request failed: " +
+        (error.message || "unknown error"),
+      "error"
+    );
+  } finally {
+    dataStreamRefresh.disabled = !bearerToken;
+  }
+}
+
+function selectDataStream(stream) {
+  selectedDataStream = stream;
+  selectedDataStreamLabel.textContent = stream.source_id;
+  dataFromInput.value = String(stream.first_retained_sequence ?? 0);
+  dataObservationLimit.value = "64";
+  dataObservationLoad.disabled = false;
+  dataObservationList.replaceChildren();
+  setStatus(dataStreamStatus, "Data stream selected. Adopt a bounded sequence range into browser WASM.");
+  readDataObservations();
+}
+
+async function readDataObservations() {
+  if (!selectedDataStream || !bearerToken) return;
+  const from = dataFromInput.value.trim();
+  if (!/^(0|[1-9][0-9]*)$/.test(from)) {
+    setStatus(dataStreamStatus, "Start sequence must be an unsigned decimal integer.", "error");
+    return;
+  }
+  const limit = Number(dataObservationLimit.value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 128) {
+    setStatus(dataStreamStatus, "Record limit must be between 1 and 128.", "error");
+    return;
+  }
+  dataObservationLoad.disabled = true;
+  setStatus(dataStreamStatus, "Reading and validating observations in Rust WASM…");
+  try {
+    const path = "/v1/data-streams/" + encodeURIComponent(selectedDataStream.source_id) +
+      "/observations?from=" + encodeURIComponent(from) + "&limit=" + limit;
+    const range = await gatewayFetch(path);
+    if (!range || range.source_id !== selectedDataStream.source_id || !Array.isArray(range.records)) {
+      throw new Error("Gateway returned an invalid observation range.");
+    }
+    dataObservationList.replaceChildren();
+    let lastSequence = null;
+    for (const record of range.records) {
+      const validated = validateDataObservation(record, range.source_id);
+      lastSequence = validated.sequence;
+      const item = document.createElement("li");
+      const heading = document.createElement("strong");
+      heading.textContent = "Sequence " + validated.sequence.toString();
+      const timestamp = document.createElement("p");
+      timestamp.className = "chunk-meta";
+      timestamp.textContent = "Observed " + validated.timestamp.toString() + " ms";
+      const vector = document.createElement("p");
+      vector.className = "chunk-meta";
+      vector.textContent = "Values: [" + validated.values.map((value) =>
+        value === null ? "missing" : String(value)
+      ).join(", ") + "]";
+      const validatedLabel = document.createElement("p");
+      validatedLabel.className = "muted";
+      validatedLabel.textContent = "Rust WASM schema-v1 validation: passed";
+      item.append(heading, timestamp, vector, validatedLabel);
+      dataObservationList.append(item);
+    }
+    if (lastSequence !== null) dataFromInput.value = (lastSequence + 1n).toString();
+    if (range.records.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "muted";
+      empty.textContent = "No retained observations in this sequence range.";
+      dataObservationList.append(empty);
+    }
+    setStatus(
+      dataStreamStatus,
+      range.records.length + " observation(s) adopted and validated by the Rust WASM core."
+    );
+  } catch (error) {
+    setStatus(dataStreamStatus, error.message || "Unable to adopt data observations.", "error");
+  } finally {
+    dataObservationLoad.disabled = !selectedDataStream || !bearerToken;
   }
 }
 
@@ -353,12 +555,19 @@ connectForm.addEventListener("submit", async (event) => {
     streams = data;
     renderStreams();
     disconnectButton.disabled = false;
+    dataStreamRefresh.disabled = false;
+    await refreshDataStreams();
     setStatus(connectionStatus, "Connected. Credentials remain in page memory only.");
   } catch (error) {
     bearerToken = "";
     streams = [];
     selectedStream = null;
+    dataStreams = [];
+    selectedDataStream = null;
     renderStreams();
+    renderDataStreams();
+    dataStreamRefresh.disabled = true;
+    dataObservationLoad.disabled = true;
     disconnectButton.disabled = true;
     readButton.disabled = true;
     autoRefreshInput.disabled = true;
@@ -374,6 +583,8 @@ disconnectButton.addEventListener("click", () => {
   gatewayBase = "";
   streams = [];
   selectedStream = null;
+  dataStreams = [];
+  selectedDataStream = null;
   tokenInput.value = "";
   renderStreams();
   chunkList.replaceChildren();
@@ -383,6 +594,16 @@ disconnectButton.addEventListener("click", () => {
   chunkList.append(empty);
   selectedLabel.textContent = "No stream selected";
   streamCount.textContent = "Not connected";
+  selectedDataStreamLabel.textContent = "No data stream selected";
+  dataStreamCount.textContent = "Not connected";
+  renderDataStreams();
+  dataObservationList.replaceChildren();
+  const noData = document.createElement("li");
+  noData.className = "muted";
+  noData.textContent = "No data observations adopted.";
+  dataObservationList.append(noData);
+  dataStreamRefresh.disabled = true;
+  dataObservationLoad.disabled = true;
   readButton.disabled = true;
   autoRefreshInput.checked = false;
   autoRefreshInput.disabled = true;
@@ -394,6 +615,11 @@ disconnectButton.addEventListener("click", () => {
 chunkForm.addEventListener("submit", (event) => {
   event.preventDefault();
   readChunks(false);
+});
+dataStreamRefresh.addEventListener("click", refreshDataStreams);
+dataObservationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  readDataObservations();
 });
 autoRefreshInput.addEventListener("change", updatePolling);
 
