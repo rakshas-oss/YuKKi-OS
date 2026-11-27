@@ -1,23 +1,23 @@
-# YuKKi-OS v6.22.1 (patch release candidate)
+# YuKKi-OS v6.22.1
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
 
-> **Release status:** v6.22.0 is the latest published GitHub Release (2026-11-26). Its release record has no attached binary assets. v6.22.1 is the next patch release candidate; its tag and assets are not published.
+> **Release status:** v6.22.1 is the latest published GitHub Release (2026-11-27). The release has no attached binary assets; use the GitHub source archive or clone the tag. This does not imply crates.io publication.
 
 **YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
 
 YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
 
-> Release candidate: v6.22.1. The latest published GitHub release is v6.22.0 (2026-11-26); it has no attached binary assets. GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+> **Published release:** v6.22.1 (2026-11-27). The GitHub Release currently has no attached binary assets. GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
 
 ## Current baseline
-- **Release line:** v6.22.1 patch candidate; latest published release v6.22.0 (2026-11-26).
+- **Release line:** v6.22.1 (latest published GitHub Release, 2026-11-27).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.22.0 GitHub Release is published without attached binary assets; v6.22.1 awaits its release gate.
+- **Status:** v6.22.1 GitHub Release is published; no binary assets are attached.
 
 ## What's new in v6.21.0 (published 2026-11-26)
 
@@ -29,7 +29,7 @@ YuKKi-OS combines distributed coordination and runtime services rather than repr
 
 The crawler is a bounded static-HTML vertical slice, not a general-purpose browser, distributed frontier, historical metrics database, or JavaScript execution environment. See [WASM Crawler Fabric](docs/WASM_CRAWLER.md) for the operator contract and limitations.
 
-## What's new in v6.22.1 (patch release candidate)
+## What's new in v6.22.1 (published 2026-11-27)
 
 - **NDJSON validation test correction:** verify that an unterminated final record remains buffered by `push()` and is validated by `finish()`, rather than expecting incomplete input to be emitted immediately.
 - **Toolchain formatting:** apply the pinned Rust 1.98.1 rustfmt layout to `guest-worker/src/lib.rs`.
