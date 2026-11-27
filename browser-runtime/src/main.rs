@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::{
     env,
     error::Error,
+    fs,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -35,6 +36,10 @@ use yukki_browser_runtime::{
     policy::{resolve_address, validate_navigation},
     store::{self, BrowserState},
     EngineAdapter, MAX_TABS,
+};
+use yukkios::{
+    crawler::{CrawlEvent, Crawler, CrawlerConfig},
+    stream_observation::{publish_observation_batch, MultivariateObservation, OBSERVATION_SCHEMA_VERSION},
 };
 
 const DEFAULT_URL: &str = "https://example.com";
@@ -156,6 +161,24 @@ fn create_linux_webview_hosts(window: &Window) -> Result<(gtk::Fixed, gtk::Fixed
 }
 
 #[derive(Debug, Deserialize)]
+struct CrawlerUiMessage {
+    action: String,
+    seeds: Option<Vec<String>>,
+    allowed_domains: Option<Vec<String>>,
+    max_pages: Option<usize>,
+    publish_to_control_plane: Option<bool>,
+    url: Option<String>,
+    title: Option<String>,
+    summary: Option<String>,
+    fetched_at_unix_ms: Option<u128>,
+    status_code: Option<u16>,
+    document_bytes: Option<u64>,
+    depth: Option<usize>,
+    sha256: Option<String>,
+    links: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UiMessage {
     action: String,
     url: Option<String>,
@@ -164,6 +187,15 @@ struct UiMessage {
 
 enum RuntimeEvent {
     Ui(UiMessage),
+    CrawlerUi {
+        tab_id: u64,
+        message: CrawlerUiMessage,
+    },
+    CrawlerUpdate {
+        tab_id: u64,
+        payload: String,
+        acknowledgement: tokio::sync::oneshot::Sender<()>,
+    },
     Visited {
         tab_id: u64,
         url: String,
@@ -182,8 +214,15 @@ enum RuntimeEvent {
     Exit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TabKind {
+    Page,
+    CrawlerUtility,
+}
+
 struct Tab {
     id: u64,
+    kind: TabKind,
     engine: WryEngineAdapter,
     url: String,
     title: String,
@@ -372,6 +411,47 @@ fn build_page(
     Ok(WryEngineAdapter { view })
 }
 
+fn build_crawler_utility(
+    _window: &Window,
+    #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
+    proxy: &EventLoopProxy<RuntimeEvent>,
+    tab_id: u64,
+    bounds: Rect,
+    visible: bool,
+) -> Result<WryEngineAdapter, Box<dyn Error>> {
+    let ipc_proxy = proxy.clone();
+    let builder = WebViewBuilder::new()
+        .with_html(include_str!("../assets/crawler.html"))
+        .with_bounds(bounds)
+        .with_visible(visible)
+        .with_incognito(true)
+        .with_autoplay(false)
+        .with_clipboard(false)
+        .with_devtools(cfg!(debug_assertions))
+        .with_ipc_handler(move |request| {
+            if request.body().len() > 16 * 1024 {
+                return;
+            }
+            if let Ok(message) = serde_json::from_str::<CrawlerUiMessage>(request.body()) {
+                if matches!(
+                    message.action.as_str(),
+                    "ready" | "start_crawl" | "open_summary"
+                ) && message.action.len() <= 32
+                {
+                    let _ = ipc_proxy.send_event(RuntimeEvent::CrawlerUi { tab_id, message });
+                }
+            }
+        })
+        .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
+        .with_permission_handler(|_kind| PermissionResponse::Default)
+        .with_download_started_handler(|_url, _path| false);
+    #[cfg(target_os = "linux")]
+    let view = builder.build_gtk(page_host)?;
+    #[cfg(not(target_os = "linux"))]
+    let view = builder.build_as_child(_window)?;
+    Ok(WryEngineAdapter { view })
+}
+
 fn build_toolbar(
     #[cfg(not(target_os = "linux"))] window: &Window,
     #[cfg(target_os = "linux")] toolbar_host: &gtk::Fixed,
@@ -402,6 +482,7 @@ fn build_toolbar(
                         | "close_tab"
                         | "switch_tab"
                         | "graphics_test"
+                        | "crawler_tab"
                 );
                 let valid_url = message.url.as_ref().is_none_or(|url| url.len() <= 2048);
                 if known_action && message.action.len() <= 32 && valid_url {
@@ -514,6 +595,7 @@ fn add_tab(
     }
     tabs.push(Tab {
         id,
+        kind: TabKind::Page,
         engine,
         url: url.to_string(),
         title: String::new(),
@@ -521,6 +603,193 @@ fn add_tab(
     });
     *selected_tab_id = id;
     Ok(())
+}
+
+fn add_crawler_tab(
+    window: &Window,
+    #[cfg(target_os = "linux")] page_host: &gtk::Fixed,
+    proxy: &EventLoopProxy<RuntimeEvent>,
+    tabs: &mut Vec<Tab>,
+    next_tab_id: &mut u64,
+    selected_tab_id: &mut u64,
+    size: PhysicalSize<u32>,
+) -> Result<(), String> {
+    if let Some(existing) = tabs.iter().find(|tab| tab.kind == TabKind::CrawlerUtility) {
+        *selected_tab_id = existing.id;
+        set_active_tab(tabs, *selected_tab_id);
+        return Ok(());
+    }
+    if tabs.len() >= MAX_TABS {
+        return Err(format!(
+            "The browser tab limit is {MAX_TABS}. Close a tab before opening the crawler utility."
+        ));
+    }
+    let id = *next_tab_id;
+    *next_tab_id += 1;
+    let bounds = page_rect(size, window.scale_factor());
+    #[cfg(target_os = "linux")]
+    let engine = build_crawler_utility(window, page_host, proxy, id, bounds, true)
+        .map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "linux"))]
+    let engine = build_crawler_utility(window, proxy, id, bounds, true)
+        .map_err(|error| error.to_string())?;
+
+    for tab in tabs.iter() {
+        let _ = tab.engine.view.set_visible(false);
+    }
+    tabs.push(Tab {
+        id,
+        kind: TabKind::CrawlerUtility,
+        engine,
+        url: "yukki://crawler".to_owned(),
+        title: "Crawler Utility".to_owned(),
+        last_load_ms: None,
+    });
+    *selected_tab_id = id;
+    Ok(())
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+
+fn crawler_publish_config(
+    enabled: bool,
+) -> Result<Option<(String, String, String)>, String> {
+    if !enabled {
+        return Ok(None);
+    }
+    let token = env::var("YUKKI_GATEWAY_TOKEN")
+        .map_err(|_| "Control-plane publishing is unavailable: this YuKKi process has no YUKKI_GATEWAY_TOKEN configured.".to_owned())?;
+    if token.is_empty() || token.len() > 4096 {
+        return Err("Control-plane publishing is unavailable: the configured gateway token is invalid.".to_owned());
+    }
+
+    let base = if let Ok(url) = env::var("YUKKI_GATEWAY_URL") {
+        let parsed = Url::parse(&url)
+            .map_err(|_| "YUKKI_GATEWAY_URL is not a valid gateway URL.".to_owned())?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| "YUKKI_GATEWAY_URL is missing a host.".to_owned())?;
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
+        if (parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback))
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err("YUKKI_GATEWAY_URL must use HTTPS (or localhost HTTP) and contain no credentials, query, or fragment.".to_owned());
+        }
+        parsed
+    } else {
+        let address = env::var("YUKKI_GATEWAY_LISTEN")
+            .or_else(|_| env::var("YUKKI_GATEWAY_ENDPOINT"))
+            .unwrap_or_else(|_| "127.0.0.1:7670".to_owned());
+        let mut address = address
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| "YUKKI_GATEWAY_LISTEN/YUKKI_GATEWAY_ENDPOINT must be a socket address.".to_owned())?;
+        if address.ip().is_unspecified() {
+            address.set_ip(match address.ip() {
+                std::net::IpAddr::V4(_) => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                std::net::IpAddr::V6(_) => std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            });
+        }
+        if !address.ip().is_loopback() {
+            return Err("A non-local gateway requires YUKKI_GATEWAY_URL with HTTPS.".to_owned());
+        }
+        Url::parse(&format!("http://{address}"))
+            .map_err(|_| "Could not construct the local gateway URL.".to_owned())?
+    };
+
+    let source_id = format!("crawler-{}", uuid::Uuid::new_v4());
+    Ok(Some((base.to_string(), token, source_id)))
+}
+
+async fn send_crawler_update(
+    proxy: &EventLoopProxy<RuntimeEvent>,
+    tab_id: u64,
+    payload: serde_json::Value,
+) {
+    let Ok(payload) = serde_json::to_string(&payload) else {
+        return;
+    };
+    let (acknowledgement, acknowledged) = tokio::sync::oneshot::channel();
+    if proxy
+        .send_event(RuntimeEvent::CrawlerUpdate {
+            tab_id,
+            payload,
+            acknowledgement,
+        })
+        .is_ok()
+    {
+        let _ = acknowledged.await;
+    }
+}
+
+fn crawler_summary_html(message: &CrawlerUiMessage) -> Result<String, String> {
+    let source = message
+        .url
+        .as_deref()
+        .ok_or("summary is missing its source URL")?;
+    if source.len() > 2048 {
+        return Err("summary source URL exceeds 2,048 bytes".to_owned());
+    }
+    let source = validate_navigation(source).map_err(|error| error.to_string())?;
+    let title = message.title.as_deref().unwrap_or("Untitled page");
+    let summary = message
+        .summary
+        .as_deref()
+        .unwrap_or("No text preview was extracted.");
+    if title.len() > 256 || summary.len() > 480 {
+        return Err("summary title or preview exceeds its size limit".to_owned());
+    }
+    let original = html_escape(source.as_str());
+    let mut discovered = String::new();
+    for raw in message.links.as_deref().unwrap_or_default().iter().take(8) {
+        if raw.len() > 2048 {
+            continue;
+        }
+        if let Ok(url) = validate_navigation(raw) {
+            let href = html_escape(url.as_str());
+            let label = html_escape(url.as_str());
+            discovered.push_str(&format!(
+                "<li><a href=\"{href}\" rel=\"noopener noreferrer\">{label}</a></li>"
+            ));
+        }
+    }
+    let links_section = if discovered.is_empty() {
+        "<p>No additional links were extracted.</p>".to_owned()
+    } else {
+        format!("<ul>{discovered}</ul>")
+    };
+    let status = message
+        .status_code
+        .map(|code| format!("HTTP {code}"))
+        .unwrap_or_else(|| "Fetch failed".to_owned());
+    let timestamp = message.fetched_at_unix_ms.unwrap_or_default();
+    let bytes = message.document_bytes.unwrap_or_default();
+    let depth = message.depth.unwrap_or_default();
+    let digest = html_escape(message.sha256.as_deref().unwrap_or(""));
+    Ok(format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';"><title>Page summary</title><style>body{{font:16px system-ui,sans-serif;line-height:1.55;max-width:820px;margin:36px auto;padding:0 20px;color:#1d2930}}.eyebrow{{color:#55717e;font-size:12px;letter-spacing:.08em;font-weight:700}}h1{{line-height:1.2}}.summary{{font-size:18px;white-space:pre-wrap}}a{{color:#075f83;overflow-wrap:anywhere}}.meta{{color:#52636c;font-size:13px}}li{{margin:8px 0}}</style></head><body><p class="eyebrow">YUKKI-OS · CRAWLER PAGE SUMMARY</p><h1>{}</h1><p class="meta">{}</p><p class="summary">{}</p><p><a href="{}" rel="noopener noreferrer">Open original HTML</a></p><h2>Discovered links</h2>{}<hr><p class="meta">{} · {} bytes · depth {} · fetched {} Unix ms</p><p class="meta">SHA-256: {}</p></body></html>"#,
+        html_escape(title),
+        original,
+        html_escape(summary),
+        original,
+        links_section,
+        status,
+        bytes,
+        depth,
+        timestamp,
+        digest
+    ))
 }
 
 fn persist_state(path: &PathBuf, state: &BrowserState) {
@@ -560,6 +829,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut tabs = Vec::new();
     let mut next_tab_id = 1_u64;
     let mut selected_tab_id = 0_u64;
+    let mut main_page_tab_id;
     #[cfg(target_os = "linux")]
     let initial_tab_result = add_tab(
         &window,
@@ -582,6 +852,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         initial_size,
     );
     initial_tab_result.map_err(std::io::Error::other)?;
+    main_page_tab_id = selected_tab_id;
 
     sync_chrome(
         &toolbar,
@@ -597,6 +868,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // configuration errors instead of blocking ordinary navigation.
     let accelerator_scheduler = Arc::new(BrowserAcceleratorScheduler::from_env());
     let graphics_test_running = Arc::new(AtomicBool::new(false));
+    let crawler_running = Arc::new(AtomicBool::new(false));
     let async_runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -660,6 +932,226 @@ fn main() -> Result<(), Box<dyn Error>> {
             Event::UserEvent(RuntimeEvent::Notice(message)) => {
                 sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, &message);
             }
+            Event::UserEvent(RuntimeEvent::CrawlerUpdate { tab_id, payload, acknowledgement }) => {
+                if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id && tab.kind == TabKind::CrawlerUtility) {
+                    let script = format!("window.yukkiCrawler && window.yukkiCrawler.append({payload});");
+                    let _ = tab.engine.view.evaluate_script(&script);
+                }
+                let _ = acknowledgement.send(());
+            }
+            Event::UserEvent(RuntimeEvent::CrawlerUi { message, .. }) if message.action == "ready" => {}
+            Event::UserEvent(RuntimeEvent::CrawlerUi { tab_id, message }) => {
+                match message.action.as_str() {
+                    "start_crawl" => {
+                        let seeds = message.seeds.unwrap_or_default();
+                        let domains = message.allowed_domains.unwrap_or_default();
+                        let max_pages = message.max_pages.unwrap_or(100);
+                        let valid_seeds = !seeds.is_empty() && seeds.len() <= 16
+                            && seeds.iter().all(|seed| !seed.trim().is_empty() && seed.len() <= 2048);
+                        let valid_domains = !domains.is_empty() && domains.len() <= 256
+                            && domains.iter().all(|domain| {
+                                let value = domain.trim();
+                                !value.is_empty() && value.len() <= 253
+                                    && !value.contains('/') && !value.contains(':')
+                                    && !value.contains('*') && !value.chars().any(char::is_whitespace)
+                            });
+                        if !valid_seeds || !valid_domains || !(1..=1000).contains(&max_pages) {
+                            let payload = serde_json::json!({"kind":"error","message":"Provide 1–16 valid seed URLs, 1–256 DNS allowlist domains, and 1–1,000 maximum pages."});
+                            if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
+                                let _ = tab.engine.view.evaluate_script(&format!(
+                                    "window.yukkiCrawler && window.yukkiCrawler.append({});", payload
+                                ));
+                            }
+                        } else if crawler_running.swap(true, Ordering::AcqRel) {
+                            let payload = serde_json::json!({"kind":"status","message":"A crawl is already running."});
+                            if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
+                                let _ = tab.engine.view.evaluate_script(&format!(
+                                    "window.yukkiCrawler && window.yukkiCrawler.append({});", payload
+                                ));
+                            }
+                        } else {
+                            let wasm_path = env::var_os("YUKKI_CRAWLER_WASM").map(PathBuf::from);
+                            let setup = wasm_path
+                                .ok_or_else(|| "Set YUKKI_CRAWLER_WASM to the compiled crawler extraction guest.".to_owned())
+                                .and_then(|path| fs::read(&path).map_err(|error| format!("Cannot read crawler guest {}: {error}", path.display())))
+                                .and_then(|wasm| {
+                                    let mut config = CrawlerConfig::default();
+                                    config.allowed_domains = domains;
+                                    config.max_pages = max_pages;
+                                    Crawler::new(config, &wasm).map_err(|error| error.to_string())
+                                });
+                            match setup {
+                                Ok(crawler) => {
+                                    let publish_enabled = message.publish_to_control_plane.unwrap_or(false);
+                                    let (publisher, publish_warning) = match crawler_publish_config(publish_enabled) {
+                                        Ok(config) => (config, None),
+                                        Err(error) => (None, Some(error)),
+                                    };
+                                    let startup_publish_warning = publish_warning.clone();
+                                    let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(8);
+                                    let event_proxy = proxy.clone();
+                                    let running = Arc::clone(&crawler_running);
+                                    async_runtime.spawn(async move {
+                                        let job = tokio::spawn(async move {
+                                            crawler.crawl_with_events(&seeds, event_sender).await
+                                        });
+                                        let mut publish_batch = Vec::with_capacity(16);
+                                        let mut publish_sequence = 0_u64;
+                                        let mut published_records = 0_usize;
+                                        let mut publish_error = publish_warning;
+                                        while let Some(event) = event_receiver.recv().await {
+                                            let payload = match event {
+                                                CrawlEvent::PageCompleted(page) => {
+                                                    if let Some((_, _, source_id)) = publisher.as_ref() {
+                                                        if publish_error.is_none() {
+                                                            let timestamp = u64::try_from(page.fetched_at_unix_ms)
+                                                                .unwrap_or(u64::MAX);
+                                                            publish_batch.push(MultivariateObservation {
+                                                                schema_version: OBSERVATION_SCHEMA_VERSION,
+                                                                source_id: source_id.clone(),
+                                                                sequence: publish_sequence,
+                                                                timestamp_unix_ms: timestamp,
+                                                                values: vec![
+                                                                    Some(page.depth as f64),
+                                                                    page.status_code.map(f64::from),
+                                                                    Some(page.document_bytes as f64),
+                                                                    Some(page.fetch_ms),
+                                                                    Some(page.extraction_ms),
+                                                                    Some(page.links.len() as f64),
+                                                                    Some(page.title.chars().count() as f64),
+                                                                    Some(page.summary.chars().count() as f64),
+                                                                    Some(if page.error.is_some() { 1.0 } else { 0.0 }),
+                                                                ],
+                                                            });
+                                                            publish_sequence = publish_sequence.saturating_add(1);
+                                                            if publish_batch.len() >= 16 {
+                                                                let (gateway, token, source) = publisher.as_ref().expect("publisher is present");
+                                                                match publish_observation_batch(gateway, token, source, &publish_batch).await {
+                                                                    Ok(()) => {
+                                                                        published_records += publish_batch.len();
+                                                                        publish_batch.clear();
+                                                                    }
+                                                                    Err(error) => {
+                                                                        publish_error = Some(format!("Control-plane publishing stopped after {published_records} record(s): {error}"));
+                                                                        publish_batch.clear();
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    serde_json::json!({"kind":"page","page":page})
+                                                }
+                                                CrawlEvent::Finished(metrics) => serde_json::json!({"kind":"finished","metrics":metrics}),
+                                            };
+                                            send_crawler_update(&event_proxy, tab_id, payload).await;
+                                        }
+                                        if publish_error.is_none() && !publish_batch.is_empty() {
+                                            if let Some((gateway, token, source)) = publisher.as_ref() {
+                                                match publish_observation_batch(gateway, token, source, &publish_batch).await {
+                                                    Ok(()) => published_records += publish_batch.len(),
+                                                    Err(error) => publish_error = Some(format!("Control-plane publishing stopped after {published_records} record(s): {error}")),
+                                                }
+                                            }
+                                        }
+                                        if let Some(message) = publish_error {
+                                            if publish_enabled {
+                                                send_crawler_update(
+                                                    &event_proxy,
+                                                    tab_id,
+                                                    serde_json::json!({"kind":"publish","message":message}),
+                                                ).await;
+                                            }
+                                        } else if publish_enabled {
+                                            let message = match publisher.as_ref() {
+                                                Some((_, _, source_id)) if published_records > 0 => {
+                                                    format!("Published {published_records} numeric crawl observation(s) to data stream {source_id}.")
+                                                }
+                                                Some(_) => {
+                                                    "No page metrics were produced; no control-plane data stream was created.".to_owned()
+                                                }
+                                                None => {
+                                                    "Control-plane publishing was enabled but no publisher was configured.".to_owned()
+                                                }
+                                            };
+                                            send_crawler_update(
+                                                &event_proxy,
+                                                tab_id,
+                                                serde_json::json!({"kind":"publish","message":message}),
+                                            ).await;
+                                        }
+                                        let failure = match job.await {
+                                            Ok(Ok(_)) => None,
+                                            Ok(Err(error)) => Some(error.to_string()),
+                                            Err(error) => Some(format!("Crawler task failed: {error}")),
+                                        };
+                                        if let Some(message) = failure {
+                                            send_crawler_update(
+                                                &event_proxy,
+                                                tab_id,
+                                                serde_json::json!({"kind":"error","message":message}),
+                                            ).await;
+                                        }
+                                        running.store(false, Ordering::Release);
+                                    });
+                                    let message = if let Some(warning) = startup_publish_warning.as_deref() {
+                                        format!("Crawl started. Publishing is unavailable: {warning}")
+                                    } else if publish_enabled {
+                                        "Crawl started. Results stream here; numeric metrics are being sent to the configured control plane.".to_owned()
+                                    } else {
+                                        "Crawl started. Results will stream here.".to_owned()
+                                    };
+                                    let payload = serde_json::json!({"kind":"status","message":message});
+                                    if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
+                                        let _ = tab.engine.view.evaluate_script(&format!(
+                                            "window.yukkiCrawler && window.yukkiCrawler.append({});", payload
+                                        ));
+                                    }
+                                }
+                                Err(error) => {
+                                    crawler_running.store(false, Ordering::Release);
+                                    let payload = serde_json::json!({"kind":"error","message":error});
+                                    if let Some(tab) = tabs.iter().find(|tab| tab.id == tab_id) {
+                                        let _ = tab.engine.view.evaluate_script(&format!(
+                                            "window.yukkiCrawler && window.yukkiCrawler.append({});", payload
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "open_summary" => {
+                        match crawler_summary_html(&message) {
+                            Ok(document) => {
+                                let target_id = tabs.iter()
+                                    .find(|tab| tab.id == main_page_tab_id && tab.kind == TabKind::Page)
+                                    .map(|tab| tab.id)
+                                    .or_else(|| tabs.iter().find(|tab| tab.kind == TabKind::Page).map(|tab| tab.id));
+                                if let Some(target_id) = target_id {
+                                    if let Some(tab) = tabs.iter_mut().find(|tab| tab.id == target_id) {
+                                        match tab.engine.view.load_html(&document) {
+                                            Ok(()) => {
+                                                tab.url = message.url.clone().unwrap_or_else(|| "yukki://crawler-summary".to_owned());
+                                                tab.title = format!("Summary: {}", message.title.as_deref().unwrap_or("Untitled page"));
+                                                selected_tab_id = target_id;
+                                                main_page_tab_id = target_id;
+                                                set_active_tab(&mut tabs, selected_tab_id);
+                                            }
+                                            Err(error) => {
+                                                let _ = proxy.send_event(RuntimeEvent::Notice(format!("Could not open crawler summary: {error}")));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                let _ = proxy.send_event(RuntimeEvent::Notice(format!("Crawler summary rejected: {error}")));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                sync_chrome(&toolbar, &window, &tabs, selected_tab_id, &browser_state, "Crawler utility");
+            }
             #[cfg(target_os = "linux")]
             Event::UserEvent(RuntimeEvent::Exit) => {
                 *control_flow = ControlFlow::Exit;
@@ -697,6 +1189,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                             status = tab.engine.reload().map(|_| "Reloading".to_owned()).unwrap_or_else(|error| error);
                         }
                     }
+                    "crawler_tab" => {
+                        #[cfg(target_os = "linux")]
+                        let result = add_crawler_tab(
+                            &window, &page_host, &proxy, &mut tabs, &mut next_tab_id,
+                            &mut selected_tab_id, window.inner_size(),
+                        );
+                        #[cfg(not(target_os = "linux"))]
+                        let result = add_crawler_tab(
+                            &window, &proxy, &mut tabs, &mut next_tab_id,
+                            &mut selected_tab_id, window.inner_size(),
+                        );
+                        status = result.map(|_| "Crawler utility opened".to_owned()).unwrap_or_else(|error| error);
+                    }
                     "new_tab" => {
                         let destination = message.url.as_deref().unwrap_or(DEFAULT_URL);
                         #[cfg(target_os = "linux")]
@@ -723,19 +1228,37 @@ fn main() -> Result<(), Box<dyn Error>> {
                         status = result
                             .map(|_| "New tab".to_owned())
                             .unwrap_or_else(|error| error);
+                        if let Some(tab) = tabs.iter().find(|tab| tab.id == selected_tab_id && tab.kind == TabKind::Page) {
+                            main_page_tab_id = tab.id;
+                        }
                     }
                     "close_tab" => {
-                        if tabs.len() > 1 {
+                        let selected_kind = tabs.iter()
+                            .find(|tab| tab.id == selected_tab_id)
+                            .map(|tab| tab.kind);
+                        let page_count = tabs.iter()
+                            .filter(|tab| tab.kind == TabKind::Page)
+                            .count();
+                        if tabs.len() > 1
+                            && !(selected_kind == Some(TabKind::Page) && page_count <= 1)
+                        {
                             if let Some(index) = tabs.iter().position(|tab| tab.id == selected_tab_id) {
                                 tabs.remove(index);
                             }
                             selected_tab_id = tabs.last().map(|tab| tab.id).unwrap_or(0);
+                            if let Some(page) = tabs.iter().find(|tab| tab.kind == TabKind::Page) {
+                                main_page_tab_id = page.id;
+                            }
                             set_active_tab(&mut tabs, selected_tab_id);
                             status = "Tab closed".to_owned();
-                        } else if let Some(tab) = tabs.first() {
-                            if let Ok(url) = resolve_address(DEFAULT_URL) {
-                                let _ = tab.engine.navigate(&url);
+                        } else if selected_kind == Some(TabKind::Page) {
+                            if let Some(tab) = tabs.iter().find(|tab| tab.kind == TabKind::Page) {
+                                if let Ok(url) = resolve_address(DEFAULT_URL) {
+                                    let _ = tab.engine.navigate(&url);
+                                }
                             }
+                            status = "The last page tab cannot be closed".to_owned();
+                        } else {
                             status = "The last tab cannot be closed".to_owned();
                         }
                     }
@@ -743,6 +1266,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                         if let Some(id) = message.tab_id {
                             if tabs.iter().any(|tab| tab.id == id) {
                                 selected_tab_id = id;
+                                if tabs.iter().any(|tab| tab.id == id && tab.kind == TabKind::Page) {
+                                    main_page_tab_id = id;
+                                }
                                 set_active_tab(&mut tabs, selected_tab_id);
                                 status = "Tab selected".to_owned();
                             }

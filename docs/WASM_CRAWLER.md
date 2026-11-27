@@ -75,6 +75,72 @@ normalized in-allowlist links, fetch/extraction timings and an aggregate
 summary. Failed pages are retained as records with an error rather than
 silently disappearing.
 
+## Native browser crawler utility
+
+The native Wry browser runtime exposes the crawler as a dedicated **Crawler**
+utility tab. It does not replace the active page tab or inject results into a
+website. Build the YCR1 guest as shown above, set `YUKKI_CRAWLER_WASM` to the
+compiled guest path, and launch the native browser:
+
+~~~sh
+export YUKKI_CRAWLER_WASM="$PWD/crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm"
+cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.org/
+~~~
+
+In the utility tab, enter seed URLs and their allowed DNS domains. Domain
+allowlisting is required; the UI may infer domain names from the seed URLs
+when the allowlist field is empty, but users should review the resulting
+allowlist before starting. The browser UI permits up to 16 seeds and 1,000
+pages per run. The crawler's existing robots policy, DNS pinning, private
+address rejection, redirect refusal, pacing, timeouts, concurrency and byte
+budgets remain in force.
+
+The utility receives a bounded event stream as each page finishes. Result
+hyperlinks open a **YuKKi page summary in the last active main browsing tab**.
+The summary contains the extracted title, a plain-text excerpt (up to 480
+characters), source URL, fetch status/time, document size, content digest and
+up to eight validated discovered links. Its **Open original HTML** hyperlink
+navigates the same main tab to the remote source page. The Crawler utility tab
+remains open for selecting other results.
+
+The excerpt is derived from visible text in the fetched HTML; it is not an
+AI-generated semantic summary. Raw HTML is not broadcast to the browser UI or
+embedded in the summary page. The native host retains fetch authority and the
+browser's top-level navigation policy still applies when a user opens a source
+or discovered link. A bounded 16-record event queue backpressures the crawl
+when the utility is not consuming updates. The browser feed sends at most
+eight links per page event, each no longer than 1,024 bytes.
+
+### Optional plug-and-play control-plane publishing
+
+The Crawler utility exposes a single opt-in checkbox to publish numeric crawl
+metrics for browser-WASM adoption. It reuses the native YuKKi node's existing
+gateway configuration; users do not enter a second URL or bearer token.
+
+The native browser uses `YUKKI_GATEWAY_TOKEN` and discovers the local address
+from `YUKKI_GATEWAY_LISTEN`, then `YUKKI_GATEWAY_ENDPOINT`, falling back to
+`127.0.0.1:7670`. Wildcard listen addresses are connected through loopback.
+Remote publishing requires an HTTPS `YUKKI_GATEWAY_URL`. The browser process
+must inherit the configured node environment. If the gateway is not configured
+or reachable, local crawling continues and publishing reports a non-fatal
+warning.
+
+Published data uses the existing schema-v1 multivariate observation envelope
+and the authenticated `POST /v1/data-streams/{source_id}/observations`
+endpoint. One observation is emitted per completed page, in batches of 16,
+with nine numeric dimensions: depth, HTTP status, document bytes, fetch
+milliseconds, extraction milliseconds, link count, title character count,
+preview character count, and failure flag. Missing HTTP status stays null.
+HTML, URL, title, excerpts, and page content never enter the data stream.
+
+The gateway's data-observation store is separate from YKMC media retention and
+is bounded to 128 streams, 512 observations per stream, and 16,384 total
+observations. It is currently node-local, in-memory retention; the new data
+stream surface is not yet replicated over the peer mesh. The browser-WASM
+workspace lists these data streams separately and validates selected records
+in the Rust WASM core before presenting them.
+
+
 ## Execute user-selected processors over ingested data
 
 Applications can opt in to a second, separate execution stage with

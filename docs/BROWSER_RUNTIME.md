@@ -14,6 +14,19 @@ The actual engine and feature support therefore follow the installed OS runtime.
 
 The `yukki-browser-runtime` crate defines a narrow `EngineAdapter` contract for navigation, back/forward, reload, and history capability. The Wry adapter implements that contract. Browser chrome runs in a separate, bundled toolbar WebView; website pages are rendered in their own WebView surfaces hosted by the native window. On Linux, both surfaces use GTK containers (`gtk::Fixed`) through Wry's `build_gtk` integration so they work on native Wayland and X11/XWayland. The two surfaces communicate only through a host-validated IPC command schema.
 
+The native toolbar also exposes a **Crawler** utility tab. It runs the existing
+allowlist-constrained native crawler inside the browser process and streams
+completed page records into that utility view. The utility is a separate tab:
+selecting a result opens a YuKKi-generated, text-only page summary in the last
+active main browsing tab. That summary includes an **Open original HTML**
+hyperlink and a small set of validated discovered links. The utility tab stays
+open so users can return to the result list and choose another page.
+
+The preview is an extractive text excerpt (up to 480 characters), not an
+AI-generated semantic summary. Raw HTML is kept on the native host and is not
+broadcast into the utility or summary view. Browser events carry the URL,
+title, preview, fetch metadata and at most eight short discovered links.
+
 Start the proof of concept from the repository root:
 
 ```sh
@@ -25,6 +38,68 @@ cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
 ```
 
 The native runtime targets macOS and Linux. Linux uses WebKitGTK hosted in GTK containers, which is the Wry-supported integration for native Wayland and X11/XWayland. Windows MSVC is not an advertised YuKKi-OS target. The existing `browser-wasm` target remains independently built and deployable as a static web application.
+
+### Enable the crawler utility
+
+Build the standalone YCR1 extraction guest and give its path to the browser
+process. The utility does not download or select executable modules from
+crawled pages.
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path crawler-wasm/Cargo.toml \
+  --target wasm32-unknown-unknown --release
+
+export YUKKI_CRAWLER_WASM="$PWD/crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm"
+cargo run --manifest-path browser-runtime/Cargo.toml -- https://example.com
+```
+
+Open **Crawler** from the browser toolbar. Enter one or more seed URLs and
+the DNS domains the crawler is allowed to access. The utility can request up
+to 1,000 pages per run; the underlying crawler retains its normal host allowlist,
+robots.txt, public-DNS pinning, per-domain pacing, concurrency, timeout and
+byte-budget controls. Only one browser-initiated crawl runs at a time.
+
+Completed records appear incrementally in the utility tab. Selecting a result
+opens its extracted summary in the main page tab; selecting **Open original
+HTML** navigates that main tab to the source URL. The crawler utility remains
+available as a separate tab. The browser-side event queue is bounded to 16
+pending records; each result event includes at most eight links of at most
+1,024 bytes each, and the text preview is limited to 480 characters. A slow UI
+therefore backpressures event delivery rather than accumulating an unbounded
+queue.
+
+#### Optional browser-WASM data-stream publishing
+
+The Crawler utility includes one **Publish this crawl's metrics for
+browser-WASM adoption** checkbox. This is plug-and-play with the node's
+existing control-plane configuration; the utility does not ask for a second
+gateway URL or token.
+
+The native browser reads `YUKKI_GATEWAY_TOKEN` from its process environment.
+It discovers the local gateway using `YUKKI_GATEWAY_LISTEN`, then
+`YUKKI_GATEWAY_ENDPOINT`, defaulting to `127.0.0.1:7670`. Wildcard listen
+addresses are converted to loopback for the local client. For a remote HTTPS
+gateway, configure `YUKKI_GATEWAY_URL` (and keep the same existing token
+available to the browser process). A remote plain-HTTP endpoint is rejected.
+The browser process must inherit the node's existing gateway environment.
+Without usable gateway configuration or a reachable gateway, the crawl still
+runs locally and the utility reports that publishing was skipped.
+
+When enabled, the browser host publishes batches of 16 schema-v1 numeric
+observations to the authenticated `/v1/data-streams/{id}/observations`
+endpoint. Each page contributes depth, HTTP status, document bytes, fetch and
+extraction time, link count, title/preview lengths, and a failure flag. URL,
+title text, extracted text, raw HTML and page contents are not sent. Publishing
+failure stops the publish attempt but does not cancel the crawl or local result
+feed.
+
+The gateway retains at most 128 data streams, 512 observations per stream,
+and 16,384 observations total in bounded in-memory storage. The browser-WASM
+workspace lists these separately from YKMC media streams and adopts selected
+ranges through the Rust WASM schema-v1 validator. This data-observation surface
+is node-local and in-memory; it does not imply peer-mesh replication or durable
+storage.
 
 ### Linux display selection
 
@@ -62,7 +137,7 @@ The initial policy:
 - denies pop-up windows by default and routes valid `window.open` requests into a bounded tab;
 - delegates page permission prompts to the native WebView default prompt;
 - disables browser downloads in this proof of concept rather than silently allowing unbounded disk writes;
-- bounds toolbar IPC messages to 4 KiB, resident tabs to eight, and the host history/bookmark lists to 200 entries each.
+- bounds toolbar IPC messages to 4 KiB, crawler-utility IPC messages to 16 KiB, resident tabs to eight, and the host history/bookmark lists to 200 entries each. Crawler events use a bounded 16-record channel; raw HTML is never sent to the browser UI.
 
 ### Optional outbound proxy
 
@@ -90,6 +165,7 @@ The default private WebView mode avoids intentionally persisting website cookies
 | URL scheme/credential/local-target checks | Implemented for top-level navigation only; address/IPC length bounded |
 | Optional HTTP CONNECT / SOCKS5 page proxy | Implemented through Wry; no proxy is started or enforced by default |
 | Tabs, navigation history, bookmarks | Implemented with an eight-tab cap |
+| Crawler utility tab, bounded live result feed, main-tab page summaries | Implemented in this candidate; CI validation pending |
 | Native permission prompt delegation | Basic engine default; per-origin settings pending |
 | Downloads | Disabled pending bounded download storage and quota enforcement |
 | Whole-request egress mediation / mesh isolation | Not complete; requires OS proxy/firewall integration |

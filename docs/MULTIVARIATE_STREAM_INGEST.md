@@ -57,3 +57,32 @@ dimensions can make sample counts differ by pair.
 This parser currently provides the versioned ingestion contract and
 incremental decoding API. It does not itself open arbitrary streaming
 connections or silently broaden the HTML crawler's network policy.
+
+## Authenticated control-plane data streams
+
+The native stream gateway optionally exposes a bounded observation store
+separate from media chunks:
+
+- `GET /v1/data-streams` lists retained descriptors.
+- `GET /v1/data-streams/{source_id}/observations?from={sequence}&limit={n}`
+  reads 1–128 retained observations.
+- `POST /v1/data-streams/{source_id}/observations` accepts schema-v1 NDJSON
+  with `application/x-ndjson` or `application/ndjson`, under the existing
+  gateway bearer authentication and flood/egress limits.
+
+Ingest batches are limited to 64 records and 1 MiB. The in-memory store is
+limited to 128 source streams, 512 retained observations per stream, and
+16,384 observations total. Sequence numbers must increase strictly and a
+stream's dimension count cannot change. Invalid batches are rejected before
+store mutation. This initial store is node-local and not persisted or
+replicated through the peer mesh.
+
+The native browser crawler can opt in to publishing metrics by reusing the
+node's existing `YUKKI_GATEWAY_TOKEN` and local gateway address. It sends a
+nine-dimensional record per completed page, batched in groups of 16:
+`[depth, http_status, document_bytes, fetch_ms, extraction_ms, link_count,
+title_chars, preview_chars, failed]`. The status dimension is null when a
+fetch has no HTTP response. No URL, title, page text, or raw HTML is published.
+The browser-WASM dashboard discovers these streams separately from media and
+runs each adopted record through its Rust WASM validator.
+

@@ -31,11 +31,30 @@ node browser-wasm/tests/responsive-layout.test.mjs
 - Reads bounded ranges through GET /v1/streams/{id}/chunks (the gateway caps each request at eight chunks).
 - Checks every returned chunk by reconstructing its YKMC v1 frame and passing it through the Rust WASM verifier.
 - Can poll the next retained sequence every two seconds.
+- Lists authenticated `/v1/data-streams` separately from YKMC media streams and reads bounded schema-v1 observation ranges from `/v1/data-streams/{id}/observations`.
+- Validates each adopted numeric observation through the Rust WASM core, preserving null/missing dimensions and exact u64 sequence/timestamp values.
 - Keeps credentials in page memory only; it does not use local storage, cookies, query parameters, or credential-bearing WebSocket URLs.
 
 The browser app intentionally uses authenticated HTTP range reads. The current gateway WebSocket path requires the Authorization header; the browser WebSocket API does not let applications set arbitrary request headers. Do not move bearer tokens into WebSocket query strings as a workaround.
 
 The gateway is codec-agnostic. The client validates YKMC framing and metadata but does not decode or transcode H.264, Opus, or other media payloads.
+
+## Multivariate data-stream adoption
+
+The control plane exposes a separate authenticated data-observation API:
+`GET /v1/data-streams` lists retained observation streams,
+`GET /v1/data-streams/{id}/observations?from=0&limit=64` reads a bounded
+sequence range, and authenticated native publishers use
+`POST /v1/data-streams/{id}/observations` with schema-v1 NDJSON.
+These endpoints do not reuse YKMC media chunks.
+
+The native browser's Crawler utility can optionally publish numeric page
+metrics through the already-configured node gateway. The browser-WASM
+workspace lists the resulting crawler streams and validates each record in
+Rust WASM before adoption. The gateway retains data streams in bounded
+in-memory storage on that node; this is not durable persistence or peer-mesh
+replication. See [bounded multivariate stream ingestion](MULTIVARIATE_STREAM_INGEST.md).
+
 
 ## MMO spatial WASM core
 

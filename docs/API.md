@@ -16,6 +16,22 @@ source/tenant admission and bounded queues/backpressure around it. See
 [MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md) for the exact
 record contract, limits and incremental use example.
 
+The native gateway's authenticated data-stream routes are separate from the
+media API: `GET /v1/data-streams`,
+`GET /v1/data-streams/{source_id}/observations`, and
+`POST /v1/data-streams/{source_id}/observations` (schema-v1 NDJSON).
+The backing `ObservationStore` atomically validates and retains at most 128
+streams, 512 observations per stream, and 16,384 observations total.
+Retention is currently node-local and in-memory.
+
+The browser-WASM client discovers these descriptors and validates each
+adopted observation in its Rust WASM core, including exact u64 sequence/time
+values and missing-value masks. The native crawler can opt in to publish
+numeric page metrics by using the already-configured node gateway; it does
+not ask the operator for a second URL or token. The published vector layout is
+documented in [MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md).
+
+
 ## Bounded WASM crawler API
 
 The optional `yukkios::crawler` module exposes the native crawler library,
@@ -27,6 +43,22 @@ WASI/imports or direct network/filesystem access. See
 JSON report fields and security boundary. This API does not provide JavaScript
 execution, general browser rendering, a persistent distributed frontier, or
 automatic transfer of page data to Overhauled.
+
+The `CrawledPage` record includes a bounded `summary` text excerpt (up to
+480 characters) derived from visible HTML text. This is not an AI-generated
+semantic summary, and it is not raw HTML. `Crawler::crawl_with_events`
+accepts a bounded Tokio `mpsc::Sender<CrawlEvent>` and emits
+`PageCompleted(CrawledPage)` records as fetches finish, followed by
+`Finished(CrawlMetrics)`. The caller controls channel capacity; awaiting sends
+applies backpressure to crawl-result delivery. Event copies limit the browser
+feed to eight links of at most 1,024 bytes each. The final `CrawlReport`
+retains the full normalized link list and aggregate metrics.
+
+The native Wry browser runtime exposes this feed in a separate Crawler utility
+tab. Clicking a result opens its text-only page summary in the last active
+main browsing tab; the summary's original-HTML hyperlink then navigates that
+main tab to the source site. The utility remains available as another tab.
+Raw HTML is not broadcast to browser UI components.
 
 ### User-directed execution over crawler data
 
