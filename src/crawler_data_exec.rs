@@ -54,8 +54,11 @@ impl CrawlerDataExecutor {
     /// Compile a user-selected processor. Only modules reviewed/authorized by
     /// the caller should be supplied; compilation is not publisher validation.
     pub fn from_bytes(wasm: &[u8], fuel_per_call: u64) -> Result<Self, CrawlerDataExecError> {
-        if wasm.is_empty() || wasm.len() > MAX_DATA_EXEC_MODULE_BYTES || fuel_per_call == 0 {
+        if wasm.is_empty() || wasm.len() > MAX_DATA_EXEC_MODULE_BYTES {
             return Err(CrawlerDataExecError::ModuleSize);
+        }
+        if fuel_per_call == 0 || fuel_per_call > MAX_DATA_EXEC_FUEL {
+            return Err(CrawlerDataExecError::InvalidFuel);
         }
 
         let mut config = Config::new();
@@ -139,13 +142,14 @@ impl CrawlerDataExecutor {
         let output_ptr = (packed & 0xffff_ffff) as usize;
         let output_len = (packed >> 32) as usize;
         let memory_len = memory.data_size(&store);
-        if output_ptr == 0
-            || output_len == 0
-            || output_len > MAX_DATA_EXEC_OUTPUT_BYTES
-            || output_ptr
-                .checked_add(output_len)
-                .filter(|end| *end <= memory_len)
-                .is_none()
+        if output_len > MAX_DATA_EXEC_OUTPUT_BYTES
+            || (output_len == 0 && output_ptr != 0)
+            || (output_len > 0
+                && (output_ptr == 0
+                    || output_ptr
+                        .checked_add(output_len)
+                        .filter(|end| *end <= memory_len)
+                        .is_none()))
         {
             return Err(CrawlerDataExecError::InvalidOutput(
                 "output pointer or length is outside the permitted range".into(),
