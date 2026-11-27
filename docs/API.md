@@ -16,6 +16,22 @@ source/tenant admission and bounded queues/backpressure around it. See
 [MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md) for the exact
 record contract, limits and incremental use example.
 
+The native gateway's authenticated data-stream routes are separate from the
+media API: `GET /v1/data-streams`,
+`GET /v1/data-streams/{source_id}/observations`, and
+`POST /v1/data-streams/{source_id}/observations` (schema-v1 NDJSON).
+The backing `ObservationStore` atomically validates and retains at most 128
+streams, 512 observations per stream, and 16,384 observations total.
+Retention is currently node-local and in-memory.
+
+The browser-WASM client discovers these descriptors and validates each
+adopted observation in its Rust WASM core, including exact u64 sequence/time
+values and missing-value masks. The native crawler can opt in to publish
+numeric page metrics by using the already-configured node gateway; it does
+not ask the operator for a second URL or token. The published vector layout is
+documented in [MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md).
+
+
 ## Bounded WASM crawler API
 
 The optional `yukkios::crawler` module exposes the native crawler library,
