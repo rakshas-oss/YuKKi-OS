@@ -732,7 +732,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut tabs = Vec::new();
     let mut next_tab_id = 1_u64;
     let mut selected_tab_id = 0_u64;
-    let mut main_page_tab_id = 0_u64;
+    let mut main_page_tab_id;
     #[cfg(target_os = "linux")]
     let initial_tab_result = add_tab(
         &window,
@@ -884,7 +884,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 });
                             match setup {
                                 Ok(crawler) => {
-                                    let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
+                                    let (event_sender, mut event_receiver) = tokio::sync::mpsc::channel(16);
                                     let event_proxy = proxy.clone();
                                     let running = Arc::clone(&crawler_running);
                                     async_runtime.spawn(async move {
@@ -1041,7 +1041,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                     "close_tab" => {
-                        if tabs.len() > 1 {
+                        let selected_kind = tabs.iter()
+                            .find(|tab| tab.id == selected_tab_id)
+                            .map(|tab| tab.kind);
+                        let page_count = tabs.iter()
+                            .filter(|tab| tab.kind == TabKind::Page)
+                            .count();
+                        if tabs.len() > 1
+                            && !(selected_kind == Some(TabKind::Page) && page_count <= 1)
+                        {
                             if let Some(index) = tabs.iter().position(|tab| tab.id == selected_tab_id) {
                                 tabs.remove(index);
                             }
@@ -1051,10 +1059,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                             set_active_tab(&mut tabs, selected_tab_id);
                             status = "Tab closed".to_owned();
-                        } else if let Some(tab) = tabs.first() {
-                            if let Ok(url) = resolve_address(DEFAULT_URL) {
-                                let _ = tab.engine.navigate(&url);
+                        } else if selected_kind == Some(TabKind::Page) {
+                            if let Some(tab) = tabs.iter().find(|tab| tab.kind == TabKind::Page) {
+                                if let Ok(url) = resolve_address(DEFAULT_URL) {
+                                    let _ = tab.engine.navigate(&url);
+                                }
                             }
+                            status = "The last page tab cannot be closed".to_owned();
+                        } else {
                             status = "The last tab cannot be closed".to_owned();
                         }
                     }
