@@ -84,10 +84,20 @@ extraction or transformation). It does **not** execute JavaScript, scripts,
 WASM, or other instructions found inside crawled pages. Ingested page bytes
 remain opaque input data.
 
-The application must authenticate and authorize the user, select an approved
-processor artifact, and explicitly pass the desired record bytes to
-`execute`. The executor is a library API; the crawler CLI and gateway do not
-automatically expose an execution endpoint or execute every crawled page.
+The native `yukki_crawl` CLI now exposes this stage through the explicit
+`--execute-wasm` option. When supplied, the selected processor is applied to
+each successfully fetched page's raw HTML bytes. This is an opt-in operation:
+omitting the option preserves the original fetch-and-extract-only behavior.
+The CLI writes each processor result as a separate binary file and records the
+processor/input/output SHA-256 digests, byte count, output reference, duration
+and any per-page error in that page's JSON report record.
+
+The Rust API exposes the same flow through
+`Crawler::crawl_with_processor(seeds, processor, output_sink)`. Applications
+must authenticate and authorize the user, choose the processor artifact, and
+supply an output sink. The default stream gateway does not expose arbitrary
+guest execution; an HTTP frontend must add authentication, authorization,
+admission and audit controls before invoking this library API.
 
 The YCE1 processor ABI requires three core-Wasm exports:
 
@@ -100,24 +110,36 @@ The YCE1 processor ABI requires three core-Wasm exports:
 The host rejects all module imports, creates a fresh Store and instance for
 each invocation, and validates all guest pointers and output lengths before
 copying results. Defaults and hard ceilings are 4 MiB per module, 1 MiB input,
-1 MiB output, 16 MiB guest memory and 10,000,000 fuel per call. Fuel is an
+1 MiB output, 16 MiB guest memory and 10,000,000 fuel per call (hard maximum 1,000,000,000). A crawl is limited to 1,024 processor runs, four concurrent processor instances and 64 MiB of aggregate output. Fuel is an
 instruction budget, not a wall-clock deadline. The processor has no WASI,
 filesystem, sockets, credentials, or host callbacks.
 
-Example host-side use:
+A runnable byte-count example is included at
+`examples/crawler-processors/byte-count.wat`. It returns the input size as an
+8-byte little-endian integer. Compile and run it with:
 
-```rust
-use yukkios::crawler_data_exec::CrawlerDataExecutor;
+~~~sh
+wat2wasm examples/crawler-processors/byte-count.wat -o byte-count.wasm
+cargo run --release --bin yukki_crawl -- \
+  --seed https://example.org/ --allow-domain example.org \
+  --wasm crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm \
+  --execute-wasm byte-count.wasm \
+  --execution-output-dir crawl-execution-output \
+  --execution-fuel 10000000 \
+  --output crawl-report.json
+~~~
 
-let processor = CrawlerDataExecutor::with_defaults(&reviewed_wasm_bytes)?;
-let transformed = processor.execute(page_record_bytes)?;
-```
+The output directory contains `<page-url-sha256>-<output-sha256>.bin` files.
+The JSON record's `execution.output_reference` identifies the corresponding
+file; `processor_sha256` identifies the exact processor artifact. The byte
+count example is illustrative, not a semantic HTML parser or production
+feature extractor.
 
 The application remains responsible for user authentication, processor
-provenance/signature policy, job admission, concurrency/rate limits, result
-persistence, cancellation and audit logging. Do not load a processor merely
-because a crawled page references it. This executor is capability-free but is
-not a substitute for process/container isolation against runtime or engine
+provenance/signature policy, job admission, rate limits, result retention,
+cancellation and audit logging. Do not load a processor merely because a
+crawled page references it. The executor is capability-free but is not a
+substitute for process/container isolation against runtime or engine
 vulnerabilities. Keep crawler network access and processor execution as
 separate privileges.
 
