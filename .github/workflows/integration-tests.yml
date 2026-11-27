@@ -166,8 +166,6 @@ jobs:
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
         with:
-          persist-credentials: false
-        with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
@@ -228,8 +226,6 @@ jobs:
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
         with:
-          persist-credentials: false
-        with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
@@ -277,8 +273,6 @@ jobs:
           persist-credentials: false
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
-        with:
-          persist-credentials: false
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
