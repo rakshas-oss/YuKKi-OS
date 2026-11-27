@@ -16,7 +16,7 @@ pub const DEFAULT_DATA_EXEC_FUEL: u64 = 10_000_000;
 
 #[derive(Debug, Error)]
 pub enum CrawlerDataExecError {
-    #[error("processor module is empty or exceeds {MAX_DATA_EXEC_MODULE_BYTES} bytes")]
+    #[error("processor module is empty or exceeds 4194304 bytes")]
     ModuleSize,
     #[error("processor compilation failed: {0}")]
     Compile(String),
@@ -24,7 +24,7 @@ pub enum CrawlerDataExecError {
     ImportsForbidden,
     #[error("processor module is invalid: {0}")]
     InvalidModule(String),
-    #[error("input is {actual} bytes; maximum is {MAX_DATA_EXEC_INPUT_BYTES}")]
+    #[error("input is {actual} bytes; maximum is 1048576")]
     InputTooLarge { actual: usize },
     #[error("processor execution failed: {0}")]
     Execution(String),
