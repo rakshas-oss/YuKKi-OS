@@ -1,6 +1,6 @@
-# YuKKi-OS v6.21.0 — Security Notes (release candidate)
+# YuKKi-OS v6.22.0 — Security Notes (release candidate)
 
-> Research/demo software. Do not expose directly to untrusted networks.
+> Release candidate v6.22.0. Research/demo software; do not expose directly to untrusted networks.
 
 ## Cryptographic baseline
 
@@ -73,6 +73,16 @@ Broker I/O in `src/broker_client.rs` uses raw TCP + length-prefixed JSON.
 - Log and monitor repeated auth/timeout failures.
 - Rotate PSK through coordinated restarts when needed.
 
+
+## Untrusted multivariate observation input
+
+The incremental NDJSON decoder rejects invalid schema versions, unknown
+fields, invalid source IDs, excessive dimensions, oversized lines and
+non-finite values. Its 16 KiB incomplete-line and 256-record-per-push defaults
+bound parser retention and return size. These checks do not authenticate the
+source, prove sequence freshness, enforce tenant quotas, or authorize onward
+delivery. Applications must supply those policies and keep bounded queues
+with backpressure around untrusted stream input.
 
 ## Authenticated WASM artifact handoff
 

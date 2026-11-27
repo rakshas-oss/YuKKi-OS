@@ -1,4 +1,4 @@
-# YuKKi-OS v6.21.0 — Architecture (release candidate)
+# YuKKi-OS v6.22.0 — Architecture (release candidate)
 
 ## System identity and scope
 
@@ -15,7 +15,23 @@ Its architectural pillars are:
 
 YuKKi-OS does not implement a complete general-purpose kernel or physically pin the Overhauled broker's worker threads. YuKKi-OS owns workload semantics, stable worker-class selection, spatial-affinity keys, deadlines and advisory preferred-NUMA hints. Its topology discovery/resolver contributes hints; Overhauled independently discovers the CPUs allowed to its broker process and applies best-effort Linux worker-thread affinity. NUMA-local memory allocation and cross-node work stealing are not implied. GPU/NPU placement and accelerator execution remain broker-owned.
 
-This document describes the v6.21.0 minor-release candidate. The latest published baseline is v6.20.0 (2026-11-26); the v6.21.0 tag and release assets have not been published.
+This document describes the v6.22.0 minor-release candidate. The latest published baseline is v6.21.0 (2026-11-26); the v6.22.0 tag and release assets have not been published.
+
+## Bounded multivariate stream observation path
+
+The stream_observation module provides an incremental NDJSON decoder for
+schema-v1 numeric records. The decoder is deliberately a parser rather than
+a source-admission or transport service: it validates source identifiers,
+sequence/timestamp fields, dimension bounds, finite numeric values and
+unknown-field rejection, while preserving missing dimensions as None.
+
+Only one incomplete line is retained (16 KiB by default), and each push emits
+at most 256 complete records by default. A caller owns socket admission,
+source/tenant identity, authorization, quotas, bounded queues, backpressure
+and any mapping into the separate Overhauled multivariate_stats accumulator.
+No BRK message is introduced and decoding does not imply that observations
+have been authenticated or persisted. See
+[MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md).
 
 ## Bounded crawler fabric and metriculation
 

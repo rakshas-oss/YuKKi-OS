@@ -1,4 +1,20 @@
-# YuKKi-OS v6.21.0 — API and ABI Reference (release candidate)
+# YuKKi-OS v6.22.0 — API and ABI Reference (release candidate)
+
+## Incremental multivariate stream observations
+
+The native yukkios::stream_observation module exposes NdjsonObservationDecoder
+for bounded incremental parsing of untrusted newline-delimited JSON records.
+Schema version 1 carries source_id, sequence, timestamp_unix_ms and 1–32
+numeric dimensions. A null value remains missing; non-finite values, unknown
+fields, unsupported schema versions, invalid source IDs and oversized
+dimension vectors are rejected.
+
+Defaults retain at most one 16 KiB incomplete line and emit at most 256
+complete records per push. The decoder does not open sockets, authenticate
+sources, authorize forwarding or provide tenant isolation. Callers must apply
+source/tenant admission and bounded queues/backpressure around it. See
+[MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md) for the exact
+record contract, limits and incremental use example.
 
 ## Bounded WASM crawler API
 

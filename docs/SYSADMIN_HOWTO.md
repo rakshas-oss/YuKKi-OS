@@ -1,10 +1,11 @@
-# YuKKi-OS v6.21.0 — System Administration How-to
+# YuKKi-OS v6.22.0 — System Administration How-to
 
-> Release candidate: v6.20.0 is the latest published baseline (2026-11-26).
-> This guide covers the v6.21.0 candidate, including the bounded WASM crawler
-> and metriculation reports. The v6.21.0 tag and release assets are pending
-> release validation. Broker discovery remains bootstrap-relayed gossip,
-> and BRK2 locality intent does not prove physical memory placement.
+> v6.21.0 is the latest published GitHub release (2026-11-26).
+> This guide also documents the v6.22.0 release candidate: user-selected YCE1
+> crawler processors and bounded incremental multivariate NDJSON parsing.
+> Candidate tags and release assets are not published until the full release
+> gate passes. Broker discovery remains bootstrap-relayed gossip, and BRK2
+> locality intent does not prove physical memory placement.
 
 ## 1. Scope and deployment components
 

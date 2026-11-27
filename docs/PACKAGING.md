@@ -1,5 +1,7 @@
 # YuKKi-OS package distribution
 
+> **Release line:** v6.21.0 is the latest published GitHub Release; v6.22.0 is a candidate. GitHub Release publication and crates.io publication are separate. The release workflow does not publish the browser-WASM or WASI guest packages to crates.io.
+
 ## Primary Rust package: crates.io
 
 The root Cargo package is `yukkios` and includes the `yukkios` library plus
@@ -13,14 +15,14 @@ not as generic host crates.
 Install the runtime CLI:
 
 ```sh
-cargo install yukkios --version 6.17.0 --locked --bin yukki_core_node
+cargo install yukkios --version 6.21.0 --locked --bin yukki_core_node
 ```
 
 Add the library as a dependency:
 
 ```toml
 [dependencies]
-yukkios = "6.17.0"
+yukkios = "6.21.0"
 ```
 
 Cargo's platform and native build prerequisites still apply. The optional
@@ -36,11 +38,10 @@ build-verifies the exact crate and enforces the published 10 MB archive limit.
 The first crates.io publication needs a crates.io account with a verified
 email and a publish-capable API token. Add that token as the repository Actions
 secret `CRATES_IO_API_TOKEN`, then run **Actions → Publish yukkios to
-crates.io**, selecting release tag `6.17.0`. The workflow checks that the tag is an
+crates.io**, selecting the `v6.22.0` release tag after it is created and validated. The workflow checks that the tag is an
 ancestor of main, that the package version matches, and that no Rust runtime
 or native source paths changed after the tag. It then runs `cargo package`
-before publishing. This allows the metadata-only packaging commit to be used
-without pretending it was already part of the earlier release tag. Do not add the token to a workflow file or commit it.
+before publishing. The workflow now requires an exact v-prefixed tag match, unchanged packaged source after the tag, a successful locked package build, and a crates.io ownership/version check. The v6.22.0 candidate must not be published until its release gate is green. Do not add the token to a workflow file or commit it.
 
 After the initial crate exists, configure a GitHub Actions trusted publisher in
 the crates.io crate settings:
