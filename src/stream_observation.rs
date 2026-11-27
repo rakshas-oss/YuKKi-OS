@@ -663,7 +663,7 @@ mod store_tests {
         let source = "crawler-atomic";
         let initial = record(source, 10, vec![Some(1.0), Some(2.0)]);
         store
-            .ingest_ndjson(source, &ndjson(&[initial.clone()]))
+            .ingest_ndjson(source, &ndjson(std::slice::from_ref(&initial)))
             .unwrap();
 
         let duplicate = record(source, 10, vec![Some(3.0), Some(4.0)]);
