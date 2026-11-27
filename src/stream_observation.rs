@@ -222,7 +222,10 @@ mod tests {
             r#"{{"schema_version":1,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[{}]}}"#,
             vec!["1"; 33].join(",")
         );
-        assert!(dimensions_decoder.push(oversized.as_bytes()).unwrap().is_empty());
+        assert!(dimensions_decoder
+            .push(oversized.as_bytes())
+            .unwrap()
+            .is_empty());
         assert!(matches!(
             dimensions_decoder.finish(),
             Err(ObservationDecodeError::InvalidDimensions)
