@@ -256,7 +256,7 @@ impl Crawler {
     pub async fn crawl_with_events(
         &self,
         seeds: &[String],
-        events: tokio::sync::mpsc::UnboundedSender<CrawlEvent>,
+        events: tokio::sync::mpsc::Sender<CrawlEvent>,
     ) -> Result<CrawlReport, CrawlerError> {
         self.crawl_inner(seeds, None, Some(events)).await
     }
@@ -284,7 +284,7 @@ impl Crawler {
         &self,
         seeds: &[String],
         execution: Option<Arc<CrawlerExecution>>,
-        events: Option<tokio::sync::mpsc::UnboundedSender<CrawlEvent>>,
+        events: Option<tokio::sync::mpsc::Sender<CrawlEvent>>,
     ) -> Result<CrawlReport, CrawlerError> {
         if seeds.is_empty() {
             return Err(CrawlerError::InvalidConfig(
@@ -334,7 +334,10 @@ impl Crawler {
                 Err(_) => continue,
             };
             if let Some(sender) = &events {
-                let _ = sender.send(CrawlEvent::PageCompleted(record.clone()));
+                let mut browser_record = record.clone();
+                browser_record.links.retain(|link| link.len() <= 1024);
+                browser_record.links.truncate(8);
+                let _ = sender.send(CrawlEvent::PageCompleted(browser_record)).await;
             }
             if depth < self.inner.config.max_depth && record.error.is_none() {
                 for link in &record.links {
@@ -355,7 +358,7 @@ impl Crawler {
 
         let metrics = summarize(&records);
         if let Some(sender) = &events {
-            let _ = sender.send(CrawlEvent::Finished(metrics.clone()));
+            let _ = sender.send(CrawlEvent::Finished(metrics.clone())).await;
         }
         Ok(CrawlReport {
             schema_version: 1,
