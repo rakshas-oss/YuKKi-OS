@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: paired-overhauled-interop-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,18 +26,24 @@ jobs:
   cargo-lock-integrity:
     name: Cargo lockfile integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Validate checked-in dependency graphs without rewriting lockfiles
         run: bash scripts/check-cargo-lockfiles.sh
 
   mesh-integration:
     name: P2P Mesh & Network Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -52,9 +58,12 @@ jobs:
   crypto-integration:
     name: Cryptography Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -69,9 +78,12 @@ jobs:
   abi-ffi:
     name: ABI Stability & FFI Verification
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -86,9 +98,12 @@ jobs:
   wasm-sandbox:
     name: WebAssembly Sandbox Isolation Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -103,9 +118,12 @@ jobs:
   adi-calibration:
     name: ADI Hardware Calibration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -120,9 +138,12 @@ jobs:
   gpu-wasm-adapter:
     name: GPU WASM Adapter & Lifecycle Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Cache cargo
         uses: actions/cache@v6
         with:
@@ -137,19 +158,23 @@ jobs:
   overhauled-live-cpp:
     name: Paired Overhauled BRK1/BRK2 live interoperability
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
+          persist-credentials: false
       - name: Record paired revisions
         run: |
           echo "YuKKi-OS: $(git rev-parse HEAD)"
           echo "Overhauled: $(git -C overhauled rev-parse HEAD)"
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Install C++ build tools
         run: sudo apt-get update && sudo apt-get install -y cmake g++
       - name: Build CPU broker and BRK2 tests
@@ -193,15 +218,19 @@ jobs:
   browser-wasm-live:
     name: Browser WASM to Overhauled broker smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -237,15 +266,19 @@ jobs:
   npu-simulator-and-cpu-fallback:
     name: BRK2 simulated NPU execution and CPU fallback
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Checkout paired Overhauled revision
         uses: actions/checkout@v7
         with:
           repository: rakshas-oss/overhauled
           ref: ${{ inputs.overhauled_ref || 'main' }}
           path: overhauled
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Build CPU-only broker with simulated NPU support
         run: |
           sudo apt-get update && sudo apt-get install -y cmake g++
@@ -288,6 +321,7 @@ jobs:
   all-integration:
     name: Combined YuKKi-OS + Overhauled integration gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: always()
     needs: [cargo-lock-integrity, mesh-integration, crypto-integration, abi-ffi, wasm-sandbox, adi-calibration, gpu-wasm-adapter, overhauled-live-cpp, browser-wasm-live, npu-simulator-and-cpu-fallback]
     steps:
@@ -295,13 +329,14 @@ jobs:
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          echo "$RESULTS"
-          if echo "$RESULTS" | grep -Eq '"result"[[:space:]]*:[[:space:]]*"(failure|cancelled|skipped)"'; then
-            echo "At least one integration lane did not pass."
-            exit 1
-          fi
-          if ! echo "$RESULTS" | grep -Eq '"result"[[:space:]]*:[[:space:]]*"success"'; then
-            echo "No successful integration results were reported."
-            exit 1
-          fi
-          echo "All YuKKi-OS and Overhauled integration lanes passed."
+          python3 - <<'PY'
+          import json
+          import os
+
+          results = json.loads(os.environ["RESULTS"])
+          failed = {name: item.get("result") for name, item in results.items()
+                    if item.get("result") != "success"}
+          if failed:
+              raise SystemExit(f"Required integration lanes did not all pass: {failed}")
+          print(f"All {len(results)} required integration lanes passed.")
+          PY

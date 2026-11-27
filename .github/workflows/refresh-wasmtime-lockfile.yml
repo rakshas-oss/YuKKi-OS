@@ -1,4 +1,4 @@
-name: Refresh Wasmtime security lockfile
+name: Validate Wasmtime security lockfile
 
 on:
   push:
@@ -6,110 +6,80 @@ on:
     paths:
       - ".github/workflows/refresh-wasmtime-lockfile.yml"
       - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/check-cargo-lockfiles.sh"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/refresh-wasmtime-lockfile.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/check-cargo-lockfiles.sh"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: refresh-wasmtime-lockfile-main
-  cancel-in-progress: false
-
-env:
-  CARGO_TERM_COLOR: always
+  group: wasmtime-lock-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  refresh-and-verify:
-    name: Resolve, verify, and commit patched Wasmtime lockfile
-    if: github.ref == 'refs/heads/main'
+  validate-and-audit:
+    name: Validate pinned dependency graph without rewriting main
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Checkout main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
         with:
-          ref: main
-          fetch-depth: 1
-          persist-credentials: true
-
-      - name: Install Rust stable and WebAssembly targets
-        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          components: rustfmt, clippy
-          targets: wasm32-unknown-unknown, wasm32-wasip1
-
-      - name: Ensure WASI and browser WebAssembly targets are installed
-        run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
-
-      - name: Update Wasmtime to the manifest-compatible patched release using Cargo
-        # Cargo.toml requires the 51.x release line; 50.0.3 is incompatible and would downgrade the locked runtime.
-        run: cargo update -p wasmtime --precise 51.0.0
-
-      - name: Update vulnerable URL parser to patched release
-        run: cargo update -p url --precise 2.5.9
-
-      - name: Verify rand serde attack surface
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+      - name: Verify all checked-in lockfiles
+        run: bash scripts/check-cargo-lockfiles.sh
+      - name: Validate locked workspace metadata and dependencies
         run: |
-          cargo tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-0.9.5-features.txt
-          if grep -F 'rand feature "serde"' /tmp/rand-0.9.5-features.txt; then
-            echo "rand 0.9.5 serde support is enabled; this Aikido finding must be remediated before merge." >&2
+          cargo +1.98.1 metadata --format-version 1 --locked
+          cargo +1.98.1 check --workspace --all-targets --locked
+      - name: Confirm manifest-compatible Wasmtime and patched URL versions
+        run: |
+          cargo +1.98.1 tree --locked -i wasmtime
+          cargo +1.98.1 tree --locked -i url
+          python3 - <<'PY'
+          import tomllib
+          with open("Cargo.lock", "rb") as handle:
+              lock = tomllib.load(handle)
+          versions = {p["name"]: p["version"] for p in lock["package"] if p["name"] in {"wasmtime", "url"}}
+          if versions.get("wasmtime") != "51.0.0":
+              raise SystemExit(f"Unexpected Wasmtime lock version: {versions.get('wasmtime')}")
+          if versions.get("url") != "2.5.9":
+              raise SystemExit(f"Unexpected url lock version: {versions.get('url')}")
+          PY
+      - name: Verify rand serde feature is not enabled
+        run: |
+          cargo +1.98.1 tree --locked -e features -i rand@0.9.5 | tee /tmp/rand-features.txt
+          if grep -F 'rand feature "serde"' /tmp/rand-features.txt; then
+            echo "Affected rand serde feature is enabled; investigate rather than suppressing the finding." >&2
             exit 1
           fi
-          echo "rand 0.9.5 is present through Axum WebSocket support without the affected serde feature."
-
-      - name: Regenerate canonical workspace lockfile from manifests
-        # Resolve manifest and security updates with Cargo before downstream --locked checks.
-        run: cargo check --workspace
-
-      - name: Confirm resolved Wasmtime version
+      - name: Verify formatting, tests and Clippy
         run: |
-          cargo tree -i wasmtime --locked
-          grep -A2 '^name = "wasmtime"$' Cargo.lock
-
-      - name: Apply canonical Rust formatting
-        run: |
-          cargo fmt --all
-          cargo fmt --all -- --check
-          cargo fmt --manifest-path browser-wasm/Cargo.toml
-          cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
-
-      - name: Check native dependency graph
-        run: cargo check --all-targets --locked
-
-      - name: Run complete native test suite
-        run: cargo test --all-targets --locked --verbose
-
-      - name: Run Clippy with warnings denied
-        run: cargo clippy --all-targets --locked -- -D warnings
-
+          cargo +1.98.1 fmt --all -- --check
+          cargo +1.98.1 test --all-targets --locked
+          cargo +1.98.1 clippy --all-targets --locked -- -D warnings
       - name: Run RustSec audit
         run: |
-          cargo install cargo-audit --locked
-          cargo audit --deny warnings
-
-      - name: Build and test WASI guest worker
-        working-directory: guest-worker
+          cargo +1.98.1 install cargo-audit --locked
+          cargo +1.98.1 audit --deny warnings
+      - name: Validate standalone WASM packages
         run: |
-          cargo build --release --locked --target wasm32-wasip1
-          cargo test --locked
-
-      - name: Validate browser WASM application
-        run: |
-          cargo test --manifest-path browser-wasm/Cargo.toml --locked
-          cargo clippy --manifest-path browser-wasm/Cargo.toml --locked --target wasm32-unknown-unknown -- -D warnings
-          cargo build --manifest-path browser-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
-
-      - name: Commit verified dependency and formatting updates to main
-        if: success()
-        run: |
-          set -euo pipefail
-          if git diff --quiet; then
-            echo "No dependency or formatting changes are required."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -u
-          git add Cargo.lock
-          git commit -m "fix: refresh Wasmtime security patches and Rust formatting"
-          git push origin HEAD:main
+          rustup target add wasm32-wasip1 wasm32-unknown-unknown --toolchain 1.98.1
+          cargo +1.98.1 test --manifest-path crawler-wasm/Cargo.toml --locked
+          cargo +1.98.1 build --manifest-path crawler-wasm/Cargo.toml --release --locked --target wasm32-unknown-unknown
+          cargo +1.98.1 test --manifest-path browser-wasm/Cargo.toml --locked
+          cargo +1.98.1 build --manifest-path guest-worker/Cargo.toml --release --locked --target wasm32-wasip1

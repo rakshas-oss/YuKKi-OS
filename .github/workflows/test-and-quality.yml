@@ -21,9 +21,12 @@ jobs:
   cargo-lock-integrity:
     name: Cargo lockfile integrity
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Validate checked-in dependency graphs without rewriting lockfiles
         run: bash scripts/check-cargo-lockfiles.sh
 
@@ -31,6 +34,7 @@ jobs:
     needs: [cargo-lock-integrity]
     name: Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -38,9 +42,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1
 
       - name: Cache cargo registry
         uses: actions/cache@v6
@@ -57,28 +63,30 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt
-      - name: Apply Rust formatting for artifact capture
-        run: cargo fmt --all
-      - name: Package formatter-normalized Rust sources
+      - name: Check formatting without modifying the checkout
         run: |
-          git ls-files -z '*.rs' | tar --null -T - -czf rustfmt-normalized-source.tar.gz
-      - uses: actions/upload-artifact@v7
-        with:
-          name: rustfmt-normalized-source
-          path: rustfmt-normalized-source.tar.gz
-          if-no-files-found: error
+          cargo fmt --all -- --check
+          cargo fmt --manifest-path crawler-wasm/Cargo.toml -- --check
+          cargo fmt --manifest-path browser-wasm/Cargo.toml -- --check
+          cargo fmt --manifest-path guest-worker/Cargo.toml -- --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy
       - name: Cache cargo
@@ -94,9 +102,12 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - run: cargo audit
@@ -104,9 +115,12 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Generate coverage
@@ -120,9 +134,12 @@ jobs:
   musl-build:
     name: MUSL Static Build
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: x86_64-unknown-linux-musl
       - name: Install musl tools
@@ -134,7 +151,10 @@ jobs:
   docker-validate:
     name: Docker Build Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Build Docker image
         run: docker build .

@@ -1,5 +1,7 @@
 # YuKKi-OS package distribution
 
+> **Release line:** v6.21.0 is the latest published GitHub Release; v6.22.0 is a candidate. GitHub Release publication and crates.io publication are separate. The release workflow does not publish the browser-WASM or WASI guest packages to crates.io.
+
 ## Primary Rust package: crates.io
 
 The root Cargo package is `yukkios` and includes the `yukkios` library plus
@@ -10,22 +12,27 @@ not as generic host crates.
 
 ### Consumer commands
 
-Install the runtime CLI:
+The GitHub Release includes native runtime archives; the root crate has not
+yet been published to crates.io. To install the CLI from the latest published
+source tag:
 
 ```sh
-cargo install yukkios --version 6.17.0 --locked --bin yukki_core_node
+cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.21.0 \
+  --locked --bin yukki_core_node
 ```
 
-Add the library as a dependency:
+Until the first crates.io publication, depend on the published source tag:
 
 ```toml
 [dependencies]
-yukkios = "6.17.0"
+yukkios = { git = "https://github.com/rakshas-oss/YuKKi-OS", tag = "v6.21.0" }
 ```
 
-Cargo's platform and native build prerequisites still apply. The optional
-`native-crypto` feature links system mbed TLS libraries; it is not enabled by
-default.
+After crates.io accepts the first upload, consumers can use a registry
+dependency such as `yukkios = "6.22.0"`. Do not use that form before the
+version is visible in crates.io. Cargo's platform and native build
+prerequisites still apply. The optional `native-crypto` feature links system
+mbed TLS libraries; it is not enabled by default.
 
 ### First publication
 
@@ -36,11 +43,17 @@ build-verifies the exact crate and enforces the published 10 MB archive limit.
 The first crates.io publication needs a crates.io account with a verified
 email and a publish-capable API token. Add that token as the repository Actions
 secret `CRATES_IO_API_TOKEN`, then run **Actions → Publish yukkios to
-crates.io**, selecting release tag `6.17.0`. The workflow checks that the tag is an
-ancestor of main, that the package version matches, and that no Rust runtime
-or native source paths changed after the tag. It then runs `cargo package`
-before publishing. This allows the metadata-only packaging commit to be used
-without pretending it was already part of the earlier release tag. Do not add the token to a workflow file or commit it.
+crates.io**, selecting the `v6.22.0` release tag after it is created and
+validated. For this first publication, explicitly choose
+`auth_method=token`; the workflow will fail closed if the secret is absent.
+The workflow checks that the tag is an ancestor of main, that the package
+version matches, that packaged source files have not changed after the tag,
+and that the crates.io package identity belongs to this repository and the
+version is unused. It then runs a locked `cargo package` before publishing.
+After the first publication, configure the crates.io Trusted Publisher and
+subsequent runs may select `auth_method=trusted` to use short-lived OIDC
+credentials. The v6.22.0 candidate must not be published until its release
+gate is green. Do not add the token to a workflow file or commit it.
 
 After the initial crate exists, configure a GitHub Actions trusted publisher in
 the crates.io crate settings:

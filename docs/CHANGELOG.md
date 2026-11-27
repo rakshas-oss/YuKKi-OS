@@ -1,4 +1,36 @@
-## v6.21.0 (release candidate; not published)
+## v6.22.0 (release candidate; not published)
+
+### User-selected crawler processing
+
+### User-directed execution over ingested data
+
+- Add the native YCE1 `CrawlerDataExecutor` API for explicitly running user-selected, capability-free core-Wasm processors over successfully fetched page bytes.
+- Wire the API into `Crawler::crawl_with_processor` and the native `yukki_crawl --execute-wasm` workflow; persist results through a caller-provided sink (the CLI uses a digest-named local-file sink).
+- Add per-page processor/input/output digests, output byte counts, execution duration, output references and error provenance to JSON reports.
+- Give each invocation a fresh Wasmtime Store/instance; reject imports and bound module size, input/output bytes, guest memory and fuel. Cap processing at four concurrent instances, 1,024 runs and 64 MiB aggregate output per crawl.
+- Keep crawled content opaque: pages cannot install/select processors and page scripts are never implicitly executed. Applications remain responsible for user authorization, processor provenance, job admission and audit logging.
+
+### Bounded multivariate stream observation decoding
+
+- Add the incremental NdjsonObservationDecoder API for untrusted schema-v1 numeric observations.
+- Preserve source ID, sequence, timestamp and missing-value positions; accept up to 32 dimensions and reject unknown fields, unsupported schema versions, invalid source IDs, oversized records and non-finite values.
+- Bound retained incomplete input to 16 KiB by default and emitted complete records to 256 per push by default. Source authentication, per-tenant admission, network ingestion and backpressure remain application responsibilities.
+
+### Cross-repository aggregation
+
+- Pair with Overhauled v1.11.0's candidate fixed-memory multivariate_stats library for online pairwise covariance and Pearson correlation across up to 32 dimensions. Missing dimensions are omitted pairwise; each matrix cell carries its own sample count.
+- Aggregation remains CPU-only and caller-driven. It does not introduce a BRK message, raw-page transfer, automatic broker route or GPU/NPU dispatch.
+
+### Boundaries and release gate
+
+- Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
+- The NDJSON decoder parses data; it does not authenticate sources or authorize forwarding.
+- The YCE1 processor runs only when an application or operator explicitly selects a module. It does not execute instructions supplied by crawled content.
+- The release remains a candidate pending full native, WASM, security, package, paired-repository and adversarial validation. See [VERSIONING.md](VERSIONING.md) for the exact release gate.
+
+---
+
+## v6.21.0 (published 2026-11-26)
 
 ### Bounded WASM crawler fabric and metriculation
 
@@ -9,20 +41,12 @@
 - Add paired Overhauled v1.10.0 constant-memory aggregation for normalized numeric page observations. The C++ accumulator is a separate CPU library; it does not define a BRK message or accept raw HTML.
 - Merge the Aikido remediation and crawler validation fixes in PR #188. This is not a substitute for independent security review.
 
-### User-directed execution over ingested data
-
-- Add the native YCE1 `CrawlerDataExecutor` API for explicitly running user-selected, capability-free core-Wasm processors over successfully fetched page bytes.
-- Wire the API into `Crawler::crawl_with_processor` and the native `yukki_crawl --execute-wasm` workflow; persist results through a caller-provided sink (the CLI uses a digest-named local-file sink).
-- Add per-page processor/input/output digests, output byte counts, execution duration, output references and error provenance to JSON reports.
-- Give each invocation a fresh Wasmtime Store/instance; reject imports and bound module size, input/output bytes, guest memory and fuel. Cap processing at four concurrent instances, 1,024 runs and 64 MiB aggregate output per crawl.
-- Keep crawled content opaque: pages cannot install/select processors and page scripts are never implicitly executed. Applications remain responsible for user authorization, processor provenance, job admission and audit logging.
-
 ### Boundaries and release gate
 
 - This is not a browser renderer, JavaScript engine, form/CAPTCHA automation system, distributed frontier, durable historical database or automatic accelerator pipeline.
 - No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format change is intended.
 - The crawler requires network egress controls at deployment level; application SSRF protections do not replace a restricted network namespace/firewall.
-- The release remains a candidate pending full CI, crawler-specific security tests, lockfile validation and paired Overhauled metrics checks. See [VERSIONING.md](VERSIONING.md) for the exact release gate.
+- The v6.21.0 GitHub Release was published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. See [VERSIONING.md](VERSIONING.md) for the subsequent v6.22.0 candidate gate.
 
 ---
 
