@@ -1087,7 +1087,9 @@ fn summarize_html_text(document: &[u8]) -> String {
             let name = raw_tag
                 .trim_start_matches('/')
                 .trim_start()
-                .split(|character: char| character.is_ascii_whitespace() || character == '/' || character == '>')
+                .split(|character: char| {
+                    character.is_ascii_whitespace() || character == '/' || character == '>'
+                })
                 .next()
                 .unwrap_or("")
                 .to_ascii_lowercase();
@@ -1095,7 +1097,10 @@ fn summarize_html_text(document: &[u8]) -> String {
                 if skipped_element.as_deref() == Some(name.as_str()) {
                     skipped_element = None;
                 }
-            } else if matches!(name.as_str(), "script" | "style" | "noscript" | "template" | "svg") {
+            } else if matches!(
+                name.as_str(),
+                "script" | "style" | "noscript" | "template" | "svg"
+            ) {
                 skipped_element = Some(match name.as_str() {
                     "script" => "script",
                     "style" => "style",
