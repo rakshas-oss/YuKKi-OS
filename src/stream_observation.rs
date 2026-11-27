@@ -237,7 +237,6 @@ mod tests {
     }
 }
 
-
 pub const MAX_DATA_STREAMS: usize = 128;
 pub const MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM: usize = 512;
 pub const MAX_DATA_STREAM_OBSERVATIONS_TOTAL: usize = 16_384;
@@ -353,7 +352,10 @@ impl ObservationStore {
             return Err(ObservationStoreError::SourceMismatch);
         }
         let dimensions = records[0].values.len();
-        if records.iter().any(|record| record.values.len() != dimensions) {
+        if records
+            .iter()
+            .any(|record| record.values.len() != dimensions)
+        {
             return Err(ObservationStoreError::DimensionsChanged);
         }
         if records
@@ -536,18 +538,29 @@ pub async fn publish_observation_batch(
                 || record.source_id != source_id
                 || record.values.is_empty()
                 || record.values.len() > MAX_OBSERVATION_DIMENSIONS
-                || record.values.iter().flatten().any(|value| !value.is_finite())
+                || record
+                    .values
+                    .iter()
+                    .flatten()
+                    .any(|value| !value.is_finite())
         })
-        || records.windows(2).any(|pair| pair[0].sequence >= pair[1].sequence)
+        || records
+            .windows(2)
+            .any(|pair| pair[0].sequence >= pair[1].sequence)
     {
         return Err(ObservationPublishError::InvalidBatch);
     }
 
-    let mut base = reqwest::Url::parse(gateway_base)
-        .map_err(|_| ObservationPublishError::InvalidTarget)?;
-    let host = base.host_str().ok_or(ObservationPublishError::InvalidTarget)?;
-    let local_host = host.eq_ignore_ascii_case("localhost")
-        || host.parse::<IpAddr>().is_ok_and(|address| address.is_loopback());
+    let mut base =
+        reqwest::Url::parse(gateway_base).map_err(|_| ObservationPublishError::InvalidTarget)?;
+    let host = base
+        .host_str()
+        .ok_or(ObservationPublishError::InvalidTarget)?;
+    let local_host = host
+        .eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
     if (base.scheme() != "https" && !(base.scheme() == "http" && local_host))
         || !base.username().is_empty()
         || base.password().is_some()
@@ -604,7 +617,6 @@ fn describe_observation_stream(
     }
 }
 
-
 #[cfg(test)]
 mod store_tests {
     use super::*;
@@ -651,7 +663,9 @@ mod store_tests {
         let store = ObservationStore::new();
         let source = "crawler-atomic";
         let initial = record(source, 10, vec![Some(1.0), Some(2.0)]);
-        store.ingest_ndjson(source, &ndjson(&[initial.clone()])).unwrap();
+        store
+            .ingest_ndjson(source, &ndjson(&[initial.clone()]))
+            .unwrap();
 
         let duplicate = record(source, 10, vec![Some(3.0), Some(4.0)]);
         assert!(matches!(
@@ -679,7 +693,10 @@ mod store_tests {
             store.ingest_ndjson(source, &ndjson(&records)).unwrap();
         }
         let descriptor = store.list().unwrap().pop().unwrap();
-        assert_eq!(descriptor.retained_observations, MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM);
+        assert_eq!(
+            descriptor.retained_observations,
+            MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM
+        );
         assert_eq!(descriptor.first_retained_sequence, Some(1));
         assert_eq!(descriptor.latest_sequence, Some(512));
     }
