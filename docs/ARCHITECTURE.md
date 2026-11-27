@@ -55,6 +55,14 @@ Processor selection never comes from crawled content. The processor has no
 imports/WASI and runs with a fresh Store under bounded input/output, memory,
 fuel, concurrency, run-count and aggregate-output ceilings.
 
+The native browser runtime offers a dedicated crawler utility tab. It consumes
+bounded per-page completion events from the crawler, presents discovered URLs
+as hyperlinks, and opens a text-only page summary in the last active main
+browsing tab. The original HTML remains a separate outbound hyperlink. The
+browser event feed contains only extracted text and bounded metadata; raw HTML
+stays on the native host. The utility's event queue uses backpressure and does
+not change YCR1, YCE1, NXR1, YKMC or BRK wire identities.
+
 Overhauled v1.10.0 adds a separate CPU-only `Overhauled::crawler_metrics` C++
 library for constant-memory aggregation of normalized numeric page
 observations. It is not a BRK1/BRK2 operation, is not automatically wired to
