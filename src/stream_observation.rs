@@ -556,8 +556,7 @@ pub async fn publish_observation_batch(
     let host = base
         .host_str()
         .ok_or(ObservationPublishError::InvalidTarget)?;
-    let local_host = host
-        .eq_ignore_ascii_case("localhost")
+    let local_host = host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
