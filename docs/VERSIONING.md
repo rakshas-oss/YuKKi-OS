@@ -22,6 +22,8 @@ The new crawler capability merged after v6.20.0 is an additive user-facing featu
 - Add a separate no-std YCR1 WebAssembly guest for static HTML title/link extraction, instantiated with isolated Wasmtime state and bounded fuel/memory.
 - Enforce explicit DNS-domain allowlists, validated-answer pinning, private/special-address rejection, no inherited proxy use, no redirects, robots.txt checks, per-host pacing, bounded concurrency, request timeouts and page/crawl byte budgets.
 - Produce page-level provenance, content digests, status, link and byte counts, fetch/extraction timings and an aggregate JSON report.
+- Add an explicit YCE1 processor stage through `Crawler::crawl_with_processor` and `yukki_crawl --execute-wasm`; persist outputs through an application sink and record processor/input/output digests in the crawl report.
+- Bound processor work with fresh import-free Wasmtime instances, 1 MiB input/output ceilings, 16 MiB memory, per-call fuel, four concurrent instances, 1,024 runs and 64 MiB aggregate output per crawl.
 - Include Aikido dependency/security remediation and the associated crawler CI fixes from PR #188.
 
 Overhauled v1.10.0 adds a separate constant-memory C++ accumulator for normalized crawler page observations. This is CPU-side aggregation; it is not a BRK1/BRK2 operation, does not receive raw HTML, and does not claim GPU/NPU crawler dispatch.
@@ -29,9 +31,9 @@ Overhauled v1.10.0 adds a separate constant-memory C++ accumulator for normalize
 ## Compatibility and security boundaries
 
 - Existing YKMC, BRK1, BRK2, NXR1 and WSM1 wire identities are preserved; this release candidate does not intentionally change protocol framing.
-- The crawler's native host owns networking and policy. The WASM guest has no WASI, imports, sockets, filesystem or credentials; it performs bounded static HTML extraction only.
+- The crawler's native host owns networking and policy. The YCR1 extractor has no WASI, imports, sockets, filesystem or credentials and performs static HTML extraction only. The separate YCE1 processor is opt-in, user-selected and import-free; crawled page content cannot install or select it.
 - The crawler is not a JavaScript browser, a CAPTCHA/form automation tool, a distributed or persistent crawl frontier, or a historical metrics database.
-- Do not forward raw HTML into the broker/accelerator path. The paired Overhauled accumulator accepts normalized numeric observations only and remains separately embedded by the caller.
+- The crawler does not automatically forward raw HTML or processor output into the broker/accelerator path. Its default CLI sink stores processor outputs locally; applications must explicitly configure any external sink. The paired Overhauled accumulator accepts normalized numeric observations only and remains separately embedded by the caller.
 - Untrusted NXR1/MED1/YKMC streams remain ingestible without WASM publisher authorization. Stream trust and executable-artifact trust remain separate.
 - Application-level byte, rate and memory ceilings do not replace upstream egress policy or DDoS protection.
 - The persistent broker client pool remains plain TCP; TLS is provided by a separately configured local sidecar. The verified sidecar certificate identity is not yet bound to the signed artifact-sender identity.

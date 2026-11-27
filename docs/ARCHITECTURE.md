@@ -29,12 +29,22 @@ each document runs inside an isolated Wasmtime Store with fuel and memory
 limits. JavaScript execution, redirects, CAPTCHA/form automation and general
 browser rendering are outside this capability.
 
-The crawler writes page-level provenance and aggregate JSON metrics. Overhauled
-v1.10.0 adds a separate CPU-only `Overhauled::crawler_metrics` C++ library for
-constant-memory aggregation of normalized numeric page observations. It is
-not a BRK1/BRK2 operation, is not automatically wired to the crawler, and does
-not dispatch crawler reductions to GPU/NPU. Raw HTML remains in the native
-crawler boundary and is not forwarded to the broker.
+The crawler writes page-level provenance and aggregate JSON metrics. An
+explicitly selected YCE1 core-Wasm processor may also consume each successful
+page's raw HTML bytes through `Crawler::crawl_with_processor` or the CLI's
+`--execute-wasm` option. Its output is persisted through a caller-owned sink
+(the CLI uses a local digest-named file sink); the JSON report records input,
+processor and output digests plus output references and execution status.
+Processor selection never comes from crawled content. The processor has no
+imports/WASI and runs with a fresh Store under bounded input/output, memory,
+fuel, concurrency, run-count and aggregate-output ceilings.
+
+Overhauled v1.10.0 adds a separate CPU-only `Overhauled::crawler_metrics` C++
+library for constant-memory aggregation of normalized numeric page
+observations. It is not a BRK1/BRK2 operation, is not automatically wired to
+the crawler or processor, and does not dispatch crawler reductions to GPU/NPU.
+Raw HTML and processor outputs remain local to the YuKKi host unless an
+application explicitly supplies another output sink or integration.
 
 ### Broker discovery and BRK2 locality extension (v6.16.0 published baseline)
 

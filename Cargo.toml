@@ -9,7 +9,7 @@ repository = "https://github.com/rakshas-oss/YuKKi-OS"
 readme = "README.md"
 keywords = ["distributed", "runtime", "wasm", "networking", "concurrency"]
 categories = ["network-programming", "wasm", "concurrency", "asynchronous"]
-include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "LICENSES.md", "build.rs", "src/**", "kernel/**", "include/**", "protocol/**"]
+include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "LICENSES.md", "build.rs", "src/**", "kernel/**", "include/**", "protocol/**", "examples/crawler-processors/**"]
 
 [lib]
 name = "yukkios"
