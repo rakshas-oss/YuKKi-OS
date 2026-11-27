@@ -129,7 +129,7 @@ cargo run --release --bin yukki_crawl -- \
   --output crawl-report.json
 ~~~
 
-The output directory contains `<input-sha256>-<output-sha256>.bin` files.
+The output directory contains `<page-url-sha256>-<output-sha256>.bin` files.
 The JSON record's `execution.output_reference` identifies the corresponding
 file; `processor_sha256` identifies the exact processor artifact. The byte
 count example is illustrative, not a semantic HTML parser or production
