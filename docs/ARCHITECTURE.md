@@ -33,6 +33,20 @@ No BRK message is introduced and decoding does not imply that observations
 have been authenticated or persisted. See
 [MULTIVARIATE_STREAM_INGEST.md](MULTIVARIATE_STREAM_INGEST.md).
 
+The native stream gateway now provides a distinct authenticated data-stream
+surface backed by a bounded in-memory `ObservationStore`. It accepts
+schema-v1 NDJSON batches and serves descriptors plus sequence ranges through
+`/v1/data-streams`. The browser-WASM workspace validates adopted records
+through a dedicated fixed-memory Rust WASM input buffer. This is separate from
+YKMC media framing and does not add a BRK operation. The initial store is
+node-local and is not durable or peer-mesh replicated.
+
+The native crawler can opt in to publish numeric page telemetry using the
+node's existing gateway configuration. It emits bounded groups of 16 records
+and excludes URLs, HTML and extracted text. Publishing is optional and
+non-fatal: the local crawler result feed remains available if gateway publishing
+is not configured or fails.
+
 ## Bounded crawler fabric and metriculation
 
 The optional crawler keeps network authority in the native host. The host
@@ -61,7 +75,9 @@ as hyperlinks, and opens a text-only page summary in the last active main
 browsing tab. The original HTML remains a separate outbound hyperlink. The
 browser event feed contains only extracted text and bounded metadata; raw HTML
 stays on the native host. The utility's event queue uses backpressure and does
-not change YCR1, YCE1, NXR1, YKMC or BRK wire identities.
+not change YCR1, YCE1, NXR1, YKMC or BRK wire identities. Its optional
+control-plane publishing path reuses the configured gateway and emits only
+numeric schema-v1 observations for browser-WASM adoption.
 
 Overhauled v1.10.0 adds a separate CPU-only `Overhauled::crawler_metrics` C++
 library for constant-memory aggregation of normalized numeric page
