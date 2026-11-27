@@ -1115,6 +1115,62 @@ fn now_unix_ms() -> u128 {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct CapturingOutputSink(
+        std::sync::Mutex<Option<(String, String, String, Vec<u8>)>>,
+    );
+
+    impl CrawlerExecutionOutputSink for CapturingOutputSink {
+        fn store(
+            &self,
+            page_key_sha256: &str,
+            input_sha256: &str,
+            output_sha256: &str,
+            output: &[u8],
+        ) -> Result<String, String> {
+            let mut captured = self.0.lock().map_err(|error| error.to_string())?;
+            *captured = Some((
+                page_key_sha256.to_string(),
+                input_sha256.to_string(),
+                output_sha256.to_string(),
+                output.to_vec(),
+            ));
+            Ok("processed.bin".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn crawler_processor_path_persists_bounded_page_result() {
+        let wasm = wat::parse_str(include_str!("../examples/crawler-processors/byte-count.wat"))
+            .unwrap();
+        let processor = Arc::new(CrawlerDataExecutor::with_defaults(&wasm).unwrap());
+        let sink = Arc::new(CapturingOutputSink::default());
+        let input = b"<html>hello</html>".to_vec();
+        let input_sha256 = hex_digest(&input);
+        let execution = execute_ingested_page(
+            processor.clone(),
+            sink.clone(),
+            "a".repeat(64),
+            input_sha256.clone(),
+            input,
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(Semaphore::new(1)),
+        )
+        .await;
+
+        assert!(execution.error.is_none());
+        assert_eq!(execution.processor_sha256, processor.module_sha256());
+        assert_eq!(execution.input_sha256, input_sha256);
+        assert_eq!(execution.output_reference.as_deref(), Some("processed.bin"));
+        assert_eq!(execution.output_bytes, Some(8));
+        let captured = sink.0.lock().unwrap().clone().unwrap();
+        assert_eq!(captured.0, "a".repeat(64));
+        assert_eq!(captured.1, input_sha256);
+        assert_eq!(captured.2, execution.output_sha256.unwrap());
+        assert_eq!(u64::from_le_bytes(captured.3.try_into().unwrap()), 18);
+    }
+
     #[test]
     fn robots_longest_match_and_allow_override() {
         let policy = parse_robots(
@@ -1193,6 +1249,7 @@ mod tests {
                 fetch_ms: 10.0,
                 extraction_ms: 2.0,
                 error: None,
+                execution: None,
             },
             CrawledPage {
                 url: "https://example.com/b".into(),
@@ -1206,6 +1263,7 @@ mod tests {
                 fetch_ms: 0.0,
                 extraction_ms: 0.0,
                 error: Some("denied".into()),
+                execution: None,
             },
         ];
         let metrics = summarize(&records);
