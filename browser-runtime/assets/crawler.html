@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+  <title>YuKKi Crawler Utility</title>
+  <style>
+    :root { color-scheme: dark; font: 14px system-ui,sans-serif; color: #edf4f7; background: #111d25; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 22px; max-width: 1100px; }
+    h1 { margin: 0; font-size: 23px; }
+    p { line-height: 1.45; }
+    .muted { color: #a7bac4; }
+    .panel { border: 1px solid #344c58; border-radius: 12px; padding: 16px; margin: 14px 0; background: #172832; }
+    label { display: block; margin: 10px 0 5px; color: #c7d7df; font-weight: 600; }
+    textarea, input { width: 100%; border: 1px solid #425966; border-radius: 7px; padding: 9px 11px; color: inherit; background: #0b151c; font: inherit; }
+    textarea { min-height: 76px; resize: vertical; }
+    .grid { display: grid; grid-template-columns: minmax(0,1fr) 150px; gap: 12px; }
+    button { min-height: 36px; border: 1px solid #3486a4; border-radius: 7px; color: white; background: #176b8c; padding: 7px 15px; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .status { color: #b9d5e0; min-height: 1.4em; }
+    .result { border-top: 1px solid #344c58; padding: 13px 0; }
+    .result:first-child { border-top: 0; }
+    .result a { color: #83d6f3; font-weight: 700; text-decoration: underline; overflow-wrap: anywhere; }
+    .result p { margin: 5px 0; overflow-wrap: anywhere; }
+    .meta { color: #a7bac4; font-size: 12px; }
+    .error { color: #ffb5a8; }
+    @media (max-width: 640px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="muted">YuKKi-OS · BROWSER UTILITY</p>
+    <h1>Web crawler</h1>
+    <p class="muted">Run a bounded crawl and browse its discoveries here. Select a result to open its extracted page summary in your main browsing tab; the original HTML remains one click away.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="crawl-config-heading">
+    <h2 id="crawl-config-heading">New crawl</h2>
+    <form id="crawl-form">
+      <label for="seeds">Starting URLs (one per line)</label>
+      <textarea id="seeds" maxlength="8192" required placeholder="https://example.org/"></textarea>
+      <label for="domains">Allowed domains (one per line)</label>
+      <textarea id="domains" maxlength="8192" required placeholder="example.org"></textarea>
+      <div class="grid">
+        <div>
+          <label for="max-pages">Maximum pages</label>
+          <input id="max-pages" type="number" min="1" max="1000" value="100" required>
+        </div>
+        <div style="display:flex;align-items:end">
+          <button id="start" type="submit">Start crawl</button>
+        </div>
+      </div>
+    </form>
+    <p id="status" class="status" role="status" aria-live="polite">Ready. Crawling is limited to the domains you allow.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="results-heading">
+    <h2 id="results-heading">Discovered pages</h2>
+    <p id="metrics" class="muted">No crawl results yet.</p>
+    <div id="results" aria-live="polite"><p class="muted">Results will appear here as pages finish extraction.</p></div>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const send = (message) => window.ipc.postMessage(JSON.stringify(message));
+    const form = $("crawl-form");
+    const start = $("start");
+    const status = $("status");
+    const results = $("results");
+    const metrics = $("metrics");
+    let received = 0;
+
+    function lines(value) {
+      return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    }
+
+    $("seeds").addEventListener("change", () => {
+      if (lines($("domains").value).length) return;
+      const inferred = [];
+      for (const value of lines($("seeds").value)) {
+        try {
+          const host = new URL(value).hostname;
+          if (host && !inferred.includes(host)) inferred.push(host);
+        } catch (_) {}
+      }
+      if (inferred.length) $("domains").value = inferred.join("\n");
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const seeds = lines($("seeds").value);
+      const allowed_domains = lines($("domains").value);
+      const max_pages = Number($("max-pages").value);
+      if (!seeds.length || seeds.length > 16 || seeds.some((value) => value.length > 2048)) {
+        status.textContent = "Enter 1–16 starting URLs, each no longer than 2,048 characters.";
+        return;
+      }
+      if (!allowed_domains.length || allowed_domains.length > 256 ||
+          allowed_domains.some((value) => value.length > 253 || /[/:*\s]/.test(value))) {
+        status.textContent = "Enter 1–256 DNS domains without schemes, ports, wildcards or spaces.";
+        return;
+      }
+      if (!Number.isInteger(max_pages) || max_pages < 1 || max_pages > 1000) {
+        status.textContent = "Maximum pages must be between 1 and 1,000.";
+        return;
+      }
+      received = 0;
+      results.replaceChildren();
+      metrics.textContent = "Waiting for first page…";
+      start.disabled = true;
+      status.textContent = "Starting crawl…";
+      send({action: "start_crawl", seeds, allowed_domains, max_pages});
+    });
+
+    function makeResult(page) {
+      const article = document.createElement("article");
+      article.className = "result";
+      const link = document.createElement("a");
+      link.href = "#";
+      link.textContent = page.title || page.url;
+      link.title = page.url;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        send({
+          action: "open_summary",
+          url: page.url,
+          title: page.title || "",
+          summary: page.summary || "",
+          fetched_at_unix_ms: page.fetched_at_unix_ms,
+          status_code: page.status_code,
+          document_bytes: page.document_bytes,
+          depth: page.depth,
+          sha256: page.sha256 || "",
+          links: (page.links || []).slice(0, 8).map((value) => value.slice(0, 1024))
+        });
+      });
+      const preview = document.createElement("p");
+      preview.textContent = page.summary || (page.error ? page.error : "No text preview was extracted.");
+      if (page.error) preview.className = "error";
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      meta.textContent = [
+        page.status_code ? "HTTP " + page.status_code : "Fetch failed",
+        (page.document_bytes || 0) + " bytes",
+        "depth " + page.depth,
+        new Date(Number(page.fetched_at_unix_ms)).toLocaleString()
+      ].join(" · ");
+      const address = document.createElement("p");
+      address.className = "meta";
+      address.textContent = page.url;
+      article.append(link, preview, meta, address);
+      return article;
+    }
+
+    window.yukkiCrawler = {
+      append(event) {
+        if (event.kind === "status") {
+          status.textContent = event.message;
+          return;
+        }
+        if (event.kind === "page") {
+          if (received === 0) results.replaceChildren();
+          received += 1;
+          results.append(makeResult(event.page));
+          metrics.textContent = received + " page(s) received. Crawl is still running…";
+          status.textContent = "Crawling · " + received + " page(s) processed";
+          return;
+        }
+        if (event.kind === "finished") {
+          start.disabled = false;
+          const m = event.metrics;
+          metrics.textContent = m.pages_succeeded + " succeeded · " + m.pages_failed +
+            " failed · " + m.total_links + " links · " + m.total_document_bytes + " bytes";
+          status.textContent = "Crawl complete.";
+          return;
+        }
+        if (event.kind === "error") {
+          start.disabled = false;
+          status.textContent = event.message || "Crawler failed.";
+        }
+      }
+    };
+    send({action: "ready"});
+  </script>
+</body>
+</html>
