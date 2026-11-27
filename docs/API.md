@@ -1,4 +1,4 @@
-# YuKKi-OS v6.22.0 — API and ABI Reference (release candidate)
+# YuKKi-OS v6.22.1 — API and ABI Reference (public API unchanged from v6.22.0)
 
 ## Incremental multivariate stream observations
 

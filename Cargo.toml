@@ -1,6 +1,6 @@
 [package]
 name = "yukkios"
-version = "6.22.0"
+version = "6.22.1"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Modular Rust distributed-systems runtime for peer coordination, workload orchestration, and WebAssembly composition"

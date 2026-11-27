@@ -1,6 +1,6 @@
-# YuKKi-OS v6.22.0 — Security Notes (release candidate)
+# YuKKi-OS v6.22.1 — Security Notes (patch release candidate)
 
-> Release candidate v6.22.0. Research/demo software; do not expose directly to untrusted networks.
+> Patch release candidate v6.22.1. Research/demo software; do not expose directly to untrusted networks.
 
 ## Cryptographic baseline
 

@@ -1,6 +1,6 @@
 # YuKKi-OS package distribution
 
-> **Release line:** v6.21.0 is the latest published GitHub Release; v6.22.0 is a candidate. GitHub Release publication and crates.io publication are separate. The release workflow does not publish the browser-WASM or WASI guest packages to crates.io.
+> **Release line:** v6.22.0 is the latest published GitHub Release; v6.22.1 is a patch candidate. The v6.22.0 release has no attached binary assets. GitHub Release publication and crates.io publication are separate. The release workflow does not publish the browser-WASM or WASI guest packages to crates.io.
 
 ## Primary Rust package: crates.io
 
@@ -12,12 +12,12 @@ not as generic host crates.
 
 ### Consumer commands
 
-The GitHub Release includes native runtime archives; the root crate has not
-yet been published to crates.io. To install the CLI from the latest published
-source tag:
+The v6.22.0 GitHub Release has no attached binary assets; the root crate has
+not yet been published to crates.io. To install the CLI from the latest
+published source tag:
 
 ```sh
-cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.21.0 \
+cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.22.0 \
   --locked --bin yukki_core_node
 ```
 
@@ -43,8 +43,8 @@ build-verifies the exact crate and enforces the published 10 MB archive limit.
 The first crates.io publication needs a crates.io account with a verified
 email and a publish-capable API token. Add that token as the repository Actions
 secret `CRATES_IO_API_TOKEN`, then run **Actions → Publish yukkios to
-crates.io**, selecting the `v6.22.0` release tag after it is created and
-validated. For this first publication, explicitly choose
+crates.io**, selecting the already-published `v6.22.0` release tag. Do not select
+v6.22.1 until its patch-candidate release gate has passed. For this first publication, explicitly choose
 `auth_method=token`; the workflow will fail closed if the secret is absent.
 The workflow checks that the tag is an ancestor of main, that the package
 version matches, that packaged source files have not changed after the tag,
@@ -52,8 +52,7 @@ and that the crates.io package identity belongs to this repository and the
 version is unused. It then runs a locked `cargo package` before publishing.
 After the first publication, configure the crates.io Trusted Publisher and
 subsequent runs may select `auth_method=trusted` to use short-lived OIDC
-credentials. The v6.22.0 candidate must not be published until its release
-gate is green. Do not add the token to a workflow file or commit it.
+credentials. Do not publish the v6.22.1 patch candidate until its release gate is green. Do not add the token to a workflow file or commit it.
 
 After the initial crate exists, configure a GitHub Actions trusted publisher in
 the crates.io crate settings:
@@ -71,10 +70,11 @@ Never publish a version that is already present.
 
 ## Native and WebAssembly release artifacts
 
-The GitHub Release remains the source of platform-specific binaries and
-WebAssembly artifacts. It publishes Linux x86_64, ARM64, ARMv7 and musl,
-macOS x86_64 and ARM64, WASI guest-worker, browser-WASM application and
-benchmark archives, plus SHA256SUMS. These artifacts are not Cargo crates.
+GitHub Release assets are release-specific and must be verified rather than
+assumed. The current v6.22.0 release has no attached native, browser-WASM or
+WASI binary assets and no attached SHA256SUMS. Build supported targets from
+the published source tag or use a release whose attached assets and checksums
+have been independently verified. These artifacts are not Cargo crates.
 
 ## OCI images
 
