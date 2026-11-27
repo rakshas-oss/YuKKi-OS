@@ -14,11 +14,14 @@ pub const MAX_DATA_EXEC_INPUT_BYTES: usize = 1_048_576;
 pub const MAX_DATA_EXEC_OUTPUT_BYTES: usize = 1_048_576;
 pub const MAX_DATA_EXEC_MEMORY_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_DATA_EXEC_FUEL: u64 = 10_000_000;
+pub const MAX_DATA_EXEC_FUEL: u64 = 1_000_000_000;
 
 #[derive(Debug, Error)]
 pub enum CrawlerDataExecError {
     #[error("processor module is empty or exceeds 4194304 bytes")]
     ModuleSize,
+    #[error("processor fuel must be in 1..={MAX_DATA_EXEC_FUEL}")]
+    InvalidFuel,
     #[error("processor compilation failed: {0}")]
     Compile(String),
     #[error("processor imports are forbidden; YCE1 modules must be capability-free")]
