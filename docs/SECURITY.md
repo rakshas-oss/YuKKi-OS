@@ -125,7 +125,10 @@ output, memory and fuel. Crawled content is always opaque data: it cannot
 install or select a processor, and it is never executed as code. Applications
 must authenticate/authorize users, verify processor provenance, apply job
 admission and rate limits, and audit execution. The library does not provide
-an HTTP execution route or durable job service. Neither Wasmtime fuel nor
-in-process memory limits replace OS process/container isolation and outbound
-network restrictions.
+an HTTP execution route or durable job service. The native `yukki_crawl` CLI
+does expose the explicit `--execute-wasm` option for operator-selected
+processors; it never loads a processor referenced by page content. The CLI's
+filesystem sink uses host-generated digest filenames and create-new semantics.
+Neither Wasmtime fuel nor in-process memory limits replace OS process/container
+isolation and outbound network restrictions.
 
