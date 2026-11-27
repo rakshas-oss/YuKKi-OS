@@ -28,6 +28,22 @@ JSON report fields and security boundary. This API does not provide JavaScript
 execution, general browser rendering, a persistent distributed frontier, or
 automatic transfer of page data to Overhauled.
 
+The `CrawledPage` record includes a bounded `summary` text excerpt (up to
+480 characters) derived from visible HTML text. This is not an AI-generated
+semantic summary, and it is not raw HTML. `Crawler::crawl_with_events`
+accepts a bounded Tokio `mpsc::Sender<CrawlEvent>` and emits
+`PageCompleted(CrawledPage)` records as fetches finish, followed by
+`Finished(CrawlMetrics)`. The caller controls channel capacity; awaiting sends
+applies backpressure to crawl-result delivery. Event copies limit the browser
+feed to eight links of at most 1,024 bytes each. The final `CrawlReport`
+retains the full normalized link list and aggregate metrics.
+
+The native Wry browser runtime exposes this feed in a separate Crawler utility
+tab. Clicking a result opens its text-only page summary in the last active
+main browsing tab; the summary's original-HTML hyperlink then navigates that
+main tab to the source site. The utility remains available as another tab.
+Raw HTML is not broadcast to browser UI components.
+
 ### User-directed execution over crawler data
 
 The native-only `yukkios::crawler_data_exec::CrawlerDataExecutor` API runs an
