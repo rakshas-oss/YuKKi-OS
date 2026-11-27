@@ -39,7 +39,9 @@ use yukki_browser_runtime::{
 };
 use yukkios::{
     crawler::{CrawlEvent, Crawler, CrawlerConfig},
-    stream_observation::{publish_observation_batch, MultivariateObservation, OBSERVATION_SCHEMA_VERSION},
+    stream_observation::{
+        publish_observation_batch, MultivariateObservation, OBSERVATION_SCHEMA_VERSION,
+    },
 };
 
 const DEFAULT_URL: &str = "https://example.com";
@@ -658,17 +660,17 @@ fn html_escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-
-fn crawler_publish_config(
-    enabled: bool,
-) -> Result<Option<(String, String, String)>, String> {
+fn crawler_publish_config(enabled: bool) -> Result<Option<(String, String, String)>, String> {
     if !enabled {
         return Ok(None);
     }
     let token = env::var("YUKKI_GATEWAY_TOKEN")
         .map_err(|_| "Control-plane publishing is unavailable: this YuKKi process has no YUKKI_GATEWAY_TOKEN configured.".to_owned())?;
     if token.is_empty() || token.len() > 4096 {
-        return Err("Control-plane publishing is unavailable: the configured gateway token is invalid.".to_owned());
+        return Err(
+            "Control-plane publishing is unavailable: the configured gateway token is invalid."
+                .to_owned(),
+        );
     }
 
     let base = if let Ok(url) = env::var("YUKKI_GATEWAY_URL") {
@@ -678,7 +680,9 @@ fn crawler_publish_config(
             .host_str()
             .ok_or_else(|| "YUKKI_GATEWAY_URL is missing a host.".to_owned())?;
         let loopback = host.eq_ignore_ascii_case("localhost")
-            || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback());
         if (parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback))
             || !parsed.username().is_empty()
             || parsed.password().is_some()
@@ -692,9 +696,9 @@ fn crawler_publish_config(
         let address = env::var("YUKKI_GATEWAY_LISTEN")
             .or_else(|_| env::var("YUKKI_GATEWAY_ENDPOINT"))
             .unwrap_or_else(|_| "127.0.0.1:7670".to_owned());
-        let mut address = address
-            .parse::<std::net::SocketAddr>()
-            .map_err(|_| "YUKKI_GATEWAY_LISTEN/YUKKI_GATEWAY_ENDPOINT must be a socket address.".to_owned())?;
+        let mut address = address.parse::<std::net::SocketAddr>().map_err(|_| {
+            "YUKKI_GATEWAY_LISTEN/YUKKI_GATEWAY_ENDPOINT must be a socket address.".to_owned()
+        })?;
         if address.ip().is_unspecified() {
             address.set_ip(match address.ip() {
                 std::net::IpAddr::V4(_) => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
