@@ -746,8 +746,37 @@ The hard limits and DNS/robots/redirect behavior are documented in
 [WASM_CRAWLER.md](WASM_CRAWLER.md). Keep host firewall/egress policy in place:
 application URL validation is not a replacement for network isolation.
 
+To explicitly process each successful page's raw HTML through a reviewed
+core-Wasm processor, compile the included YCE1 example (or provide your own
+processor implementing the documented ABI) and add `--execute-wasm`:
+
+```bash
+wat2wasm examples/crawler-processors/byte-count.wat -o byte-count.wasm
+cargo run --release --bin yukki_crawl -- \
+  --seed https://example.org/ --allow-domain example.org \
+  --wasm crawler-wasm/target/wasm32-unknown-unknown/release/yukkios_crawler_wasm.wasm \
+  --execute-wasm byte-count.wasm \
+  --execution-output-dir crawl-execution-output \
+  --execution-fuel 10000000 \
+  --output crawl-report.json
+```
+
+The selected processor is never taken from crawled page content. Omit
+`--execute-wasm` to disable processor execution. Each result is written as a
+separate binary file under the output directory; its filename is derived from
+the page URL and output SHA-256 digests. The JSON report records the processor
+digest, input/output digests, output byte count, reference, execution duration
+and any per-page failure.
+
+Processor safeguards are four concurrent instances, at most 1,024 runs and
+64 MiB aggregate output per crawl, with a 1 MiB input/output ceiling, 16 MiB
+guest memory and 10,000,000 default fuel per call. The configured fuel ceiling
+is 1,000,000,000. Keep processor artifacts in your reviewed deployment
+inventory and restrict write permissions on the output directory.
+
 The JSON report contains per-page status, timestamp, digest, bytes, links and
-fetch/extraction timing, plus aggregate counts and means. It is an in-memory
-crawl result written to a file, not a durable frontier or historical database.
-The paired Overhauled metric accumulator is a separate CPU-side C++ library;
-it is not automatically called by the crawler or exposed as a broker operation.
+fetch/extraction timing, plus aggregate counts and means. It remains an
+in-memory crawl result written to a file, not a durable frontier or historical
+database. The paired Overhauled metric accumulator is a separate CPU-side C++
+library; it is not automatically called by the crawler or exposed as a broker
+operation.
