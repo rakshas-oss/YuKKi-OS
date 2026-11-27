@@ -1,35 +1,51 @@
-# YuKKi-OS v6.22.1 (patch release candidate)
+# YuKKi-OS v6.22.1
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
-> A distributed control plane for peers, streams, and sandboxed workloads—with accelerator execution delegated to interoperable backends.
+> YuKKi-OS is a Rust platform for coordinating peers, streams, and sandboxed workloads. It supplies the control-plane and host-runtime pieces; compatible execution backends can be connected when a workload needs them.
 
-> **Release status:** v6.22.0 is the latest published GitHub Release (2026-11-26). Its release record has no attached binary assets. v6.22.1 is the next patch release candidate; its tag and assets are not published.
+> **Latest release:** [v6.22.1](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.22.1) · Published 2026-11-27. The GitHub Release has no attached binary assets. Release publication does not imply a crates.io package publication.
 
-**YuKKi-OS is a Rust-based modular distributed systems platform** providing an authenticated peer-to-peer control plane, workload coordination, concurrent runtime primitives, WebAssembly sandboxing, streaming, and accelerator interoperability.
+YuKKi-OS brings together authenticated peer networking, workload coordination, bounded stream processing, WebAssembly execution, spatial and multivariate data paths, and interoperability with the separate [Overhauled](https://github.com/rakshas-oss/overhauled) broker. It is a distributed systems platform—not just an MPMC microkernel.
 
-YuKKi-OS combines distributed coordination and runtime services rather than representing a single-purpose MPMC microkernel. Its current architecture includes a peer mesh, stream infrastructure, broker boundary, accelerator fallback policy, optional GPU/NPU integration, browser spatial processing, benchmark-driven multivariate data paths, and native Wasmtime composition of executable policy programs.
+## Who this is for
 
-> Release candidate: v6.22.1. The latest published GitHub release is v6.22.0 (2026-11-26); it has no attached binary assets. GitHub Release publication does not imply crates.io publication. YuKKi-OS is intended for validation, experimentation, and deployment; independent security review remains recommended before production use.
+- **Rust and systems developers** building distributed services that need peer coordination, streaming, workload policy, or embedded WebAssembly processing.
+- **Platform operators** assembling a control plane for connected nodes and bounded data-processing workloads.
+- **Application and runtime integrators** that want to send work to a compatible broker while keeping workload semantics and policy in YuKKi-OS.
+- **Spatial and data engineers** working with geospatial observations, chunked media, or bounded multivariate numeric streams.
+
+## What YuKKi-OS does
+
+- **Coordinates:** authenticated peer sessions, broker discovery, workload directives, and runtime services.
+- **Processes:** bounded streams and spatial data; the optional crawler collects allowlisted static HTML and can pass results to an explicitly selected, resource-limited WebAssembly processor.
+- **Hosts:** native Wasmtime composition and supported WebAssembly guest paths, with explicit resource limits and lifecycle boundaries.
+- **Interoperates:** BRK1/BRK2 broker requests connect YuKKi-OS policy to Overhauled execution and placement services.
+
+## How YuKKi-OS and Overhauled fit together
+
+YuKKi-OS owns the peer/control plane, workload meaning, stream and spatial semantics, and host-side WebAssembly composition. Overhauled is a separate C++ broker and execution tier: it owns broker admission, worker queues, process-local CPU/NUMA placement, and CPU/GPU/NPU backend selection. A requested accelerator or locality preference is not proof that hardware execution or physical placement occurred; inspect the broker response and telemetry.
+
+## Choose a starting point
+
+- **Build the runtime:** [Build and run](#build-and-run) and the [platform deployment notes](#platform-deployment).
+- **Add crawler processing:** [WASM Crawler Fabric](docs/WASM_CRAWLER.md).
+- **Compose WebAssembly programs:** [composition guide](docs/WASM_PROGRAM_COMPOSITION.md).
+- **Connect a broker:** [broker interoperability](docs/OVERHAULED_INTEROP.md) and [protocol documentation](#documentation).
+- **Understand the architecture:** [architecture diagram and component map](#architecture-map--full-colour-ansi-palette).
+
+## Release and deployment notes
+
+The release tag is a source/version reference; it does not mean that prebuilt binaries or every workspace package are published to a registry. Check the relevant package metadata and [package distribution guide](docs/PACKAGING.md) before choosing an installation path. YuKKi-OS is intended for development, validation, and deployment work; obtain an independent security review appropriate to your threat model before production use.
 
 ## Current baseline
-- **Release line:** v6.22.1 patch candidate; latest published release v6.22.0 (2026-11-26).
+- **Release:** v6.22.1 (latest published GitHub Release, 2026-11-27).
 - **Runtime:** `yukki_core_node`; native library package `yukkios`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
-- **Status:** v6.22.0 GitHub Release is published without attached binary assets; v6.22.1 awaits its release gate.
+- **Release assets:** no binary assets are attached to v6.22.1.
 
-## What's new in v6.21.0 (published 2026-11-26)
-
-- **Bounded WASM crawler fabric:** add the opt-in `yukki_crawl` CLI and Rust library with native asynchronous HTTP/HTTPS fetching and a separate no-std YCR1 WebAssembly HTML extractor. The guest has no WASI, imports, sockets, filesystem access or credentials.
-- **Crawl safety controls:** require explicit DNS-domain allowlists, pin validated DNS answers, reject private/special-use destinations, disable proxy environment inheritance, do not follow redirects, evaluate robots.txt fail-closed, and enforce per-host pacing, page/crawl byte budgets, timeouts, bounded concurrency and guest fuel/memory limits.
-- **Metriculation reports:** emit per-page status, timestamp, SHA-256, byte count, extracted title/links, fetch and extraction timings, plus aggregate crawl metrics. Reports are local JSON output; crawler data is not automatically forwarded to Overhauled.
-- **Security and CI maintenance:** merge the Aikido dependency/security remediation and crawler validation fixes. This does not constitute an independent external security audit.
-- **Paired C++ aggregation:** Overhauled v1.10.0 adds an optional CPU-only, constant-memory C++ accumulator for normalized page observations. It is a separate library, not a BRK operation or automatic GPU/NPU crawler path.
-
-The crawler is a bounded static-HTML vertical slice, not a general-purpose browser, distributed frontier, historical metrics database, or JavaScript execution environment. See [WASM Crawler Fabric](docs/WASM_CRAWLER.md) for the operator contract and limitations.
-
-## What's new in v6.22.1 (patch release candidate)
+## What's new in v6.22.1 (published 2026-11-27)
 
 - **NDJSON validation test correction:** verify that an unterminated final record remains buffered by `push()` and is validated by `finish()`, rather than expecting incomplete input to be emitted immediately.
 - **Toolchain formatting:** apply the pinned Rust 1.98.1 rustfmt layout to `guest-worker/src/lib.rs`.
@@ -43,6 +59,16 @@ The crawler is a bounded static-HTML vertical slice, not a general-purpose brows
 - **Pairwise aggregation:** the paired published Overhauled v1.11.0 release adds a CPU-only, fixed-memory online covariance/correlation accumulator for up to 32 dimensions. Missing values are omitted pairwise; sample counts are part of the result. This is a separate library, not an automatic network-to-broker path or GPU/NPU crawler dispatch.
 
 The decoder parses data but does not authenticate sources or authorize forwarding. Applications remain responsible for per-source/tenant admission, bounded queues, backpressure and audit policy. Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities are unchanged.
+
+## What's new in v6.21.0 (published 2026-11-26)
+
+- **Bounded WASM crawler fabric:** add the opt-in `yukki_crawl` CLI and Rust library with native asynchronous HTTP/HTTPS fetching and a separate no-std YCR1 WebAssembly HTML extractor. The guest has no WASI, imports, sockets, filesystem access or credentials.
+- **Crawl safety controls:** require explicit DNS-domain allowlists, pin validated DNS answers, reject private/special-use destinations, disable proxy environment inheritance, do not follow redirects, evaluate robots.txt fail-closed, and enforce per-host pacing, page/crawl byte budgets, timeouts, bounded concurrency and guest fuel/memory limits.
+- **Metriculation reports:** emit per-page status, timestamp, SHA-256, byte count, extracted title/links, fetch and extraction timings, plus aggregate crawl metrics. Reports are local JSON output; crawler data is not automatically forwarded to Overhauled.
+- **Security and CI maintenance:** merge the Aikido dependency/security remediation and crawler validation fixes. This does not constitute an independent external security audit.
+- **Paired C++ aggregation:** Overhauled v1.10.0 adds an optional CPU-only, constant-memory C++ accumulator for normalized page observations. It is a separate library, not a BRK operation or automatic GPU/NPU crawler path.
+
+The crawler is a bounded static-HTML vertical slice, not a general-purpose browser, distributed frontier, historical metrics database, or JavaScript execution environment. See [WASM Crawler Fabric](docs/WASM_CRAWLER.md) for the operator contract and limitations.
 
 ## What's new in v6.20.0 (published 2026-11-26)
 
