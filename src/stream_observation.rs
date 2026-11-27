@@ -324,7 +324,14 @@ impl ObservationStore {
         if bytes.len() > MAX_DATA_STREAM_INGEST_BYTES {
             return Err(ObservationStoreError::BatchTooLarge);
         }
-        if source_id.is_empty() || source_id.len() > MAX_OBSERVATION_SOURCE_ID_BYTES {
+        if source_id.is_empty()
+            || source_id.len() > MAX_OBSERVATION_SOURCE_ID_BYTES
+            || source_id == "."
+            || source_id == ".."
+            || !source_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
             return Err(ObservationStoreError::SourceMismatch);
         }
 
@@ -594,5 +601,96 @@ fn describe_observation_stream(
         first_retained_sequence: stream.records.front().map(|record| record.sequence),
         latest_sequence: Some(stream.latest_sequence),
         updated_at_unix_ms: stream.updated_at_unix_ms,
+    }
+}
+
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+
+    fn record(source_id: &str, sequence: u64, values: Vec<Option<f64>>) -> MultivariateObservation {
+        MultivariateObservation {
+            schema_version: OBSERVATION_SCHEMA_VERSION,
+            source_id: source_id.to_owned(),
+            sequence,
+            timestamp_unix_ms: 1_700_000_000_000 + sequence,
+            values,
+        }
+    }
+
+    fn ndjson(records: &[MultivariateObservation]) -> Vec<u8> {
+        let mut output = Vec::new();
+        for record in records {
+            serde_json::to_writer(&mut output, record).unwrap();
+            output.push(b'\n');
+        }
+        output
+    }
+
+    #[test]
+    fn observation_store_ingests_and_reads_schema_v1_batches() {
+        let store = ObservationStore::new();
+        let source = "crawler-test";
+        let records = vec![
+            record(source, 1, vec![Some(1.5), None, Some(3.0)]),
+            record(source, 2, vec![Some(2.5), Some(4.0), Some(5.0)]),
+        ];
+        let descriptor = store.ingest_ndjson(source, &ndjson(&records)).unwrap();
+        assert_eq!(descriptor.retained_observations, 2);
+        assert_eq!(descriptor.dimensions, 3);
+        assert_eq!(descriptor.latest_sequence, Some(2));
+
+        let range = store.read(source, 1, 8).unwrap();
+        assert_eq!(range.records, records);
+        assert_eq!(range.records[0].values, vec![Some(1.5), None, Some(3.0)]);
+    }
+
+    #[test]
+    fn invalid_batches_are_rejected_without_mutating_the_stream() {
+        let store = ObservationStore::new();
+        let source = "crawler-atomic";
+        let initial = record(source, 10, vec![Some(1.0), Some(2.0)]);
+        store.ingest_ndjson(source, &ndjson(&[initial.clone()])).unwrap();
+
+        let duplicate = record(source, 10, vec![Some(3.0), Some(4.0)]);
+        assert!(matches!(
+            store.ingest_ndjson(source, &ndjson(&[duplicate])),
+            Err(ObservationStoreError::SequenceNotIncreasing)
+        ));
+        let changed_dimensions = record(source, 11, vec![Some(3.0)]);
+        assert!(matches!(
+            store.ingest_ndjson(source, &ndjson(&[changed_dimensions])),
+            Err(ObservationStoreError::DimensionsChanged)
+        ));
+        let range = store.read(source, 0, 8).unwrap();
+        assert_eq!(range.records, vec![initial]);
+    }
+
+    #[test]
+    fn observation_store_bounds_per_stream_retention() {
+        let store = ObservationStore::new();
+        let source = "crawler-retention";
+        for batch_start in (0..513_u64).step_by(MAX_DATA_STREAM_INGEST_RECORDS) {
+            let end = (batch_start + MAX_DATA_STREAM_INGEST_RECORDS as u64).min(513);
+            let records = (batch_start..end)
+                .map(|sequence| record(source, sequence, vec![Some(sequence as f64)]))
+                .collect::<Vec<_>>();
+            store.ingest_ndjson(source, &ndjson(&records)).unwrap();
+        }
+        let descriptor = store.list().unwrap().pop().unwrap();
+        assert_eq!(descriptor.retained_observations, MAX_DATA_STREAM_OBSERVATIONS_PER_STREAM);
+        assert_eq!(descriptor.first_retained_sequence, Some(1));
+        assert_eq!(descriptor.latest_sequence, Some(512));
+    }
+
+    #[test]
+    fn observation_store_rejects_unsafe_source_ids() {
+        let store = ObservationStore::new();
+        let item = record("../outside", 1, vec![Some(1.0)]);
+        assert!(matches!(
+            store.ingest_ndjson("../outside", &ndjson(&[item])),
+            Err(ObservationStoreError::SourceMismatch)
+        ));
     }
 }
