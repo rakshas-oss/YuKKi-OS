@@ -10,6 +10,8 @@ pub mod broker_discovery;
 pub mod crawler;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crawler_wasm;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crawler_data_exec;
 pub mod symmetric_eigen;
 #[rustfmt::skip]
 pub mod brk2;
