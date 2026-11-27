@@ -692,9 +692,15 @@ fn crawler_publish_config(
         let address = env::var("YUKKI_GATEWAY_LISTEN")
             .or_else(|_| env::var("YUKKI_GATEWAY_ENDPOINT"))
             .unwrap_or_else(|_| "127.0.0.1:7670".to_owned());
-        let address = address
+        let mut address = address
             .parse::<std::net::SocketAddr>()
             .map_err(|_| "YUKKI_GATEWAY_LISTEN/YUKKI_GATEWAY_ENDPOINT must be a socket address.".to_owned())?;
+        if address.ip().is_unspecified() {
+            address.set_ip(match address.ip() {
+                std::net::IpAddr::V4(_) => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                std::net::IpAddr::V6(_) => std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            });
+        }
         if !address.ip().is_loopback() {
             return Err("A non-local gateway requires YUKKI_GATEWAY_URL with HTTPS.".to_owned());
         }
