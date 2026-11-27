@@ -9,9 +9,9 @@ pub mod broker_discovery;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crawler;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod crawler_wasm;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod crawler_data_exec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crawler_wasm;
 pub mod symmetric_eigen;
 #[rustfmt::skip]
 pub mod brk2;
@@ -34,8 +34,8 @@ pub mod temporal_spatial_scheduler;
 pub mod worker_policy;
 #[rustfmt::skip]
 pub mod stream_gateway;
-pub mod stream_registry;
 pub mod stream_observation;
+pub mod stream_registry;
 pub mod stream_relay;
 pub mod wasm_composition;
 pub mod wasm_handoff;

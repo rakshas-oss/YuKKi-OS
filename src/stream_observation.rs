@@ -80,13 +80,24 @@ impl NdjsonObservationDecoder {
         if config.max_record_bytes == 0 || config.max_records_per_push == 0 {
             return Err(ObservationDecodeError::RecordTooLarge);
         }
-        Ok(Self { config, pending: Vec::new() })
+        Ok(Self {
+            config,
+            pending: Vec::new(),
+        })
     }
 
-    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<MultivariateObservation>, ObservationDecodeError> {
+    pub fn push(
+        &mut self,
+        chunk: &[u8],
+    ) -> Result<Vec<MultivariateObservation>, ObservationDecodeError> {
         // Preflight the chunk so a record-count overflow cannot consume earlier
         // records and then return an error with those observations lost.
-        if chunk.iter().filter(|byte| **byte == b'\n').count() > self.config.max_records_per_push {
+        if chunk
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count()
+            > self.config.max_records_per_push
+        {
             return Err(ObservationDecodeError::TooManyRecords);
         }
         let mut output = Vec::new();
@@ -140,7 +151,9 @@ impl NdjsonObservationDecoder {
 fn decode_record(bytes: &[u8]) -> Result<MultivariateObservation, ObservationDecodeError> {
     let wire: WireObservation = serde_json::from_slice(bytes)?;
     if wire.schema_version != OBSERVATION_SCHEMA_VERSION {
-        return Err(ObservationDecodeError::UnsupportedVersion(wire.schema_version));
+        return Err(ObservationDecodeError::UnsupportedVersion(
+            wire.schema_version,
+        ));
     }
     if wire.source_id.is_empty() || wire.source_id.len() > MAX_OBSERVATION_SOURCE_ID_BYTES {
         return Err(ObservationDecodeError::InvalidSourceId);
@@ -165,7 +178,10 @@ mod tests {
     use super::*;
 
     fn config() -> ObservationDecoderConfig {
-        ObservationDecoderConfig { max_record_bytes: 256, max_records_per_push: 2 }
+        ObservationDecoderConfig {
+            max_record_bytes: 256,
+            max_records_per_push: 2,
+        }
     }
 
     #[test]
@@ -187,7 +203,10 @@ mod tests {
     #[test]
     fn rejects_oversized_partial_record() {
         let mut decoder = NdjsonObservationDecoder::new(config()).unwrap();
-        assert!(matches!(decoder.push(&[b'x'; 257]), Err(ObservationDecodeError::RecordTooLarge)));
+        assert!(matches!(
+            decoder.push(&[b'x'; 257]),
+            Err(ObservationDecodeError::RecordTooLarge)
+        ));
         assert!(decoder.pending_bytes() <= 256);
     }
 
@@ -196,8 +215,17 @@ mod tests {
         let mut decoder = NdjsonObservationDecoder::new(config()).unwrap();
         let unknown = br#"{"schema_version":2,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[1]}"#;
         assert!(decoder.push(unknown).unwrap().is_empty());
-        assert!(matches!(decoder.finish(), Err(ObservationDecodeError::UnsupportedVersion(2))));
-        let oversized = format!(r#"{{"schema_version":1,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[{}]}}"#, vec!["1"; 33].join(","));
-        assert!(matches!(decoder.push(oversized.as_bytes()), Err(ObservationDecodeError::InvalidDimensions)));
+        assert!(matches!(
+            decoder.finish(),
+            Err(ObservationDecodeError::UnsupportedVersion(2))
+        ));
+        let oversized = format!(
+            r#"{{"schema_version":1,"source_id":"s","sequence":1,"timestamp_unix_ms":1,"values":[{}]}}"#,
+            vec!["1"; 33].join(",")
+        );
+        assert!(matches!(
+            decoder.push(oversized.as_bytes()),
+            Err(ObservationDecodeError::InvalidDimensions)
+        ));
     }
 }

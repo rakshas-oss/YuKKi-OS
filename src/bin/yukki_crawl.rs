@@ -146,12 +146,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err("--wasm is required".into());
         }
     };
-    if execute_wasm_path.is_none()
-        && (execution_output_dir_supplied || execution_fuel_supplied)
-    {
-        return Err(
-            "--execution-output-dir and --execution-fuel require --execute-wasm".into(),
-        );
+    if execute_wasm_path.is_none() && (execution_output_dir_supplied || execution_fuel_supplied) {
+        return Err("--execution-output-dir and --execution-fuel require --execute-wasm".into());
     }
     if execute_wasm_path.is_some() && !(1..=1_000_000_000).contains(&execution_fuel) {
         return Err("--execution-fuel must be in 1..=1000000000".into());

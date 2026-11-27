@@ -302,12 +302,7 @@ impl Crawler {
                 let execution = execution.clone();
                 tasks.spawn(async move {
                     let record = crawler
-                        .fetch_page(
-                            url,
-                            depth,
-                            crawl_byte_budget,
-                            execution,
-                        )
+                        .fetch_page(url, depth, crawl_byte_budget, execution)
                         .await;
                     (depth, record)
                 });
@@ -822,9 +817,12 @@ async fn execute_ingested_page(
     document: Vec<u8>,
 ) -> CrawlerExecutionRecord {
     let processor_sha256 = execution.processor.module_sha256().to_string();
-    if execution.run_budget
+    if execution
+        .run_budget
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-            current.checked_add(1).filter(|next| *next <= MAX_CRAWLER_PROCESSOR_RUNS)
+            current
+                .checked_add(1)
+                .filter(|next| *next <= MAX_CRAWLER_PROCESSOR_RUNS)
         })
         .is_err()
     {
@@ -857,7 +855,8 @@ async fn execute_ingested_page(
     };
     let started = Instant::now();
     let processor_for_task = execution.processor.clone();
-    let processed = tokio::task::spawn_blocking(move || processor_for_task.execute(&document)).await;
+    let processed =
+        tokio::task::spawn_blocking(move || processor_for_task.execute(&document)).await;
     let execution_ms = started.elapsed().as_secs_f64() * 1000.0;
 
     let output = match processed {
@@ -886,7 +885,8 @@ async fn execute_ingested_page(
         }
     };
 
-    if execution.output_budget
+    if execution
+        .output_budget
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current
                 .checked_add(output.len())
@@ -1133,8 +1133,10 @@ mod tests {
 
     #[tokio::test]
     async fn crawler_processor_path_persists_bounded_page_result() {
-        let wasm = wat::parse_str(include_str!("../examples/crawler-processors/byte-count.wat"))
-            .unwrap();
+        let wasm = wat::parse_str(include_str!(
+            "../examples/crawler-processors/byte-count.wat"
+        ))
+        .unwrap();
         let processor = Arc::new(CrawlerDataExecutor::with_defaults(&wasm).unwrap());
         let sink = Arc::new(CapturingOutputSink::default());
         let input = b"<html>hello</html>".to_vec();

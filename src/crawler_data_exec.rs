@@ -96,7 +96,9 @@ impl CrawlerDataExecutor {
     /// pointer in its low 32 bits. No host imports are linked.
     pub fn execute(&self, input: &[u8]) -> Result<Vec<u8>, CrawlerDataExecError> {
         if input.is_empty() || input.len() > MAX_DATA_EXEC_INPUT_BYTES {
-            return Err(CrawlerDataExecError::InputTooLarge { actual: input.len() });
+            return Err(CrawlerDataExecError::InputTooLarge {
+                actual: input.len(),
+            });
         }
 
         let limits = StoreLimitsBuilder::new()
@@ -190,13 +192,18 @@ mod tests {
         .unwrap();
         let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
         assert_eq!(executor.module_sha256().len(), 64);
-        assert!(executor.module_sha256().bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert!(executor
+            .module_sha256()
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit()));
     }
 
     #[test]
     fn checked_in_byte_count_processor_runs_through_yce1() {
-        let wasm = wat::parse_str(include_str!("../examples/crawler-processors/byte-count.wat"))
-            .unwrap();
+        let wasm = wat::parse_str(include_str!(
+            "../examples/crawler-processors/byte-count.wat"
+        ))
+        .unwrap();
         let executor = CrawlerDataExecutor::with_defaults(&wasm).unwrap();
         let output = executor.execute(b"sample payload").unwrap();
         let count = u64::from_le_bytes(output.try_into().unwrap());
