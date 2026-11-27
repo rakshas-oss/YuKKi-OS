@@ -764,7 +764,7 @@ cargo run --release --bin yukki_crawl -- \
 The selected processor is never taken from crawled page content. Omit
 `--execute-wasm` to disable processor execution. Each result is written as a
 separate binary file under the output directory; its filename is derived from
-the input and output SHA-256 digests. The JSON report records the processor
+the page URL and output SHA-256 digests. The JSON report records the processor
 digest, input/output digests, output byte count, reference, execution duration
 and any per-page failure.
 
