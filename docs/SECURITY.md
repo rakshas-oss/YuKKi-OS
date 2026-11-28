@@ -1,6 +1,6 @@
-# YuKKi-OS v6.22.1 — Security Notes (patch release candidate)
+# YuKKi-OS v6.23.0 — Security Notes (feature release candidate)
 
-> Patch release candidate v6.22.1. Research/demo software; do not expose directly to untrusted networks.
+> Feature release candidate v6.23.0 (not yet tagged or published). Research/demo software; do not expose directly to untrusted networks.
 
 ## Cryptographic baseline
 
@@ -102,6 +102,14 @@ The v1 handoff protocol is an executable-artifact trust domain separate from pee
 - Gateway and WebSocket paths also cap connections, requests, control messages, egress bytes, outstanding acknowledgements and remote-origin pulls. These controls bound in-process resource use; they do not prevent volumetric DDoS saturating the host's network link. Use network-edge mitigation.
 
 The handoff transport and stream gateway are separate surfaces. Do not infer that peer-mesh encryption secures broker TCP or the external handoff transport.
+
+## Native browser crawler and observation publishing
+
+- Crawler URL fetching remains in the native host and is constrained by explicit domain allowlists, DNS pinning, private/special-address rejection, robots policy, redirect refusal, pacing, byte budgets and timeouts.
+- The browser Crawler utility receives bounded page metadata and an extractive preview, not raw HTML. Its event queue applies backpressure; links and preview text are capped.
+- Selecting a crawler result opens a local YuKKi summary in the main tab. Opening the original page is a separate user action and remains subject to the browser's navigation policy.
+- Numeric metric publishing is opt-in and reuses the configured gateway bearer token. Remote gateway publishing requires HTTPS. The observation payload excludes URLs, titles, excerpts and raw HTML.
+- The data-observation store is bounded and node-local/in-memory. It is not durable or peer-mesh replicated; callers must apply source/tenant authorization and policy before accepting or forwarding untrusted observations.
 
 ## Vulnerability reporting
 
