@@ -1,7 +1,7 @@
 # YuKKi-OS v6.23.0 — System Administration How-to
 
-> Latest published release: v6.22.1 (2026-11-27), with native, browser-WASM, and WASI release archives plus SHA256SUMS.
-> This guide covers the v6.23.0 feature-release candidate, which adds the native browser Crawler utility, main-tab extractive summaries, and optional numeric metric publishing for browser-WASM adoption. v6.23.0 is not yet tagged or published.
+> Latest published release: v6.23.0 (2026-11-28). No binary assets are manually attached to the GitHub Release; use its source archive or clone the tag.
+> This guide covers the released native browser Crawler utility, main-tab extractive summaries, and optional numeric metric publishing for browser-WASM adoption. crates.io and OCI registry publication remain separate.
 > Broker discovery remains bootstrap-relayed gossip, and BRK2 locality intent does not prove physical memory placement.
 
 ## 1. Scope and deployment components
