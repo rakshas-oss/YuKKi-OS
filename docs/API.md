@@ -408,7 +408,7 @@ transfer compiled-module caches, Stores, instances, replica pools or
 CompositionRuntime routing state. The two runtimes must be qualified
 independently. See [WASM runtime interoperability](WASM_RUNTIME_INTEROP.md).
 
-## Authenticated WASM handoff sender API (v6.18.0 candidate)
+## Authenticated WASM handoff sender API (v6.18.0 release)
 
 The public `yukkios::wasm_handoff` module provides an explicit client-side API for sending portable core-Wasm artifacts to a compatible receiver. It is separate from `CompositionRuntime`, WSM1 task/lifecycle messages and the ordinary BRK1/BRK2 broker socket.
 
