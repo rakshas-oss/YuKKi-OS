@@ -2,20 +2,19 @@
 
 ## Release state
 
-- **Latest published GitHub release:** v6.22.1 (published 2026-11-27). The release includes native node, native browser, browser-WASM, and WASI guest archives plus `SHA256SUMS`.
-- **Next feature release candidate:** v6.23.0 (not tagged or published).
-- **Native Cargo package candidate:** 6.23.0.
-- **OCI image label candidate:** 6.23.0.
+- **Latest published GitHub release:** [v6.23.0](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.23.0) (published 2026-11-28); no binary assets are manually attached.
+- **Native Cargo package source version:** 6.23.0.
+- **OCI image label:** 6.23.0; registry publication is separate.
 - **Rust toolchain pin:** 1.98.1.
 - **Runtime binary:** `yukki_core_node`.
 - **Independent workspace packages:** native browser runtime, browser-WASM, crawler extractor, and WASI guest remain independently versioned at 0.1.0.
 - **External package publication:** crates.io is not claimed; GitHub Release publication and registry publication are separate.
 
-The v6.23.0 candidate is an additive feature release. It advances the native `yukkios` package and OCI image metadata for the merged native-browser crawler workflow and optional control-plane metric adoption. It does not change the separately versioned 0.1.0 browser/WASI workspace packages.
+The v6.23.0 release is an additive feature release. It advances the native `yukkios` package and OCI image metadata for the native-browser crawler workflow and optional control-plane metric adoption. It does not change the separately versioned 0.1.0 browser/WASI workspace packages. The GitHub tag is published; crates.io and OCI registry publication are not implied.
 
 ## Version assessment
 
-The latest published native package is v6.22.1. Main now includes the following additive user-facing capabilities beyond that release:
+The published v6.23.0 native package source includes the following additive user-facing capabilities:
 
 - A dedicated Crawler utility tab in the native Wry browser runtime receives bounded page-completion events from the native crawler.
 - Result hyperlinks open an extractive, text-only page summary in the last active main browsing tab. The summary provides a separate hyperlink to the original HTML; raw HTML is not broadcast to the browser UI.
@@ -39,9 +38,9 @@ These are additive native/browser and gateway-surface capabilities and justify a
 - The native browser runtime, browser-WASM crate, crawler extractor, and WASI guest worker retain independent 0.1.0 versions.
 - GitHub source/artifact publication does not imply crates.io publication.
 
-## Release gate for 6.23.0
+## Validation record and future release process
 
-Before tagging or publishing:
+The v6.23.0 Git tag and GitHub Release were published on 2026-11-28. The release has no manually attached binary assets. Do not infer that crates.io or GHCR publication occurred. For a future release, repeat the following checks on the exact proposed tag candidate:
 
 1. Run `bash scripts/check-cargo-lockfiles.sh`, `cargo +1.98.1 metadata --format-version 1 --locked`, `cargo +1.98.1 fmt --all -- --check`, `cargo +1.98.1 test --all-targets --locked`, and strict Clippy on the exact candidate.
 2. Validate standalone crawler-WASM, browser-WASM, browser-runtime, and WASI guest manifests and lockfiles; build all supported native, browser, and WASI targets.
@@ -52,10 +51,11 @@ Before tagging or publishing:
 7. Test data-stream admission and retention limits, source/tenant quotas at callers, browser-WASM discovery and schema validation, and the node-local/non-durable storage boundary.
 8. Pass paired Overhauled CMake/CTest crawler-metric and multivariate tests, BRK1/BRK2 live interoperability, browser-WASM broker smoke, NPU simulator and CPU fallback, plus supported Wayland/X11/XWayland smoke tests.
 9. Confirm untrusted stream ingestion remains independent of executable-publisher authorization and that existing wire identities are unchanged.
-10. Only after required checks pass and the release commit is approved, create the v6.23.0 tag and GitHub Release. Verify crates.io publication separately.
+10. After the required checks pass and the release commit is approved, publish the next intended tag and GitHub Release. Verify crates.io and OCI registry publication separately.
 
 ## Published release history
 
+- v6.23.0 — published 2026-11-28; native-browser crawler utility, extractive summary navigation, optional authenticated numeric metric publishing, and browser-WASM observation adoption. No manually attached binary assets.
 - v6.22.1 — published 2026-11-27; NDJSON final-record test and Rust formatting maintenance. Native/browser/WASI archives and SHA256SUMS are attached to the GitHub Release.
 - v6.22.0 — published 2026-11-26; user-selected YCE1 crawler processing and bounded multivariate NDJSON observations. No release assets were attached.
 - v6.21.0 — published 2026-11-26; bounded WASM crawler fabric, static extraction, provenance/metriculation reports, and security remediation.
