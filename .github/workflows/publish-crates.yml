@@ -7,7 +7,7 @@ on:
         description: "Published YuKKi-OS release tag to publish (must match Cargo.toml)"
         required: true
         type: string
-        default: "v6.22.0"
+        default: "v6.23.0"
       auth_method:
         description: "Use crates.io Trusted Publishing or the bootstrap API token"
         required: true
