@@ -1,6 +1,6 @@
 # YuKKi-OS package distribution
 
-> **Release line:** v6.22.0 is the latest published GitHub Release; v6.22.1 is a patch candidate. The v6.22.0 release has no attached binary assets. GitHub Release publication and crates.io publication are separate. The release workflow does not publish the browser-WASM or WASI guest packages to crates.io.
+> **Release line:** v6.22.1 is the latest published GitHub Release (2026-11-27), with native, browser-WASM, and WASI archives plus SHA256SUMS. v6.23.0 is a feature-release candidate, not yet tagged or published. GitHub Release publication and crates.io publication are separate; the browser-WASM and WASI guest packages are not generic crates.io packages.
 
 ## Primary Rust package: crates.io
 
@@ -12,12 +12,12 @@ not as generic host crates.
 
 ### Consumer commands
 
-The v6.22.0 GitHub Release has no attached binary assets; the root crate has
+The v6.22.1 GitHub Release includes native/browser/WASI archives; the root crate has
 not yet been published to crates.io. To install the CLI from the latest
 published source tag:
 
 ```sh
-cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.22.0 \
+cargo install --git https://github.com/rakshas-oss/YuKKi-OS --tag v6.22.1 \
   --locked --bin yukki_core_node
 ```
 
@@ -25,11 +25,11 @@ Until the first crates.io publication, depend on the published source tag:
 
 ```toml
 [dependencies]
-yukkios = { git = "https://github.com/rakshas-oss/YuKKi-OS", tag = "v6.21.0" }
+yukkios = { git = "https://github.com/rakshas-oss/YuKKi-OS", tag = "v6.22.1" }
 ```
 
 After crates.io accepts the first upload, consumers can use a registry
-dependency such as `yukkios = "6.22.0"`. Do not use that form before the
+dependency such as `yukkios = "6.22.1"`. Do not use that form before the
 version is visible in crates.io. Cargo's platform and native build
 prerequisites still apply. The optional `native-crypto` feature links system
 mbed TLS libraries; it is not enabled by default.
@@ -43,8 +43,8 @@ build-verifies the exact crate and enforces the published 10 MB archive limit.
 The first crates.io publication needs a crates.io account with a verified
 email and a publish-capable API token. Add that token as the repository Actions
 secret `CRATES_IO_API_TOKEN`, then run **Actions → Publish yukkios to
-crates.io**, selecting the already-published `v6.22.0` release tag. Do not select
-v6.22.1 until its patch-candidate release gate has passed. For this first publication, explicitly choose
+crates.io**, selecting the already-published `v6.22.1` release tag. Do not select
+v6.23.0 until its feature-release gate has passed. For this first publication, explicitly choose
 `auth_method=token`; the workflow will fail closed if the secret is absent.
 The workflow checks that the tag is an ancestor of main, that the package
 version matches, that packaged source files have not changed after the tag,
@@ -52,7 +52,7 @@ and that the crates.io package identity belongs to this repository and the
 version is unused. It then runs a locked `cargo package` before publishing.
 After the first publication, configure the crates.io Trusted Publisher and
 subsequent runs may select `auth_method=trusted` to use short-lived OIDC
-credentials. Do not publish the v6.22.1 patch candidate until its release gate is green. Do not add the token to a workflow file or commit it.
+credentials. Do not publish the v6.23.0 feature candidate until its release gate is green. Do not add the token to a workflow file or commit it.
 
 After the initial crate exists, configure a GitHub Actions trusted publisher in
 the crates.io crate settings:
@@ -71,10 +71,7 @@ Never publish a version that is already present.
 ## Native and WebAssembly release artifacts
 
 GitHub Release assets are release-specific and must be verified rather than
-assumed. The current v6.22.0 release has no attached native, browser-WASM or
-WASI binary assets and no attached SHA256SUMS. Build supported targets from
-the published source tag or use a release whose attached assets and checksums
-have been independently verified. These artifacts are not Cargo crates.
+assumed. The published v6.22.1 release includes native node, native browser, browser-WASM, and WASI guest archives plus SHA256SUMS. Verify the attached asset names and checksums on the [release page](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.22.1) before installation. These artifacts are not generic Cargo crates.
 
 ## OCI images
 
