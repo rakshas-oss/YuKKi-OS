@@ -1,4 +1,28 @@
-## v6.22.1 (patch release candidate; not published)
+## v6.23.0 (feature release candidate; not published)
+
+### Native browser crawler workflow
+
+- Add a dedicated Crawler utility tab to the native Wry browser runtime, backed by the existing allowlist-constrained native crawler.
+- Stream bounded page-completion events to the utility. Result hyperlinks open a YuKKi-generated, text-only extractive summary in the last active main browsing tab; the summary includes a separate original-HTML link.
+- Bound summaries to a 480-character visible-text excerpt and up to eight validated links. Keep raw HTML on the native host and out of browser UI events. A 16-record event queue applies backpressure.
+
+### Optional control-plane data-stream adoption
+
+- Add an opt-in crawler metric-publishing control that reuses the node's existing authenticated gateway configuration; no second gateway URL or token is requested.
+- Publish batches of 16 schema-v1 numeric observations for browser-WASM adoption. URL, title, excerpt, and raw HTML are excluded.
+- Let the browser-WASM workspace discover these observation streams separately from media streams and validate adopted records through its Rust WASM core.
+- Keep the observation store bounded to 128 streams, 512 observations per stream, and 16,384 observations total. The initial store is node-local and in-memory, not durable or peer-mesh replicated.
+
+### Boundaries and release gate
+
+- This is a browser-facing crawler workflow and numeric telemetry path, not a JavaScript browser, AI semantic summarizer, persistent distributed frontier, or automatic accelerator pipeline.
+- Publishing is optional and non-fatal; local crawling and local result navigation remain available when the gateway is absent or publishing fails.
+- Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
+- The v6.23.0 candidate is not tagged or published. See [VERSIONING.md](VERSIONING.md) for the exact-commit release gate.
+
+---
+
+## v6.22.1 (published 2026-11-27)
 
 ### Post-release validation maintenance
 
@@ -8,7 +32,7 @@
 ### Scope
 
 - No decoder implementation, runtime behavior, public API, protocol framing or independently versioned browser/WASI workspace package is changed.
-- The patch candidate must pass the exact-commit CI/release gate before a v6.22.1 tag or release is created.
+- The v6.22.1 GitHub Release is published with native/browser/WASI assets and SHA256SUMS attached.
 
 ---
 
