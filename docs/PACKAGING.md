@@ -1,6 +1,6 @@
 # YuKKi-OS package distribution
 
-> **Release line:** v6.23.0 is the latest published GitHub Release (2026-11-28). No binary assets are manually attached; use the GitHub source archive or clone the tag. GitHub Release publication and crates.io publication are separate. GitHub Release publication and crates.io publication are separate; the browser-WASM and WASI guest packages are not generic crates.io packages.
+> **Release line:** v6.23.0 is the latest published GitHub Release (2026-11-28). No binary assets are manually attached; use the GitHub source archive or clone the tag. GitHub Release publication and crates.io publication are separate; the browser-WASM and WASI guest packages are not generic crates.io packages.
 
 ## Primary Rust package: crates.io
 
