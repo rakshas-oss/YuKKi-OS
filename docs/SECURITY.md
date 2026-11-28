@@ -1,6 +1,6 @@
-# YuKKi-OS v6.23.0 — Security Notes (feature release candidate)
+# YuKKi-OS v6.23.0 — Security Notes
 
-> Feature release candidate v6.23.0 (not yet tagged or published). Research/demo software; do not expose directly to untrusted networks.
+> Published v6.23.0 baseline (2026-11-28). Research/demo software; do not expose directly to untrusted networks without the deployment controls described here.
 
 ## Cryptographic baseline
 
