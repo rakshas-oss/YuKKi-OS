@@ -365,7 +365,7 @@ artifact storage, version selection and the Rust code that invokes this API.
 Use one replica by default. Set `replicas` above one only when the policy is
 truly stateless across independent guest memories and mutable globals.
 
-### Authenticated WASM artifact handoff (v6.18.0 candidate)
+### Authenticated WASM artifact handoff (v6.18.0 release)
 
 The `yukkios::wasm_handoff` API sends portable core-Wasm artifact bytes and signed deployment metadata to a compatible receiver. It is separate from guest-worker execution, `CompositionRuntime`, WSM1 task/lifecycle traffic and the ordinary BRK1/BRK2 broker adapter. It is an explicit application API; `yukki_core_node` does not expose a built-in handoff deployment command or HTTP endpoint.
 
