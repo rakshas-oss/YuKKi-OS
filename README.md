@@ -132,7 +132,7 @@ remain follow-up work.
 - **Transport boundary:** YuKKi-OS supplies the handoff protocol client and caller-provided transport abstraction; it does not silently fall back to plaintext TCP or provide TLS itself. The integration must use mTLS 1.3 or an equivalent authenticated protected channel and verify the receiver's signed decision/receipt.
 - **Flood boundary:** application-level quotas bound process work and retained memory; they do not stop volumetric DDoS before traffic reaches the host. Keep network-edge firewall/proxy/provider mitigation in place.
 
-PR #168 is merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d. This candidate advances only the native yukkios package and its OCI metadata; the browser-WASM and WASI guest-worker packages retain their independent 0.1.0 versions.
+PR #168 merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d as part of the v6.19.0 release work. That release advanced the native yukkios package and its OCI metadata; the browser-WASM and WASI guest-worker packages retain their independent 0.1.0 versions.
 
 ## Package distribution
 
@@ -191,7 +191,7 @@ BRK2 locality-codec baseline:
   Ed25519 signatures over RFC 8785 canonical bytes, sender/audience binding,
   expiry and replay checks, bounded transfer, backend capability negotiation,
   and separate prepare/activate phases.
-- **Implementation boundary at v6.17.0:** that release delivered the normative handoff schema and protocol specification. The subsequent v6.19.0 candidate adds the Rust `HandoffSender` API, separate deployment/publisher signing, bounded sequential chunk streaming, signed prepare-decision and receipt verification, and the paired Overhauled `HandoffReceiver` state machine/runtime bridge (PR #86). A concrete mTLS transport adapter, durable replay/staging service and ordinary broker-listener integration are still not included. The shared-Store Wasmtime isolation limitation still applies.
+- **Implementation boundary at v6.17.0:** that release delivered the normative handoff schema and protocol specification. The published v6.19.0 release added the Rust `HandoffSender` API, separate deployment/publisher signing, bounded sequential chunk streaming, signed prepare-decision and receipt verification, and the paired Overhauled `HandoffReceiver` state machine/runtime bridge (PR #86). A concrete mTLS transport adapter, durable replay/staging service and ordinary broker-listener integration are still not included. The shared-Store Wasmtime isolation limitation still applies.
 
 See [the composition guide](docs/WASM_PROGRAM_COMPOSITION.md),
 [the handoff contract](docs/WASM_AUTHENTICATED_HANDOFF.md), and
