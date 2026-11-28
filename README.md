@@ -1,10 +1,10 @@
-# YuKKi-OS v6.23.0 (release candidate)
+# YuKKi-OS v6.23.0
 
 > **Coordinate the system. Connect the workload. Keep execution flexible.**
 >
 > YuKKi-OS is a Rust platform for coordinating peers, streams, and sandboxed workloads. It supplies the control-plane and host-runtime pieces; compatible execution backends can be connected when a workload needs them.
 
-> **Latest published release:** [v6.22.1](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.22.1) · Published 2026-11-27 with native, browser-WASM, and WASI artifacts plus SHA256SUMS. GitHub Release publication does not imply crates.io publication.
+> **Latest published release:** [v6.23.0](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.23.0) · Published 2026-11-28. No binary assets are manually attached to this release; use its GitHub source archive or clone the tag. GitHub Release publication does not imply crates.io publication.
 
 YuKKi-OS brings together authenticated peer networking, workload coordination, bounded stream processing, WebAssembly execution, spatial and multivariate data paths, and interoperability with the separate [Overhauled](https://github.com/rakshas-oss/overhauled) broker. It is a distributed systems platform—not just an MPMC microkernel.
 
@@ -41,15 +41,16 @@ YuKKi-OS owns the peer/control plane, workload meaning, stream and spatial seman
 The release tag is a source/version reference; it does not mean that prebuilt binaries or every workspace package are published to a registry. Check the relevant package metadata and [package distribution guide](docs/PACKAGING.md) before choosing an installation path. YuKKi-OS is intended for development, validation, and deployment work; obtain an independent security review appropriate to your threat model before production use.
 
 ## Current baseline
-- **Version candidate:** v6.23.0 (feature release candidate; not yet tagged or published).
-- **Latest published release:** v6.22.1 (2026-11-27), with native, browser-WASM, and WASI release artifacts.
-- **Runtime:** `yukki_core_node`; native library package `yukkios`.
+- **Release:** v6.23.0 (published 2026-11-28).
+- **Release assets:** no manually attached binary assets; the tag and GitHub-generated source archives are available.
+- **Native Cargo package:** `yukkios` version 6.23.0 in source; crates.io publication is separate and is not claimed.
+- **OCI image label:** 6.23.0; this does not imply that an image is published to GHCR.
+- **Runtime:** `yukki_core_node`.
 - **Rust toolchain:** 1.98.1 (`rust-toolchain.toml`).
 - **WASM targets:** browser `wasm32-unknown-unknown`, WASI guest worker `wasm32-wasip1`, and native-host Wasmtime composition.
 - **Independent package versions:** browser runtime, browser-WASM, crawler extractor, and WASI guest packages remain separately versioned at 0.1.0.
-- **Release boundary:** the candidate tag and crates.io publication do not exist yet; do not install or depend on v6.23.0 as a published release.
 
-## What's new in v6.23.0 (feature release candidate; not yet published)
+## What's new in v6.23.0 (published 2026-11-28)
 
 - **Native browser crawler workflow:** the Wry browser runtime has a dedicated Crawler utility tab. Completed crawl results appear as hyperlinks; selecting one opens a YuKKi-generated text-only page summary in the last active main browsing tab, with a separate link to the original HTML.
 - **Extractive previews and bounded delivery:** summaries contain a visible-text excerpt (up to 480 characters), fetch metadata, digest, and up to eight validated links. Raw HTML is not broadcast to browser UI components. A bounded 16-record event queue applies backpressure.
@@ -57,7 +58,7 @@ The release tag is a source/version reference; it does not mean that prebuilt bi
 - **Browser-WASM adoption:** the browser workspace discovers these data streams separately from media streams and validates selected observations with its Rust WASM core.
 - **Bounded storage and privacy:** observation retention is node-local and in-memory (128 streams, 512 observations per stream, 16,384 total). This does not imply durable storage or peer-mesh replication. Publishing failure does not cancel local crawling.
 
-The candidate adds browser-facing crawler and control-plane data-stream integration. It does not turn the crawler into a JavaScript browser, AI semantic summarizer, distributed persistent frontier, or automatic accelerator pipeline. The existing crawler allowlist, DNS pinning, robots, pacing, redirect, byte, timeout, concurrency, and WASM fuel/memory controls remain authoritative.
+This release adds browser-facing crawler and control-plane data-stream integration. It does not turn the crawler into a JavaScript browser, AI semantic summarizer, distributed persistent frontier, or automatic accelerator pipeline. The existing crawler allowlist, DNS pinning, robots, pacing, redirect, byte, timeout, concurrency, and WASM fuel/memory controls remain authoritative.
 
 
 ## What's new in v6.22.1 (published 2026-11-27)
@@ -135,12 +136,7 @@ PR #168 is merged to main at 2869a8baf9f1dd878b492b9c78fd1ca2562d2a0d. This cand
 
 ## Package distribution
 
-The Rust package is being prepared for crates.io as `yukkios`; it is not
-advertised as published until the registry accepts the first upload. The
-native and WebAssembly release archives remain available from the
-[GitHub Release](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/6.19.0).
-See [package distribution and publishing](docs/PACKAGING.md) for validation,
-installation and the one-time publisher setup.
+The published GitHub source release is [v6.23.0](https://github.com/rakshas-oss/YuKKi-OS/releases/tag/v6.23.0). It has no manually attached binary assets; clone the tag or use GitHub's source archive. GitHub Release publication is separate from crates.io publication. The root Cargo package is version 6.23.0 in this source tree, but do not use a crates.io dependency until that exact version is visible in the registry. See [package distribution and publishing](docs/PACKAGING.md) for source installation, package validation, and publisher setup.
 
 ## Security and hardening notes
 
