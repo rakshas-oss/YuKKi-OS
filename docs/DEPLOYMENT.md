@@ -2,7 +2,7 @@
 
 ## Release status
 
-The latest published baseline is v6.22.1 (2026-11-27), with native node, native browser, browser-WASM, and WASI guest release archives plus SHA256SUMS. The v6.23.0 candidate adds the native browser Crawler utility, extractive main-tab page summaries, and optional publication of numeric crawl metrics through the node's existing authenticated gateway for browser-WASM adoption. The candidate is not tagged or published. The new observation store is bounded, node-local, and in-memory; it is not peer-mesh replicated or durable. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md), and the release checklist in [VERSIONING.md](VERSIONING.md).
+The latest published baseline is v6.23.0 (2026-11-28). Its GitHub Release has no manually attached binary assets. It includes the native browser Crawler utility, extractive main-tab page summaries, and optional publication of numeric crawl metrics through the node's existing authenticated gateway for browser-WASM adoption. The new observation store is bounded, node-local, and in-memory; it is not peer-mesh replicated or durable. Use [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md), [SYSADMIN_HOWTO.md](SYSADMIN_HOWTO.md), and the future release process in [VERSIONING.md](VERSIONING.md).
 
 ## Authenticated artifact handoff
 
