@@ -1,4 +1,6 @@
-# YuKKi-OS v6.22.1 — API and ABI Reference (public API unchanged from v6.22.0)
+# YuKKi-OS v6.23.0 — API and ABI Reference (feature release candidate)
+
+The v6.23.0 candidate adds the native-browser crawler result workflow and optional publication of numeric crawl observations through the existing authenticated gateway. These are additive presentation and data-stream paths; existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged. The candidate is not yet tagged or published.
 
 ## Incremental multivariate stream observations
 
