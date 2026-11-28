@@ -1,13 +1,13 @@
 [package]
 name = "yukkios"
-version = "6.22.1"
+version = "6.23.0"
 edition = "2021"
 license = "GPL-3.0-only"
-description = "Modular Rust distributed-systems runtime for peer coordination, workload orchestration, and WebAssembly composition"
+description = "Rust distributed-systems platform with secure peer coordination, bounded WebAssembly crawling, streaming, and workload orchestration"
 homepage = "https://github.com/rakshas-oss/YuKKi-OS"
 repository = "https://github.com/rakshas-oss/YuKKi-OS"
 readme = "README.md"
-keywords = ["distributed", "runtime", "wasm", "networking", "concurrency"]
+keywords = ["distributed", "runtime", "crawler", "wasm", "streaming"]
 categories = ["network-programming", "wasm", "concurrency", "asynchronous"]
 include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "LICENSES.md", "build.rs", "src/**", "kernel/**", "include/**", "protocol/**", "examples/crawler-processors/**"]
 
