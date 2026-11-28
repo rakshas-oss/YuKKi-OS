@@ -13,7 +13,7 @@
 - Let the browser-WASM workspace discover these observation streams separately from media streams and validate adopted records through its Rust WASM core.
 - Keep the observation store bounded to 128 streams, 512 observations per stream, and 16,384 observations total. The initial store is node-local and in-memory, not durable or peer-mesh replicated.
 
-### Boundaries and release gate
+### Boundaries and release status
 
 - This is a browser-facing crawler workflow and numeric telemetry path, not a JavaScript browser, AI semantic summarizer, persistent distributed frontier, or automatic accelerator pipeline.
 - Publishing is optional and non-fatal; local crawling and local result navigation remain available when the gateway is absent or publishing fails.
