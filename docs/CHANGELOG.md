@@ -64,7 +64,7 @@
 - Existing YKMC, BRK1/BRK2, NXR1 and WSM1 wire identities remain unchanged.
 - The NDJSON decoder parses data; it does not authenticate sources or authorize forwarding.
 - The YCE1 processor runs only when an application or operator explicitly selects a module. It does not execute instructions supplied by crawled content.
-- The v6.22.0 tag and GitHub Release were published on 2026-11-26. The release currently has no attached binary assets; GitHub Release publication does not imply crates.io availability. See [VERSIONING.md](VERSIONING.md) for the v6.22.1 patch-candidate gate.
+- The v6.22.0 tag and GitHub Release were published on 2026-11-26. The release currently has no attached binary assets; GitHub Release publication does not imply crates.io availability. See [VERSIONING.md](VERSIONING.md) for the v6.23.0 feature-candidate gate.
 
 ---
 
@@ -84,7 +84,7 @@
 - This is not a browser renderer, JavaScript engine, form/CAPTCHA automation system, distributed frontier, durable historical database or automatic accelerator pipeline.
 - No YKMC, BRK1/BRK2, NXR1 or WSM1 wire-format change is intended.
 - The crawler requires network egress controls at deployment level; application SSRF protections do not replace a restricted network namespace/firewall.
-- The v6.21.0 GitHub Release was published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. See [VERSIONING.md](VERSIONING.md) for v6.22.0 release history and the v6.22.1 patch-candidate gate.
+- The v6.21.0 GitHub Release was published on 2026-11-26 with native/browser/WASI assets and SHA256SUMS. See [VERSIONING.md](VERSIONING.md) for v6.22.1 release history and the v6.23.0 feature-candidate gate.
 
 ---
 
