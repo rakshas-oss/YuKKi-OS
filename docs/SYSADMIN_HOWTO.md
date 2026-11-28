@@ -1,12 +1,8 @@
-# YuKKi-OS v6.22.1 — System Administration How-to
+# YuKKi-OS v6.23.0 — System Administration How-to
 
-> v6.22.0 is the latest published GitHub release (2026-11-26); its release
-> record has no attached binary assets.
-> This guide documents the v6.22.0 feature baseline and the v6.22.1 patch
-> candidate, which contains only NDJSON test and Rust formatting maintenance.
-> The v6.22.1 tag and release assets are not published until its release gate
-> passes. Broker discovery remains bootstrap-relayed gossip, and BRK2
-> locality intent does not prove physical memory placement.
+> Latest published release: v6.22.1 (2026-11-27), with native, browser-WASM, and WASI release archives plus SHA256SUMS.
+> This guide covers the v6.23.0 feature-release candidate, which adds the native browser Crawler utility, main-tab extractive summaries, and optional numeric metric publishing for browser-WASM adoption. v6.23.0 is not yet tagged or published.
+> Broker discovery remains bootstrap-relayed gossip, and BRK2 locality intent does not prove physical memory placement.
 
 ## 1. Scope and deployment components
 
@@ -17,8 +13,8 @@ YuKKi-OS provides separate deployment surfaces:
   in-memory stream registry, or an independent store when run standalone.
 - **WASI guest worker:** isolated `wasm32-wasip1` artifact hosted by the native
   Wasmtime runtime.
-- **Browser client:** static `wasm32-unknown-unknown` verifier/spatial app;
-  it is not the native node or the WASI guest.
+- **Browser-WASM client:** static `wasm32-unknown-unknown` verifier/spatial app; it is not the native node or the WASI guest.
+- **Native browser runtime:** Wry/WebKit page renderer with a separate Crawler utility tab. Crawler results open extractive summaries in the main tab; optional numeric metric publishing reuses the node gateway. See [BROWSER_RUNTIME.md](BROWSER_RUNTIME.md) and [WASM_CRAWLER.md](WASM_CRAWLER.md).
 - **Broker clients:** a generic JSON broker client and a separate
   BRK1/BRK2 + WSM1 adapter for the Overhauled execution tier.
 

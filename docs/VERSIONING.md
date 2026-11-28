@@ -2,56 +2,65 @@
 
 ## Release state
 
-- **Latest published GitHub release:** v6.22.0 (published 2026-11-27T01:28:43Z; 2026-11-26 in Toronto). The release has no attached binary assets.
-- **Next patch release candidate:** v6.22.1 (not tagged or published).
-- **Native Cargo package candidate:** 6.22.1.
-- **OCI image label candidate:** 6.22.1.
+- **Latest published GitHub release:** v6.22.1 (published 2026-11-27). The release includes native node, native browser, browser-WASM, and WASI guest archives plus `SHA256SUMS`.
+- **Next feature release candidate:** v6.23.0 (not tagged or published).
+- **Native Cargo package candidate:** 6.23.0.
+- **OCI image label candidate:** 6.23.0.
 - **Rust toolchain pin:** 1.98.1.
 - **Runtime binary:** `yukki_core_node`.
+- **Independent workspace packages:** native browser runtime, browser-WASM, crawler extractor, and WASI guest remain independently versioned at 0.1.0.
 - **External package publication:** crates.io is not claimed; GitHub Release publication and registry publication are separate.
 
-The v6.22.1 metadata is a maintenance patch candidate. It records post-release NDJSON test and Rust formatting corrections only; no decoder implementation, public API, runtime or protocol behavior is changed. Do not tag or publish until the exact candidate passes the release gate below.
+The v6.23.0 candidate is an additive feature release. It advances the native `yukkios` package and OCI image metadata for the merged native-browser crawler workflow and optional control-plane metric adoption. It does not change the separately versioned 0.1.0 browser/WASI workspace packages.
 
 ## Version assessment
 
-The published v6.22.0 release added user-selected YCE1 crawler processing and bounded multivariate NDJSON observation decoding. The v6.22.1 patch candidate contains only post-release validation maintenance from merged PRs #194 and #195:
+The latest published native package is v6.22.1. Main now includes the following additive user-facing capabilities beyond that release:
 
-- Correct the incremental NDJSON test to assert that an unterminated final record is validated by `finish()`; `push()` retains the incomplete record until a delimiter or end-of-stream.
-- Apply the repository-pinned Rust 1.98.1 rustfmt layout to `guest-worker/src/lib.rs`, restoring the repo-wide formatting gate.
-- Preserve the existing decoder implementation and public contract. No new code path, API, schema, wire identity, or backend behavior is introduced.
+- A dedicated Crawler utility tab in the native Wry browser runtime receives bounded page-completion events from the native crawler.
+- Result hyperlinks open an extractive, text-only page summary in the last active main browsing tab. The summary provides a separate hyperlink to the original HTML; raw HTML is not broadcast to the browser UI.
+- An optional publishing control reuses the node's configured authenticated gateway. It sends batches of schema-v1 numeric page observations for adoption by the browser-WASM workspace; page URLs, titles, excerpts, and raw HTML are excluded.
+- The browser-WASM workspace discovers the node-local observation streams separately from YKMC media and validates adopted records in its Rust WASM core.
 
-## Compatibility and security boundaries
+These are additive native/browser and gateway-surface capabilities and justify a minor version increment from 6.22.x to 6.23.0. No existing YKMC, BRK1, BRK2, NXR1, or WSM1 wire identity is intentionally changed.
 
-- Existing YKMC, BRK1, BRK2, NXR1 and WSM1 wire identities remain unchanged; the v6.22.1 maintenance patch introduces no protocol or framing change.
-- YCR1 performs bounded static HTML extraction only. It has no WASI, imports, sockets, filesystem or credentials.
-- YCE1 is separately opt-in and user-selected. Crawled content is opaque data and cannot select or install a processor; page scripts are not executed. The default stream gateway does not expose arbitrary guest execution.
-- The crawler is not a JavaScript browser, CAPTCHA/form automation tool, distributed or persistent crawl frontier, historical metrics database, or automatic accelerator pipeline.
-- The CLI persists processor outputs locally; application-specific sinks must enforce their own authorization, provenance and retention policy.
-- The NDJSON decoder is a parser, not a network listener or an authorization boundary. Keep per-source/tenant quotas, bounded queues and backpressure around untrusted streams.
-- Untrusted NXR1/MED1/YKMC streams remain ingestible without WASM publisher authorization. Stream trust and executable-artifact trust remain separate.
-- Application-level byte, rate and memory ceilings do not replace upstream egress policy or DDoS protection.
-- The persistent broker client pool remains plain TCP; TLS is supplied by a separately configured local sidecar. Its verified certificate identity is not yet bound to signed artifact-sender authorization.
-- The native browser runtime, browser-WASM crate and WASI guest worker retain independent workspace versions; the 6.22.1 bump applies to the native yukkios package only.
+## Compatibility, privacy, and security boundaries
 
-## Release gate for 6.22.1
+- The crawler fetches allowlisted static HTML/XHTML. It does not execute page JavaScript, solve CAPTCHAs, submit forms, bypass access controls, or follow redirects.
+- The page preview is an extractive visible-text excerpt, not an AI-generated semantic summary.
+- Raw HTML remains on the native host and is not broadcast into the crawler utility or generated summary view.
+- Crawler results remain local unless an operator explicitly enables the numeric metric-publishing option. The published observation vector excludes URLs, titles, excerpts, and page bodies.
+- Gateway publishing requires the existing bearer-authenticated gateway configuration. Remote publishing requires HTTPS; missing or unavailable gateway configuration leaves local crawling available and reports a non-fatal publish warning.
+- The observation store is bounded to 128 streams, 512 observations per stream, and 16,384 observations total. It is in-memory and node-local; persistence and peer-mesh replication are not implied.
+- The browser result event queue is bounded to 16 pending records; per-event link and preview limits remain enforced. The UI page-count control does not replace crawler network policy.
+- YCR1 extraction and optional YCE1 processor execution remain separate capabilities. Crawled content is opaque data and cannot install or select executable code.
+- Untrusted stream decoding does not authenticate sources or authorize execution. Applications remain responsible for per-source/tenant admission, bounded queues, backpressure, and audit policy.
+- Application-level rate and memory ceilings do not replace host egress controls or upstream DDoS protection.
+- The native browser runtime, browser-WASM crate, crawler extractor, and WASI guest worker retain independent 0.1.0 versions.
+- GitHub source/artifact publication does not imply crates.io publication.
+
+## Release gate for 6.23.0
 
 Before tagging or publishing:
 
-1. Run bash scripts/check-cargo-lockfiles.sh, cargo +1.98.1 metadata --format-version 1 --locked, cargo +1.98.1 fmt --all -- --check, cargo +1.98.1 test --all-targets --locked, and strict Clippy on the exact candidate.
-2. Validate standalone crawler-WASM, browser-WASM and WASI guest manifests and their lockfiles; build supported native Linux/macOS targets plus browser/WASI artifacts.
-3. Pass Cargo package validation, Cargo lockfile integrity, RustSec/license audits, coverage, Docker validation and native Linux/macOS unit-test jobs.
-4. Exercise crawler allowlist enforcement, DNS pinning, private/special-address rejection, proxy disablement, redirect refusal, robots fail-closed behavior, per-host pacing, page/crawl budgets, YCR1/YCE1 memory/fuel bounds and processor output caps.
-5. Test NDJSON chunk boundaries, incomplete records, 16 KiB record limits, 256-record push limits, unknown fields/versions, dimension/source limits, null handling and non-finite values. Confirm callers apply source/tenant admission and bounded backpressure.
-6. Pass paired Overhauled CMake/CTest multivariate and crawler-metric tests, BRK1/BRK2 live interoperability, browser-WASM broker smoke, NPU simulator and CPU fallback, plus supported Wayland/X11/XWayland smoke tests.
-7. Confirm untrusted stream ingestion remains independent of executable publisher authorization and that no wire-format identity changed.
-8. Only after all required checks pass and the release commit is approved, create the v6.22.1 tag and GitHub Release. Verify crates.io publication separately.
+1. Run `bash scripts/check-cargo-lockfiles.sh`, `cargo +1.98.1 metadata --format-version 1 --locked`, `cargo +1.98.1 fmt --all -- --check`, `cargo +1.98.1 test --all-targets --locked`, and strict Clippy on the exact candidate.
+2. Validate standalone crawler-WASM, browser-WASM, browser-runtime, and WASI guest manifests and lockfiles; build all supported native, browser, and WASI targets.
+3. Pass Cargo package validation, lockfile integrity, RustSec/license audits, coverage, Docker validation, and supported native Linux/macOS tests.
+4. Exercise crawler domain allowlists, DNS pinning, private/special-address rejection, proxy disablement, redirect refusal, robots fail-closed behavior, pacing, page/crawl budgets, timeouts, concurrency, and YCR1/YCE1 fuel/memory/output caps.
+5. Test browser Crawler utility event ordering, bounded-queue backpressure, hyperlink navigation to the main tab, extractive summary length, original-HTML navigation, and the guarantee that raw HTML is not sent to browser UI components.
+6. Test opt-in gateway publishing with inherited token/address configuration, HTTPS-only remote mode, non-fatal behavior when publishing is unavailable, 16-record batching, nine numeric fields, and exclusion of URLs/text/HTML.
+7. Test data-stream admission and retention limits, source/tenant quotas at callers, browser-WASM discovery and schema validation, and the node-local/non-durable storage boundary.
+8. Pass paired Overhauled CMake/CTest crawler-metric and multivariate tests, BRK1/BRK2 live interoperability, browser-WASM broker smoke, NPU simulator and CPU fallback, plus supported Wayland/X11/XWayland smoke tests.
+9. Confirm untrusted stream ingestion remains independent of executable-publisher authorization and that existing wire identities are unchanged.
+10. Only after required checks pass and the release commit is approved, create the v6.23.0 tag and GitHub Release. Verify crates.io publication separately.
 
 ## Published release history
 
-- v6.22.0 — published 2026-11-26; user-selected YCE1 crawler processing and bounded multivariate NDJSON observations. The GitHub Release has no attached binary assets.
-- v6.21.0 — published 2026-11-26; bounded WASM crawler fabric, static extraction, provenance/metriculation reports and security remediation.
+- v6.22.1 — published 2026-11-27; NDJSON final-record test and Rust formatting maintenance. Native/browser/WASI archives and SHA256SUMS are attached to the GitHub Release.
+- v6.22.0 — published 2026-11-26; user-selected YCE1 crawler processing and bounded multivariate NDJSON observations. No release assets were attached.
+- v6.21.0 — published 2026-11-26; bounded WASM crawler fabric, static extraction, provenance/metriculation reports, and security remediation.
 - v6.20.0 — published 2026-11-26; persistent broker sessions and strict mTLS-proxy endpoint routing.
-- v6.19.0 — published 2026-11-24; native browser runtime, graphics smoke coverage and BRK2 device-preference delegation.
+- v6.19.0 — published 2026-11-24; native browser runtime, graphics smoke coverage, and BRK2 device-preference delegation.
 - v6.18.0 — published 2026-11-22; authenticated WASM sender and untrusted-stream flood controls.
 - v6.17.0 — published 2026-11-22; conventional WASM import binding and the authenticated WASM handoff contract/schema.
 - v6.16.0 — published 2026-11-21; lease-based broker discovery and BRK2 locality intent/result codec support.
